@@ -1,0 +1,8 @@
+fixture download queue:
+
+- invoice-2026-04-01.pdf
+- invoice-2026-04-08.pdf
+- invoice-2026-04-12-duplicate.pdf
+- installer-unused.dmg
+
+The AI file steward should preview moves before applying archive rules.

@@ -1,0 +1,3911 @@
+openapi: 3.1.0
+info:
+  title: HiGoOS Backend API
+  version: 0.1.0
+  summary: Contract for the HiGoOS web-pc desktop and first full backend release.
+  description: >
+    This OpenAPI contract is the source of truth between the Go backend and the
+    web-pc frontend. Responses use a common envelope with stable domain schemas.
+servers:
+  - url: /api/v1
+    description: Same-origin API base path.
+security:
+  - sessionCookie: []
+tags:
+  - name: System
+  - name: Desktop
+  - name: Events
+  - name: Files
+  - name: Storage
+  - name: Security
+  - name: Monitoring
+  - name: Settings
+  - name: Remote
+  - name: Docker
+  - name: Downloads
+  - name: Media
+  - name: Assistant
+  - name: Agents
+  - name: Workflows
+paths:
+  /system/info:
+    get:
+      tags: [System]
+      operationId: getSystemInfo
+      summary: Get backend runtime and adapter information.
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SystemInfoResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /desktop/apps:
+    get:
+      tags: [Desktop]
+      operationId: listDesktopApps
+      summary: List dock applications.
+      responses:
+        '200':
+          $ref: '#/components/responses/DesktopAppsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /desktop/windows:
+    get:
+      tags: [Desktop]
+      operationId: listDesktopWindows
+      summary: List persisted desktop window configurations.
+      responses:
+        '200':
+          $ref: '#/components/responses/DesktopWindowsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /desktop/session:
+    get:
+      tags: [Desktop]
+      operationId: getDesktopSession
+      summary: Get current user desktop session.
+      responses:
+        '200':
+          $ref: '#/components/responses/DesktopSessionResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    put:
+      tags: [Desktop]
+      operationId: updateDesktopSession
+      summary: Update current user desktop session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDesktopSessionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/DesktopSessionResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /desktop/status:
+    get:
+      tags: [Desktop]
+      operationId: getDesktopStatus
+      summary: Get global desktop status, badges, notifications, and model policy.
+      responses:
+        '200':
+          $ref: '#/components/responses/DesktopStatusResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /events/stream:
+    get:
+      tags: [Events]
+      operationId: streamEvents
+      summary: Stream task, alert, monitoring, Docker, download, assistant, and workflow events.
+      parameters:
+        - $ref: '#/components/parameters/EventCursorParam'
+        - $ref: '#/components/parameters/EventTypesParam'
+      responses:
+        '200':
+          description: Server-sent event stream. Each event data payload is an Event object.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/tree:
+    get:
+      tags: [Files]
+      operationId: getFileTree
+      summary: Get a file tree for a space or folder.
+      parameters:
+        - $ref: '#/components/parameters/SpaceParam'
+        - $ref: '#/components/parameters/ParentIdParam'
+        - $ref: '#/components/parameters/DepthParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/FileTreeResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/search:
+    get:
+      tags: [Files]
+      operationId: searchFiles
+      summary: Search files by keyword, space, type, and tags.
+      parameters:
+        - $ref: '#/components/parameters/SearchQueryParam'
+        - $ref: '#/components/parameters/SpaceParam'
+        - $ref: '#/components/parameters/FileTypeParam'
+        - $ref: '#/components/parameters/TagsParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/FileListResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/{id}:
+    get:
+      tags: [Files]
+      operationId: getFile
+      summary: Get file or folder metadata.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/FileDetailResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/{id}/preview:
+    get:
+      tags: [Files]
+      operationId: getFilePreview
+      summary: Get safe preview metadata or preview content for a file.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/FilePreviewResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/{id}/tags:
+    post:
+      tags: [Files]
+      operationId: updateFileTags
+      summary: Replace or merge tags for a file.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTagsRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/FileDetailResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/{id}/shares:
+    post:
+      tags: [Files]
+      operationId: createFileShare
+      summary: Create a share link for a file or folder.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShareRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ShareLinkResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/{id}/restore:
+    post:
+      tags: [Files]
+      operationId: restoreFile
+      summary: Restore a recycled file or folder.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreFileRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/batch/move:
+    post:
+      tags: [Files]
+      operationId: moveFiles
+      summary: Move files or folders as a rollbackable task.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchMoveRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/batch/rename:
+    post:
+      tags: [Files]
+      operationId: renameFiles
+      summary: Rename files or folders as a rollbackable task.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchRenameRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /files/batch/delete:
+    post:
+      tags: [Files]
+      operationId: deleteFiles
+      summary: Recycle or permanently delete files as a rollbackable task.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchDeleteRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /storage/pools:
+    get:
+      tags: [Storage]
+      operationId: listStoragePools
+      summary: List storage pools and volumes.
+      responses:
+        '200':
+          $ref: '#/components/responses/StoragePoolsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /storage/disks:
+    get:
+      tags: [Storage]
+      operationId: listDisks
+      summary: List disks, slots, health, capacity, and temperatures.
+      responses:
+        '200':
+          $ref: '#/components/responses/DisksResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /storage/smart:
+    get:
+      tags: [Storage]
+      operationId: listSmartReports
+      summary: List current SMART summaries.
+      parameters:
+        - name: diskId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SmartReportsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /storage/tasks/smart-scan:
+    post:
+      tags: [Storage]
+      operationId: startSmartScan
+      summary: Start a SMART scan task.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageTaskRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /storage/tasks/repair:
+    post:
+      tags: [Storage]
+      operationId: startStorageRepair
+      summary: Start a pool repair task.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageTaskRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /storage/tasks/snapshot:
+    post:
+      tags: [Storage]
+      operationId: createStorageSnapshot
+      summary: Create a snapshot task.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageTaskRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /storage/tasks/{id}:
+    get:
+      tags: [Storage]
+      operationId: getStorageTask
+      summary: Get storage task status.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /steward/suggestions:
+    get:
+      tags: [Security]
+      operationId: listStewardSuggestions
+      summary: List AI file steward suggestions.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/StewardSuggestionsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /steward/suggestions/{id}/preview:
+    post:
+      tags: [Security]
+      operationId: previewStewardSuggestion
+      summary: Preview a file steward operation plan.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreviewRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ActionPreviewResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /steward/suggestions/{id}/confirm:
+    post:
+      tags: [Security]
+      operationId: confirmStewardSuggestion
+      summary: Confirm a steward suggestion after preview.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmActionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /steward/suggestions/{id}/dismiss:
+    post:
+      tags: [Security]
+      operationId: dismissStewardSuggestion
+      summary: Dismiss a steward suggestion.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /steward/audit:
+    get:
+      tags: [Security]
+      operationId: listStewardAudit
+      summary: List steward audit records.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuditListResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /steward/audit/{id}/rollback:
+    post:
+      tags: [Security]
+      operationId: rollbackStewardAudit
+      summary: Roll back a steward audit record.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RollbackRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /security/identities:
+    get:
+      tags: [Security]
+      operationId: listIdentities
+      summary: List users, groups, roles, spaces, and trusted devices.
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            $ref: '#/components/schemas/IdentityKind'
+      responses:
+        '200':
+          $ref: '#/components/responses/IdentitiesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /security/identities/{id}/permissions:
+    put:
+      tags: [Security]
+      operationId: updateIdentityPermissions
+      summary: Update app, file, AI, or Agent permissions for an identity.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePermissionsRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/IdentityResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /security/ai-policies:
+    get:
+      tags: [Security]
+      operationId: listAiPolicies
+      summary: List AI visibility and model routing policies.
+      responses:
+        '200':
+          $ref: '#/components/responses/AiPoliciesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /security/ai-policies/{id}:
+    put:
+      tags: [Security]
+      operationId: updateAiPolicy
+      summary: Update an AI policy.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiPolicy'
+      responses:
+        '200':
+          $ref: '#/components/responses/AiPolicyResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /security/risk-actions:
+    get:
+      tags: [Security]
+      operationId: listRiskActions
+      summary: List pending or historical risk actions.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/RiskActionStatus'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/RiskActionsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /security/risk-actions/{id}/confirm:
+    post:
+      tags: [Security]
+      operationId: confirmRiskAction
+      summary: Confirm a medium or high risk action.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmActionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /security/risk-actions/{id}/block:
+    post:
+      tags: [Security]
+      operationId: blockRiskAction
+      summary: Block a risk action.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlockActionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/RiskActionResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /security/audit:
+    get:
+      tags: [Security]
+      operationId: listSecurityAudit
+      summary: List append-only security audit records.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - $ref: '#/components/parameters/RangeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuditListResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /security/audit/{id}/rollback:
+    post:
+      tags: [Security]
+      operationId: rollbackSecurityAudit
+      summary: Roll back an audit record when rollback metadata exists.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RollbackRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /shares:
+    get:
+      tags: [Security]
+      operationId: listShares
+      summary: List active and historical share links.
+      parameters:
+        - name: activeOnly
+          in: query
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/SharesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /shares/{id}:
+    delete:
+      tags: [Security]
+      operationId: revokeShare
+      summary: Revoke a share link.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /monitoring/metrics/current:
+    get:
+      tags: [Monitoring]
+      operationId: getCurrentMetrics
+      summary: Get current CPU, memory, network, storage, temperature, and service metrics.
+      responses:
+        '200':
+          $ref: '#/components/responses/MetricsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /monitoring/metrics/trend:
+    get:
+      tags: [Monitoring]
+      operationId: getMetricTrend
+      summary: Get metric trend series.
+      parameters:
+        - $ref: '#/components/parameters/RangeParam'
+        - name: metric
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/MetricTrendResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /monitoring/logs:
+    get:
+      tags: [Monitoring]
+      operationId: listLogs
+      summary: List application, system, Docker, and task logs.
+      parameters:
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: level
+          in: query
+          schema:
+            $ref: '#/components/schemas/LogLevel'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/LogsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /monitoring/alerts:
+    get:
+      tags: [Monitoring]
+      operationId: listAlerts
+      summary: List alert records.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/AlertStatus'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/AlertsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    post:
+      tags: [Monitoring]
+      operationId: createAlert
+      summary: Create a manual alert or notification.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAlertRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/AlertResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /monitoring/alerts/{id}/mute:
+    post:
+      tags: [Monitoring]
+      operationId: muteAlert
+      summary: Mute an alert for a period.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MuteAlertRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/AlertResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /monitoring/diagnostics:
+    post:
+      tags: [Monitoring]
+      operationId: runDiagnostics
+      summary: Start a diagnostics run.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnosticsRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Get system settings.
+      responses:
+        '200':
+          $ref: '#/components/responses/SettingsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    put:
+      tags: [Settings]
+      operationId: updateSettings
+      summary: Update system settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSettingsRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SettingsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /settings/defaults:
+    post:
+      tags: [Settings]
+      operationId: restoreDefaultSettings
+      summary: Restore selected settings to defaults.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreDefaultsRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SettingsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /system/updates:
+    get:
+      tags: [Settings]
+      operationId: getSystemUpdates
+      summary: Get current update status and available releases.
+      responses:
+        '200':
+          $ref: '#/components/responses/UpdateStatusResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /system/updates/check:
+    post:
+      tags: [Settings]
+      operationId: checkSystemUpdates
+      summary: Start an update check.
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /system/backups:
+    post:
+      tags: [Settings]
+      operationId: createSystemBackup
+      summary: Create a backup of database, settings, keys, and app state.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemBackupRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/status:
+    get:
+      tags: [Remote]
+      operationId: getRemoteStatus
+      summary: Get remote channel, tunnel, DDNS, MFA, and share exposure status.
+      responses:
+        '200':
+          $ref: '#/components/responses/RemoteStatusResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/channel/start:
+    post:
+      tags: [Remote]
+      operationId: startRemoteChannel
+      summary: Start the remote access channel.
+      responses:
+        '200':
+          $ref: '#/components/responses/RemoteStatusResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/channel/stop:
+    post:
+      tags: [Remote]
+      operationId: stopRemoteChannel
+      summary: Stop the remote access channel.
+      responses:
+        '200':
+          $ref: '#/components/responses/RemoteStatusResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/tunnel-mode:
+    put:
+      tags: [Remote]
+      operationId: updateTunnelMode
+      summary: Change remote tunnel mode.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTunnelModeRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/RemoteStatusResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/domain-token:
+    post:
+      tags: [Remote]
+      operationId: createDomainToken
+      summary: Create a domain verification token.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DomainTokenRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/DomainTokenResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/domain-token/rotate:
+    post:
+      tags: [Remote]
+      operationId: rotateDomainToken
+      summary: Rotate the active domain verification token.
+      responses:
+        '200':
+          $ref: '#/components/responses/DomainTokenResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/devices:
+    get:
+      tags: [Remote]
+      operationId: listRemoteDevices
+      summary: List trusted remote devices.
+      responses:
+        '200':
+          $ref: '#/components/responses/RemoteDevicesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/devices/{id}/bind:
+    post:
+      tags: [Remote]
+      operationId: bindRemoteDevice
+      summary: Bind a remote device.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/RemoteDeviceResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/devices/{id}/unbind:
+    post:
+      tags: [Remote]
+      operationId: unbindRemoteDevice
+      summary: Unbind a remote device.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/RemoteDeviceResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/login-alerts:
+    get:
+      tags: [Remote]
+      operationId: listRemoteLoginAlerts
+      summary: List remote login alerts.
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/LoginAlertsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /remote/share-scan:
+    post:
+      tags: [Remote]
+      operationId: scanRemoteShares
+      summary: Scan active shares for remote exposure risks.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareScanRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /docker/stacks:
+    get:
+      tags: [Docker]
+      operationId: listDockerStacks
+      summary: List Docker Compose stacks.
+      responses:
+        '200':
+          $ref: '#/components/responses/DockerStacksResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /docker/containers:
+    get:
+      tags: [Docker]
+      operationId: listDockerContainers
+      summary: List Docker containers.
+      parameters:
+        - name: stackId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/DockerContainersResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /docker/containers/{id}/logs:
+    get:
+      tags: [Docker]
+      operationId: getDockerContainerLogs
+      summary: Get Docker container logs.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: tail
+          in: query
+          schema:
+            type: integer
+            default: 200
+      responses:
+        '200':
+          $ref: '#/components/responses/LogsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /docker/containers/{id}/start:
+    post:
+      tags: [Docker]
+      operationId: startDockerContainer
+      summary: Start a Docker container.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /docker/containers/{id}/stop:
+    post:
+      tags: [Docker]
+      operationId: stopDockerContainer
+      summary: Stop a Docker container.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /docker/containers/{id}/restart:
+    post:
+      tags: [Docker]
+      operationId: restartDockerContainer
+      summary: Restart a Docker container.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /docker/containers/{id}/limits:
+    put:
+      tags: [Docker]
+      operationId: updateDockerContainerLimits
+      summary: Update CPU, memory, restart, port, and mount limits.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContainerLimits'
+      responses:
+        '200':
+          $ref: '#/components/responses/DockerContainerResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /downloads/tasks:
+    get:
+      tags: [Downloads]
+      operationId: listDownloadTasks
+      summary: List download tasks.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/DownloadStatus'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/DownloadTasksResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    post:
+      tags: [Downloads]
+      operationId: createDownloadTask
+      summary: Create a BT, HTTP, magnet, or RSS download task.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDownloadTaskRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/DownloadTaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /downloads/tasks/{id}/pause:
+    post:
+      tags: [Downloads]
+      operationId: pauseDownloadTask
+      summary: Pause a download task.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/DownloadTaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /downloads/tasks/{id}/resume:
+    post:
+      tags: [Downloads]
+      operationId: resumeDownloadTask
+      summary: Resume a download task.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/DownloadTaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /downloads/tasks/{id}/archive:
+    post:
+      tags: [Downloads]
+      operationId: archiveDownloadTask
+      summary: Archive completed download content into File Manager.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveDownloadRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /downloads/tasks/{id}:
+    delete:
+      tags: [Downloads]
+      operationId: deleteDownloadTask
+      summary: Delete a download task.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /downloads/speed-profiles:
+    get:
+      tags: [Downloads]
+      operationId: listSpeedProfiles
+      summary: List download speed profiles.
+      responses:
+        '200':
+          $ref: '#/components/responses/SpeedProfilesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /downloads/speed-profile:
+    put:
+      tags: [Downloads]
+      operationId: updateActiveSpeedProfile
+      summary: Update active download speed limits.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpeedProfile'
+      responses:
+        '200':
+          $ref: '#/components/responses/SpeedProfileResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /media/items:
+    get:
+      tags: [Media]
+      operationId: listMediaItems
+      summary: List media library items.
+      parameters:
+        - name: albumId
+          in: query
+          schema:
+            type: string
+        - name: personId
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaItemsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /media/albums:
+    get:
+      tags: [Media]
+      operationId: listMediaAlbums
+      summary: List media albums.
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaAlbumsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    post:
+      tags: [Media]
+      operationId: createMediaAlbum
+      summary: Create a media album.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMediaAlbumRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaAlbumResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /media/memories:
+    get:
+      tags: [Media]
+      operationId: listMediaMemories
+      summary: List generated media memories.
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaMemoriesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    post:
+      tags: [Media]
+      operationId: createMediaMemory
+      summary: Create a media memory generation job.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMediaMemoryRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /media/people:
+    get:
+      tags: [Media]
+      operationId: listMediaPeople
+      summary: List recognized people.
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaPeopleResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /media/people/merge:
+    post:
+      tags: [Media]
+      operationId: mergeMediaPeople
+      summary: Merge recognized people identities.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergePeopleRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaPersonResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /media/subtitles/jobs:
+    post:
+      tags: [Media]
+      operationId: createSubtitleJob
+      summary: Create a subtitle generation job.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaJobRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /media/transcode/jobs:
+    post:
+      tags: [Media]
+      operationId: createTranscodeJob
+      summary: Create a media transcode job.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaJobRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /media/shares:
+    post:
+      tags: [Media]
+      operationId: createMediaShare
+      summary: Create a shared album or media share link.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMediaShareRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ShareLinkResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /search/semantic:
+    post:
+      tags: [Assistant]
+      operationId: semanticSearch
+      summary: Run permission-filtered semantic search.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SemanticSearchRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SemanticSearchResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /assistant/threads:
+    post:
+      tags: [Assistant]
+      operationId: createAssistantThread
+      summary: Create an assistant conversation thread.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateThreadRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/AssistantThreadResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /assistant/threads/{id}:
+    get:
+      tags: [Assistant]
+      operationId: getAssistantThread
+      summary: Get an assistant thread with messages and pending actions.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/AssistantThreadResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /assistant/threads/{id}/messages:
+    post:
+      tags: [Assistant]
+      operationId: createAssistantMessage
+      summary: Send a message to an assistant thread.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssistantMessageRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/AssistantMessageResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /assistant/actions/{id}/confirm:
+    post:
+      tags: [Assistant]
+      operationId: confirmAssistantAction
+      summary: Confirm an assistant-generated action.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmActionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TaskResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /agents/templates:
+    get:
+      tags: [Agents]
+      operationId: listAgentTemplates
+      summary: List Agent templates.
+      responses:
+        '200':
+          $ref: '#/components/responses/AgentTemplatesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /agents:
+    get:
+      tags: [Agents]
+      operationId: listAgents
+      summary: List Agent instances.
+      responses:
+        '200':
+          $ref: '#/components/responses/AgentInstancesResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+    post:
+      tags: [Agents]
+      operationId: createAgent
+      summary: Create an Agent instance from a template or definition.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/AgentInstanceResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /agents/{id}/tools:
+    get:
+      tags: [Agents]
+      operationId: listAgentTools
+      summary: List tools available to an Agent instance.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/AgentToolsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /workflows/preview:
+    post:
+      tags: [Workflows]
+      operationId: previewWorkflow
+      summary: Preview a workflow plan, impact analysis, and confirmation checkpoints.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowPreviewRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/WorkflowPreviewResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /workflows/runs:
+    post:
+      tags: [Workflows]
+      operationId: createWorkflowRun
+      summary: Start a workflow run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRunRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/WorkflowRunResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /workflows/runs/{id}/confirm:
+    post:
+      tags: [Workflows]
+      operationId: confirmWorkflowRun
+      summary: Confirm a workflow checkpoint.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmActionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/WorkflowRunResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /workflows/runs/{id}/cancel:
+    post:
+      tags: [Workflows]
+      operationId: cancelWorkflowRun
+      summary: Cancel a workflow run.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/WorkflowRunResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+  /workflows/runs/{id}/events:
+    get:
+      tags: [Workflows]
+      operationId: listWorkflowRunEvents
+      summary: List events for a workflow run.
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - $ref: '#/components/parameters/EventCursorParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/EventsResponse'
+        default:
+          $ref: '#/components/responses/ErrorResponse'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: higo_session
+  parameters:
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    SpaceParam:
+      name: space
+      in: query
+      schema:
+        type: string
+      description: Space name or ID, matching frontend labels such as 家庭空间 or 团队空间.
+    ParentIdParam:
+      name: parentId
+      in: query
+      schema:
+        type: string
+    DepthParam:
+      name: depth
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 8
+        default: 2
+    SearchQueryParam:
+      name: q
+      in: query
+      schema:
+        type: string
+    FileTypeParam:
+      name: type
+      in: query
+      schema:
+        type: string
+    TagsParam:
+      name: tags
+      in: query
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSizeParam:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    RangeParam:
+      name: range
+      in: query
+      schema:
+        type: string
+        enum: [15m, 1h, 6h, 24h, 7d, 30d]
+        default: 24h
+    EventCursorParam:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    EventTypesParam:
+      name: types
+      in: query
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/EventType'
+  responses:
+    SuccessResponse:
+      description: Generic success response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessEnvelope'
+    ErrorResponse:
+      description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    SystemInfoResponse:
+      description: System info response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SystemInfo'
+    DesktopAppsResponse:
+      description: Dock apps response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DesktopApp'
+    DesktopWindowsResponse:
+      description: Desktop windows response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DesktopWindow'
+    DesktopSessionResponse:
+      description: Desktop session response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DesktopSession'
+    DesktopStatusResponse:
+      description: Desktop status response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DesktopStatus'
+    EventsResponse:
+      description: Events response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/EventList'
+    FileTreeResponse:
+      description: File tree response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FileTree'
+    FileListResponse:
+      description: File list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FileItem'
+    FileDetailResponse:
+      description: File detail response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FileDetail'
+    FilePreviewResponse:
+      description: File preview response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FilePreview'
+    ShareLinkResponse:
+      description: Share link response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ShareLink'
+    SharesResponse:
+      description: Shares response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ShareLink'
+    TaskResponse:
+      description: Task response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Task'
+    StoragePoolsResponse:
+      description: Storage pools response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StoragePool'
+    DisksResponse:
+      description: Disks response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Disk'
+    SmartReportsResponse:
+      description: SMART reports response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SmartReport'
+    StewardSuggestionsResponse:
+      description: Steward suggestions response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StewardSuggestion'
+    ActionPreviewResponse:
+      description: Action preview response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ActionPreview'
+    AuditListResponse:
+      description: Audit list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEntry'
+    IdentitiesResponse:
+      description: Identities response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Identity'
+    IdentityResponse:
+      description: Identity response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Identity'
+    AiPoliciesResponse:
+      description: AI policies response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AiPolicy'
+    AiPolicyResponse:
+      description: AI policy response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AiPolicy'
+    RiskActionsResponse:
+      description: Risk actions response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RiskAction'
+    RiskActionResponse:
+      description: Risk action response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RiskAction'
+    MetricsResponse:
+      description: Current metrics response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Metric'
+    MetricTrendResponse:
+      description: Metric trend response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MetricPoint'
+    LogsResponse:
+      description: Log entries response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LogEntry'
+    AlertsResponse:
+      description: Alerts response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+    AlertResponse:
+      description: Alert response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Alert'
+    SettingsResponse:
+      description: Settings response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Settings'
+    UpdateStatusResponse:
+      description: System update status response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UpdateStatus'
+    RemoteStatusResponse:
+      description: Remote status response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RemoteStatus'
+    DomainTokenResponse:
+      description: Domain token response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DomainToken'
+    RemoteDevicesResponse:
+      description: Remote devices response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RemoteDevice'
+    RemoteDeviceResponse:
+      description: Remote device response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RemoteDevice'
+    LoginAlertsResponse:
+      description: Login alerts response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LoginAlert'
+    DockerStacksResponse:
+      description: Docker stacks response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DockerStack'
+    DockerContainersResponse:
+      description: Docker containers response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DockerContainer'
+    DockerContainerResponse:
+      description: Docker container response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DockerContainer'
+    DownloadTasksResponse:
+      description: Download tasks response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DownloadTask'
+    DownloadTaskResponse:
+      description: Download task response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DownloadTask'
+    SpeedProfilesResponse:
+      description: Speed profiles response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SpeedProfile'
+    SpeedProfileResponse:
+      description: Speed profile response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SpeedProfile'
+    MediaItemsResponse:
+      description: Media items response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/PaginatedEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaItem'
+    MediaAlbumsResponse:
+      description: Media albums response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaAlbum'
+    MediaAlbumResponse:
+      description: Media album response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MediaAlbum'
+    MediaMemoriesResponse:
+      description: Media memories response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaMemory'
+    MediaPeopleResponse:
+      description: Media people response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaPerson'
+    MediaPersonResponse:
+      description: Media person response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MediaPerson'
+    SemanticSearchResponse:
+      description: Semantic search response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SemanticSearchResult'
+    AssistantThreadResponse:
+      description: Assistant thread response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AssistantThread'
+    AssistantMessageResponse:
+      description: Assistant message response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AssistantMessage'
+    AgentTemplatesResponse:
+      description: Agent templates response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentTemplate'
+    AgentInstancesResponse:
+      description: Agent instances response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentInstance'
+    AgentInstanceResponse:
+      description: Agent instance response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentInstance'
+    AgentToolsResponse:
+      description: Agent tools response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentTool'
+    WorkflowPreviewResponse:
+      description: Workflow preview response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WorkflowPreview'
+    WorkflowRunResponse:
+      description: Workflow run response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ResponseEnvelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WorkflowRun'
+  schemas:
+    ResponseEnvelope:
+      type: object
+      required: [ok, requestId, data]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        requestId:
+          type: string
+        data: {}
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    PaginatedEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ResponseEnvelope'
+        - type: object
+          required: [pagination]
+          properties:
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+    SuccessEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ResponseEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [success]
+              properties:
+                success:
+                  type: boolean
+                  const: true
+    ErrorEnvelope:
+      type: object
+      required: [ok, requestId, error]
+      properties:
+        ok:
+          type: boolean
+          const: false
+        requestId:
+          type: string
+        error:
+          $ref: '#/components/schemas/Error'
+    ResponseMeta:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        source:
+          type: string
+        eventCursor:
+          type: string
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          examples: [permission_denied]
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        fieldErrors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+    Pagination:
+      type: object
+      required: [page, pageSize, total]
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        nextCursor:
+          type: string
+    Task:
+      type: object
+      required: [id, kind, status, progress, createdAt]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        title:
+          type: string
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+        message:
+          type: string
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+        auditId:
+          type: string
+        result:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Event:
+      type: object
+      required: [id, type, createdAt]
+      properties:
+        id:
+          type: string
+        type:
+          $ref: '#/components/schemas/EventType'
+        subjectId:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    EventList:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        nextCursor:
+          type: string
+    DesktopApp:
+      type: object
+      required: [id, name, icon]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        icon:
+          type: string
+        badge:
+          type: integer
+        utility:
+          type: boolean
+    DesktopWindow:
+      type: object
+      required: [id, title, subtitle, status, statusTone, x, y, width, height, z]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        subtitle:
+          type: string
+        status:
+          type: string
+        statusTone:
+          $ref: '#/components/schemas/Tone'
+        x:
+          type: integer
+        y:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        z:
+          type: integer
+        open:
+          type: boolean
+    SystemInfo:
+      type: object
+      properties:
+        appName:
+          type: string
+        environment:
+          type: string
+        version:
+          type: string
+        adapter:
+          type: string
+        status:
+          type: string
+        hostOS:
+          type: string
+        arch:
+          type: string
+        bootedAt:
+          type: string
+          format: date-time
+    DesktopSession:
+      type: object
+      properties:
+        userId:
+          type: string
+        activeWindowId:
+          type: string
+        openWindowIds:
+          type: array
+          items:
+            type: string
+        minimizedWindowIds:
+          type: array
+          items:
+            type: string
+        utilityAppId:
+          type: string
+        assistantVisible:
+          type: boolean
+        isCompact:
+          type: boolean
+        maximizedWindowId:
+          type: string
+        dockOrder:
+          type: array
+          items:
+            type: string
+        pinnedDockAppIds:
+          type: array
+          items:
+            type: string
+        desktopIconPositions:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/IconPosition'
+        windowGeometries:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/WindowGeometry'
+        wallpaper:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+    UpdateDesktopSessionRequest:
+      type: object
+      properties:
+        activeWindowId:
+          type: string
+        openWindowIds:
+          type: array
+          items:
+            type: string
+        minimizedWindowIds:
+          type: array
+          items:
+            type: string
+        utilityAppId:
+          type: string
+        assistantVisible:
+          type: boolean
+        isCompact:
+          type: boolean
+        maximizedWindowId:
+          type: string
+        dockOrder:
+          type: array
+          items:
+            type: string
+        pinnedDockAppIds:
+          type: array
+          items:
+            type: string
+        desktopIconPositions:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/IconPosition'
+        windowGeometries:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/WindowGeometry'
+        wallpaper:
+          type: string
+    IconPosition:
+      type: object
+      properties:
+        x:
+          type: integer
+        y:
+          type: integer
+    WindowGeometry:
+      type: object
+      properties:
+        x:
+          type: integer
+        y:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+    DesktopStatus:
+      type: object
+      properties:
+        apps:
+          type: array
+          items:
+            $ref: '#/components/schemas/AppStatus'
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Metric'
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
+        modelPolicy:
+          $ref: '#/components/schemas/AiPolicy'
+    AppStatus:
+      type: object
+      properties:
+        appId:
+          type: string
+        badge:
+          type: integer
+        status:
+          type: string
+        statusTone:
+          $ref: '#/components/schemas/Tone'
+    FileTree:
+      type: object
+      required: [root]
+      properties:
+        root:
+          $ref: '#/components/schemas/FileNode'
+    FileNode:
+      type: object
+      required: [id, name, type, path]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/FileKind'
+        path:
+          type: string
+        space:
+          type: string
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileNode'
+    FileItem:
+      type: object
+      required: [id, name, type, space]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        kind:
+          $ref: '#/components/schemas/FileKind'
+        space:
+          type: string
+        path:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        size:
+          type: string
+        modified:
+          type: string
+        modifiedAt:
+          type: string
+          format: date-time
+        tags:
+          type: array
+          items:
+            type: string
+        permission:
+          type: string
+        aiSummary:
+          type: string
+        previewUrl:
+          type: string
+    FileDetail:
+      allOf:
+        - $ref: '#/components/schemas/FileItem'
+        - type: object
+          properties:
+            owner:
+              type: string
+            permissions:
+              type: array
+              items:
+                $ref: '#/components/schemas/PermissionGrant'
+            versions:
+              type: array
+              items:
+                $ref: '#/components/schemas/FileVersion'
+            shares:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShareLink'
+    FilePreview:
+      type: object
+      required: [id, mode, available]
+      properties:
+        id:
+          type: string
+        mode:
+          type: string
+          enum: [text, image, video, audio, pdf, metadata, unsupported]
+        available:
+          type: boolean
+        content:
+          type: string
+        mediaUrl:
+          type: string
+        thumbnailUrl:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    FileVersion:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+    PermissionGrant:
+      type: object
+      properties:
+        identityId:
+          type: string
+        identityName:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+    ShareLink:
+      type: object
+      required: [id, targetId, url, active]
+      properties:
+        id:
+          type: string
+        targetId:
+          type: string
+        targetName:
+          type: string
+        url:
+          type: string
+        active:
+          type: boolean
+        passwordRequired:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+        downloadLimit:
+          type: integer
+        accessCount:
+          type: integer
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+    UpdateTagsRequest:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+        mode:
+          type: string
+          enum: [replace, merge, remove]
+          default: replace
+    CreateShareRequest:
+      type: object
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+        password:
+          type: string
+        downloadLimit:
+          type: integer
+        allowPreview:
+          type: boolean
+          default: true
+    RestoreFileRequest:
+      type: object
+      properties:
+        targetParentId:
+          type: string
+        reason:
+          type: string
+    BatchMoveRequest:
+      type: object
+      required: [ids, targetParentId]
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+        targetParentId:
+          type: string
+        reason:
+          type: string
+    BatchRenameRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+        reason:
+          type: string
+    BatchDeleteRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+        permanent:
+          type: boolean
+          default: false
+        reason:
+          type: string
+    StoragePool:
+      type: object
+      required: [id, name, type, used, total, health]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        used:
+          type: number
+        total:
+          type: string
+        totalBytes:
+          type: integer
+          format: int64
+        health:
+          type: string
+        temp:
+          type: string
+        disks:
+          type: array
+          items:
+            type: string
+    Disk:
+      type: object
+      required: [id, slot, size, state, temp]
+      properties:
+        id:
+          type: string
+        slot:
+          type: string
+        size:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        state:
+          type: string
+        temp:
+          type: string
+        role:
+          type: string
+        poolId:
+          type: string
+    SmartReport:
+      type: object
+      properties:
+        diskId:
+          type: string
+        health:
+          type: string
+        temperatureC:
+          type: number
+        powerOnHours:
+          type: integer
+        attributes:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              value:
+                type: number
+              threshold:
+                type: number
+              status:
+                type: string
+        checkedAt:
+          type: string
+          format: date-time
+    StorageTaskRequest:
+      type: object
+      properties:
+        targetSlot:
+          type: string
+        targetPool:
+          type: string
+    StewardSuggestion:
+      type: object
+      required: [id, title, detail, count, risk, action]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+        count:
+          type: string
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+        action:
+          type: string
+        status:
+          type: string
+          enum: [pending, previewed, confirmed, dismissed]
+        affectedFileIds:
+          type: array
+          items:
+            type: string
+    PreviewRequest:
+      type: object
+      properties:
+        includeDiff:
+          type: boolean
+          default: true
+    ActionPreview:
+      type: object
+      required: [id, title, risk]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+        summary:
+          type: string
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlannedChange'
+        requiresConfirmation:
+          type: boolean
+    PlannedChange:
+      type: object
+      properties:
+        targetId:
+          type: string
+        action:
+          type: string
+        before:
+          type: object
+          additionalProperties: true
+        after:
+          type: object
+          additionalProperties: true
+    ConfirmActionRequest:
+      type: object
+      properties:
+        confirmationToken:
+          type: string
+        reason:
+          type: string
+    BlockActionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    RollbackRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    AuditEntry:
+      type: object
+      required: [id, actor, action, risk, createdAt]
+      properties:
+        id:
+          type: string
+        actor:
+          type: string
+        action:
+          type: string
+        subject:
+          type: string
+        scope:
+          type: string
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+        reason:
+          type: string
+        requestId:
+          type: string
+        rollbackAvailable:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    Identity:
+      type: object
+      required: [id, kind, name]
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: '#/components/schemas/IdentityKind'
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionGrant'
+        mfaEnabled:
+          type: boolean
+        trusted:
+          type: boolean
+    UpdatePermissionsRequest:
+      type: object
+      required: [permissions]
+      properties:
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionGrant'
+        reason:
+          type: string
+    AiPolicy:
+      type: object
+      required: [id, name, mode]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        mode:
+          $ref: '#/components/schemas/AiMode'
+        allowedSpaces:
+          type: array
+          items:
+            type: string
+        redactionEnabled:
+          type: boolean
+        localOnlyForSensitive:
+          type: boolean
+        auditLevel:
+          type: string
+          enum: [none, summary, full]
+    RiskAction:
+      type: object
+      required: [id, title, risk, status]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        subject:
+          type: string
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+        status:
+          $ref: '#/components/schemas/RiskActionStatus'
+        preview:
+          $ref: '#/components/schemas/ActionPreview'
+        createdAt:
+          type: string
+          format: date-time
+    Metric:
+      type: object
+      required: [id, label, value]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        value:
+          type: string
+        numericValue:
+          type: number
+        unit:
+          type: string
+        trend:
+          type: string
+        tone:
+          $ref: '#/components/schemas/Tone'
+    MetricPoint:
+      type: object
+      required: [metric, value, timestamp]
+      properties:
+        metric:
+          type: string
+        value:
+          type: number
+        unit:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    LogEntry:
+      type: object
+      required: [id, source, level, message, createdAt]
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        level:
+          $ref: '#/components/schemas/LogLevel'
+        message:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    Alert:
+      type: object
+      required: [id, title, detail, tone, status]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+        tone:
+          $ref: '#/components/schemas/Tone'
+        severity:
+          $ref: '#/components/schemas/AlertSeverity'
+        source:
+          type: string
+        status:
+          $ref: '#/components/schemas/AlertStatus'
+        mutedUntil:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    CreateAlertRequest:
+      type: object
+      required: [title, detail]
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        severity:
+          $ref: '#/components/schemas/AlertSeverity'
+        source:
+          type: string
+    MuteAlertRequest:
+      type: object
+      properties:
+        mutedUntil:
+          type: string
+          format: date-time
+        reason:
+          type: string
+    DiagnosticsRequest:
+      type: object
+      properties:
+        scope:
+          type: array
+          items:
+            type: string
+        includeLogs:
+          type: boolean
+          default: true
+    Settings:
+      type: object
+      properties:
+        accounts:
+          type: object
+          additionalProperties: true
+        network:
+          type: object
+          additionalProperties: true
+        modelStrategy:
+          $ref: '#/components/schemas/AiMode'
+        notifications:
+          type: object
+          additionalProperties: true
+        updates:
+          type: object
+          additionalProperties: true
+        privacy:
+          type: object
+          additionalProperties: true
+        auditRetentionDays:
+          type: integer
+        backup:
+          type: object
+          additionalProperties: true
+    UpdateSettingsRequest:
+      type: object
+      properties:
+        patch:
+          $ref: '#/components/schemas/Settings'
+        reason:
+          type: string
+    RestoreDefaultsRequest:
+      type: object
+      properties:
+        sections:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+    UpdateStatus:
+      type: object
+      properties:
+        currentVersion:
+          type: string
+        latestVersion:
+          type: string
+        updateAvailable:
+          type: boolean
+        checkedAt:
+          type: string
+          format: date-time
+        releases:
+          type: array
+          items:
+            type: object
+            properties:
+              version:
+                type: string
+              notes:
+                type: string
+              publishedAt:
+                type: string
+                format: date-time
+    SystemBackupRequest:
+      type: object
+      properties:
+        includeKeys:
+          type: boolean
+          default: true
+        includeAppState:
+          type: boolean
+          default: true
+        destination:
+          type: string
+    RemoteStatus:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum: [stopped, starting, running, degraded]
+        tunnelMode:
+          $ref: '#/components/schemas/TunnelMode'
+        domain:
+          type: string
+        mfaRequired:
+          type: boolean
+        devicesBound:
+          type: integer
+        loginAlerts:
+          type: integer
+        shareExposureRisk:
+          $ref: '#/components/schemas/RiskLevel'
+    UpdateTunnelModeRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          $ref: '#/components/schemas/TunnelMode'
+        reason:
+          type: string
+    DomainTokenRequest:
+      type: object
+      properties:
+        domain:
+          type: string
+    DomainToken:
+      type: object
+      properties:
+        token:
+          type: string
+        domain:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+    RemoteDevice:
+      type: object
+      required: [id, name, bound]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        bound:
+          type: boolean
+        lastSeenAt:
+          type: string
+          format: date-time
+    LoginAlert:
+      type: object
+      properties:
+        id:
+          type: string
+        deviceName:
+          type: string
+        ip:
+          type: string
+        location:
+          type: string
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+        createdAt:
+          type: string
+          format: date-time
+    ShareScanRequest:
+      type: object
+      properties:
+        includeInactive:
+          type: boolean
+          default: false
+    DockerStack:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        services:
+          type: integer
+        ports:
+          type: array
+          items:
+            type: string
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+    DockerContainer:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        image:
+          type: string
+        stackId:
+          type: string
+        status:
+          type: string
+        ports:
+          type: array
+          items:
+            type: string
+        mounts:
+          type: array
+          items:
+            type: string
+        cpuPercent:
+          type: number
+        memoryBytes:
+          type: integer
+          format: int64
+        limits:
+          $ref: '#/components/schemas/ContainerLimits'
+    ContainerLimits:
+      type: object
+      properties:
+        cpuShares:
+          type: integer
+        memoryBytes:
+          type: integer
+          format: int64
+        restartPolicy:
+          type: string
+        ports:
+          type: array
+          items:
+            type: string
+        mounts:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+    DownloadTask:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        source:
+          type: string
+        sourceType:
+          $ref: '#/components/schemas/DownloadSourceType'
+        status:
+          $ref: '#/components/schemas/DownloadStatus'
+        progress:
+          type: number
+        speed:
+          type: string
+        targetPath:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+    CreateDownloadTaskRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+        sourceType:
+          $ref: '#/components/schemas/DownloadSourceType'
+        targetPath:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        speedProfileId:
+          type: string
+    ArchiveDownloadRequest:
+      type: object
+      properties:
+        targetParentId:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        deleteSourceAfterArchive:
+          type: boolean
+    SpeedProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        downloadLimitBytesPerSecond:
+          type: integer
+          format: int64
+        uploadLimitBytesPerSecond:
+          type: integer
+          format: int64
+        schedule:
+          type: string
+        active:
+          type: boolean
+    MediaItem:
+      type: object
+      properties:
+        id:
+          type: string
+        fileId:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [photo, video, audio]
+        takenAt:
+          type: string
+          format: date-time
+        thumbnailUrl:
+          type: string
+        peopleIds:
+          type: array
+          items:
+            type: string
+        albumIds:
+          type: array
+          items:
+            type: string
+        location:
+          type: string
+    MediaAlbum:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        itemCount:
+          type: integer
+        coverItemId:
+          type: string
+    CreateMediaAlbumRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        itemIds:
+          type: array
+          items:
+            type: string
+    MediaMemory:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        itemIds:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+    CreateMediaMemoryRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        sourceAlbumId:
+          type: string
+        itemIds:
+          type: array
+          items:
+            type: string
+    MediaPerson:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        faceCount:
+          type: integer
+        coverItemId:
+          type: string
+    MergePeopleRequest:
+      type: object
+      required: [sourceIds, targetId]
+      properties:
+        sourceIds:
+          type: array
+          items:
+            type: string
+        targetId:
+          type: string
+    MediaJobRequest:
+      type: object
+      required: [itemIds]
+      properties:
+        itemIds:
+          type: array
+          items:
+            type: string
+        language:
+          type: string
+        profile:
+          type: string
+    CreateMediaShareRequest:
+      type: object
+      properties:
+        albumId:
+          type: string
+        itemIds:
+          type: array
+          items:
+            type: string
+        expiresAt:
+          type: string
+          format: date-time
+    SemanticSearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        space:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        limit:
+          type: integer
+          default: 10
+    SemanticSearchResult:
+      type: object
+      properties:
+        answer:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileItem'
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Citation'
+    Citation:
+      type: object
+      properties:
+        fileId:
+          type: string
+        title:
+          type: string
+        snippet:
+          type: string
+    CreateThreadRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        appContext:
+          type: string
+    AssistantThread:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantMessage'
+        pendingActions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskAction'
+        createdAt:
+          type: string
+          format: date-time
+    AssistantMessage:
+      type: object
+      required: [id, role, text]
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, system, tool]
+        text:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Citation'
+        actionPreview:
+          $ref: '#/components/schemas/ActionPreview'
+        createdAt:
+          type: string
+          format: date-time
+    CreateAssistantMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        modelPolicyId:
+          type: string
+    AgentTemplate:
+      type: object
+      required: [id, name, desc, tools, risk]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        desc:
+          type: string
+        tools:
+          type: array
+          items:
+            type: string
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+    AgentInstance:
+      type: object
+      properties:
+        id:
+          type: string
+        templateId:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        toolIds:
+          type: array
+          items:
+            type: string
+        workflowIds:
+          type: array
+          items:
+            type: string
+    CreateAgentRequest:
+      type: object
+      required: [name]
+      properties:
+        templateId:
+          type: string
+        name:
+          type: string
+        toolIds:
+          type: array
+          items:
+            type: string
+    AgentTool:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        schema:
+          type: object
+          additionalProperties: true
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+    WorkflowNode:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        value:
+          type: string
+        toolId:
+          type: string
+    WorkflowPreviewRequest:
+      type: object
+      required: [agentId, goal]
+      properties:
+        agentId:
+          type: string
+        goal:
+          type: string
+        inputs:
+          type: object
+          additionalProperties: true
+    WorkflowPreview:
+      type: object
+      properties:
+        id:
+          type: string
+        summary:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowNode'
+        impact:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlannedChange'
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+        confirmationRequired:
+          type: boolean
+    CreateWorkflowRunRequest:
+      type: object
+      required: [previewId]
+      properties:
+        previewId:
+          type: string
+        confirmationToken:
+          type: string
+    WorkflowRun:
+      type: object
+      properties:
+        id:
+          type: string
+        previewId:
+          type: string
+        status:
+          type: string
+          enum: [queued, waiting_confirmation, running, succeeded, failed, canceled]
+        currentNodeId:
+          type: string
+        progress:
+          type: number
+        risk:
+          $ref: '#/components/schemas/RiskLevel'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+    CancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    TaskStatus:
+      type: string
+      enum: [queued, running, waiting_confirmation, succeeded, failed, canceled]
+    EventType:
+      type: string
+      enum:
+        - metric.updated
+        - alert.created
+        - alert.updated
+        - task.progress
+        - file.changed
+        - storage.changed
+        - docker.changed
+        - download.updated
+        - assistant.message
+        - workflow.updated
+        - remote.changed
+        - security.risk
+    Tone:
+      type: string
+      enum: [blue, green, orange, red, gray]
+    RiskLevel:
+      type: string
+      enum: [low, medium, high]
+      description: Frontend may localize as 低风险, 中风险, 高风险.
+    FileKind:
+      type: string
+      enum: [file, folder, album]
+    IdentityKind:
+      type: string
+      enum: [user, group, role, space, device]
+    RiskActionStatus:
+      type: string
+      enum: [pending, confirmed, blocked, executed, failed, rolled_back]
+    AiMode:
+      type: string
+      enum: [local_only, cloud_redacted, private_endpoint]
+    LogLevel:
+      type: string
+      enum: [debug, info, warn, error]
+    AlertSeverity:
+      type: string
+      enum: [info, warning, critical]
+    AlertStatus:
+      type: string
+      enum: [open, muted, resolved]
+    TunnelMode:
+      type: string
+      enum: [disabled, direct, relay, auto]
+    DownloadSourceType:
+      type: string
+      enum: [http, bt, magnet, rss]
+    DownloadStatus:
+      type: string
+      enum: [queued, downloading, paused, completed, failed, archived]
