@@ -24,6 +24,7 @@ import {
 } from 'lucide-vue-next';
 import { monitoringStore } from '../../stores/monitoring';
 import type { Alert, Metric, ServiceStatus, SystemLog } from '../../api/types';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type MetricKey = string;
 type TimeRange = '1H' | '6H' | '24H' | '7D';
@@ -425,16 +426,22 @@ onMounted(async () => {
         </div>
       </section>
     </aside>
+    <NasFeaturePanel class="device-monitor__features" :modules="['monitoring', 'storage']" compact />
   </div>
 </template>
 
 <style scoped>
 .device-monitor {
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(230px, 0.9fr) minmax(280px, 1.35fr) minmax(200px, 0.8fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
+}
+
+.device-monitor__features {
+  grid-column: 1 / -1;
 }
 
 .device-monitor__metrics,
@@ -490,16 +497,17 @@ onMounted(async () => {
 
 .device-monitor__metrics {
   display: grid;
-  grid-template-rows: auto repeat(6, minmax(0, 1fr));
-  overflow: hidden;
+  grid-template-rows: auto repeat(6, minmax(42px, 1fr));
+  overflow: auto;
 }
 
 .device-monitor__metric {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: 24px minmax(0, 1fr) minmax(48px, auto);
+  gap: 10px;
   align-items: center;
-  padding: 9px 10px;
+  min-height: 42px;
+  padding: 8px 12px;
   color: var(--accent);
   text-align: left;
   background: transparent;
@@ -542,6 +550,8 @@ onMounted(async () => {
 .device-monitor__metric b {
   color: var(--text-strong);
   font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .device-monitor__main {

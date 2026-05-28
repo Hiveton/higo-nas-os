@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"higoos/server-go/internal/accounts"
 	"higoos/server-go/internal/agents"
 	"higoos/server-go/internal/appcenter"
 	"higoos/server-go/internal/assistant"
@@ -38,6 +39,7 @@ type Dependencies struct {
 	Media      *media.Service
 	Assistant  *assistant.Service
 	Agents     *agents.Service
+	Accounts   *accounts.Service
 	Steward    *steward.Service
 	Security   *security.Service
 	Logger     *slog.Logger
@@ -60,7 +62,15 @@ func NewRouter(deps Dependencies) http.Handler {
 	}
 	fileService := deps.Files
 	if fileService == nil {
-		repo, err := files.NewFixtureRepositoryWithStateDir("", cfg.StateDir)
+		var (
+			repo files.Repository
+			err  error
+		)
+		if strings.TrimSpace(cfg.NASRoot) != "" {
+			repo, err = files.NewRootRepository(cfg.NASRoot)
+		} else {
+			repo, err = files.NewFixtureRepositoryWithStateDir("", cfg.StateDir)
+		}
 		if err == nil {
 			fileService, err = files.NewService(repo)
 		}
@@ -167,6 +177,15 @@ func NewRouter(deps Dependencies) http.Handler {
 			agentsService = agents.NewService()
 		}
 	}
+	accountsService := deps.Accounts
+	if accountsService == nil {
+		var err error
+		accountsService, err = accounts.NewServiceWithStateDir(cfg.StateDir)
+		if err != nil {
+			logger.Warn("accounts state unavailable", slog.Any("error", err))
+			accountsService = accounts.NewService()
+		}
+	}
 	stewardService := deps.Steward
 	if stewardService == nil {
 		var err error
@@ -201,8 +220,10 @@ func NewRouter(deps Dependencies) http.Handler {
 		media:      mediaService,
 		assistant:  assistantService,
 		agents:     agentsService,
+		accounts:   accountsService,
 		steward:    stewardService,
 		security:   securityService,
+		staticDir:  strings.TrimSpace(cfg.StaticDir),
 	}
 
 	mux := http.NewServeMux()
@@ -218,6 +239,8 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/desktop/session", api.desktopSession)
 	mux.HandleFunc("/api/v1/files/tree", api.filesTree)
 	mux.HandleFunc("/api/v1/files/search", api.filesSearch)
+	mux.HandleFunc("/api/v1/files/folders", api.filesFolders)
+	mux.HandleFunc("/api/v1/files/upload", api.filesUpload)
 	mux.HandleFunc("/api/v1/files/batch/move", api.filesBatchMove)
 	mux.HandleFunc("/api/v1/files/batch/rename", api.filesBatchRename)
 	mux.HandleFunc("/api/v1/files/batch/delete", api.filesBatchDelete)
@@ -231,7 +254,10 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/settings", api.settingsRoot)
 	mux.HandleFunc("/api/v1/settings/defaults", api.settingsDefaults)
 	mux.HandleFunc("/api/v1/storage/pools", api.storagePools)
+	mux.HandleFunc("/api/v1/storage/spaces", api.storageSpaces)
+	mux.HandleFunc("/api/v1/storage/spaces/", api.storageSpaceByID)
 	mux.HandleFunc("/api/v1/storage/disks", api.storageDisks)
+	mux.HandleFunc("/api/v1/storage/disks/", api.storageDiskByID)
 	mux.HandleFunc("/api/v1/storage/smart", api.storageSmartReports)
 	mux.HandleFunc("/api/v1/storage/tasks/smart-scan", api.storageSmartScan)
 	mux.HandleFunc("/api/v1/storage/tasks/repair", api.storageRepair)
@@ -274,6 +300,13 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/agents/templates", api.agentTemplates)
 	mux.HandleFunc("/api/v1/agents", api.agentsRoot)
 	mux.HandleFunc("/api/v1/agents/", api.agentByID)
+	mux.HandleFunc("/api/v1/accounts/summary", api.accountsSummary)
+	mux.HandleFunc("/api/v1/accounts/users", api.accountUsers)
+	mux.HandleFunc("/api/v1/accounts/users/", api.accountUserByID)
+	mux.HandleFunc("/api/v1/accounts/groups", api.accountGroups)
+	mux.HandleFunc("/api/v1/accounts/groups/", api.accountGroupByID)
+	mux.HandleFunc("/api/v1/accounts/grants", api.accountGrants)
+	mux.HandleFunc("/api/v1/accounts/grants/", api.accountGrantByID)
 	mux.HandleFunc("/api/v1/workflows/preview", api.workflowPreview)
 	mux.HandleFunc("/api/v1/workflows/runs", api.workflowRuns)
 	mux.HandleFunc("/api/v1/workflows/runs/", api.workflowRunByID)
@@ -291,6 +324,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/security/audit/", api.securityAuditByID)
 	mux.HandleFunc("/api/v1/shares", api.securityShares)
 	mux.HandleFunc("/api/v1/shares/", api.securityShareByID)
+	mux.HandleFunc("/", api.staticAssets)
 
 	return chain(
 		mux,
@@ -318,8 +352,10 @@ type API struct {
 	media      *media.Service
 	assistant  *assistant.Service
 	agents     *agents.Service
+	accounts   *accounts.Service
 	steward    *steward.Service
 	security   *security.Service
+	staticDir  string
 }
 
 func (a *API) healthz(w http.ResponseWriter, r *http.Request) {

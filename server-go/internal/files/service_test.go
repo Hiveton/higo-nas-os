@@ -1,6 +1,7 @@
 package files
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -283,6 +284,79 @@ func TestBatchOperationsReturnRollbackPlansWithoutMovingFiles(t *testing.T) {
 	}
 }
 
+func TestRootRepositoryCreatesMovesRenamesDeletesAndDownloads(t *testing.T) {
+	root := t.TempDir()
+	repo, err := NewRootRepository(root)
+	if err != nil {
+		t.Fatalf("root repo: %v", err)
+	}
+	service, err := NewService(repo)
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	ctx := context.Background()
+
+	folder, err := service.CreateFolder(ctx, CreateFolderRequest{Space: "家庭空间", Name: "documents"})
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	if !folder.IsDir || folder.Space != "家庭空间" {
+		t.Fatalf("unexpected folder row: %#v", folder)
+	}
+
+	file, err := service.CreateFile(ctx, CreateFileRequest{Path: "家庭空间/documents", Name: "note.md", Content: "# NAS Note\nhello"})
+	if err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	uploaded, err := service.UploadFile(ctx, UploadFileRequest{
+		Path:    "家庭空间/documents",
+		Name:    "photo.bin",
+		Content: bytes.NewReader([]byte{0x00, 0x01, 0x02, 0xff}),
+	})
+	if err != nil {
+		t.Fatalf("upload file: %v", err)
+	}
+	if uploaded.Size != "4 B" || uploaded.Type != "BIN" {
+		t.Fatalf("unexpected uploaded row: %#v", uploaded)
+	}
+	tree, err := service.Tree(ctx, "")
+	if err != nil {
+		t.Fatalf("tree after upload: %v", err)
+	}
+	if !treeContainsPath(tree, "/家庭空间/documents/photo.bin") {
+		t.Fatalf("uploaded file missing from nested tree: %#v", tree)
+	}
+	renamed, err := service.Rename(ctx, file.ID, RenameRequest{Name: "renamed.md"})
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if renamed.Name != "NAS Note" || renamed.Type != "MD" {
+		t.Fatalf("unexpected renamed row: %#v", renamed)
+	}
+	moved, err := service.Move(ctx, renamed.ID, MoveRequest{Destination: "下载目录"})
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if moved.Space != "下载目录" {
+		t.Fatalf("expected moved file in downloads, got %#v", moved)
+	}
+	reader, node, err := service.Open(ctx, moved.ID)
+	if err != nil {
+		t.Fatalf("open moved file: %v", err)
+	}
+	_ = reader.Close()
+	if node.SizeBytes == 0 {
+		t.Fatalf("download node missing size: %#v", node)
+	}
+	deleted, err := service.Delete(ctx, moved.ID, "test")
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if deleted.Path == moved.Path {
+		t.Fatalf("delete should move to recycle path: before=%s after=%s", moved.Path, deleted.Path)
+	}
+}
+
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -300,4 +374,16 @@ func count(values []string, want string) int {
 		}
 	}
 	return total
+}
+
+func treeContainsPath(node FileNode, want string) bool {
+	if node.Path == want {
+		return true
+	}
+	for _, child := range node.Children {
+		if treeContainsPath(child, want) {
+			return true
+		}
+	}
+	return false
 }

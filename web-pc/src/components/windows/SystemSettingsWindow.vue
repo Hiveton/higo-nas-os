@@ -19,8 +19,10 @@ import {
   Users,
   Wifi,
 } from 'lucide-vue-next';
+import { apiClient } from '../../api/client';
 import { settingsStore } from '../../stores/settings';
-import type { SettingsState as ApiSettingsState } from '../../api/types';
+import type { AccountSummary, AccountUser, SettingsState as ApiSettingsState } from '../../api/types';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type CategoryId =
   | 'accounts'
@@ -88,6 +90,32 @@ const lastAudit = ref('系统设置窗口已打开，配置读取写入审计。
 const checkCount = ref(0);
 
 const settings = ref<SettingsState>(createDefaultSettings());
+const accounts = ref<AccountSummary>({ users: [], groups: [], grants: [] });
+const accountState = ref('账号后端正在同步。');
+const accountBusy = ref('');
+const newUser = ref({
+  username: '',
+  displayName: '',
+  password: 'Passw0rd!',
+  role: 'user',
+  quotaGB: 50,
+  groupId: 'family',
+});
+const newGroup = ref({
+  name: '',
+  description: '',
+});
+const memberEditor = ref({
+  groupId: 'family',
+  userId: 'admin',
+});
+const grantEditor = ref({
+  subjectType: 'user',
+  subjectId: 'admin',
+  spaceId: 'space-family',
+  access: 'read_write',
+  quotaGB: 100,
+});
 
 const activeCategory = computed(() => categories.find((category) => category.id === activeCategoryId.value) ?? categories[0]);
 const activeCategoryIndex = computed(() => categories.findIndex((category) => category.id === activeCategoryId.value) + 1);
@@ -113,6 +141,15 @@ const governanceScore = computed(() => {
   if (!settings.value.cloudAi) score += 4;
   return Math.min(score, 100);
 });
+const accountUsers = computed(() => accounts.value.users ?? []);
+const accountGroups = computed(() => accounts.value.groups ?? []);
+const accountGrants = computed(() => accounts.value.grants ?? []);
+const selectedMemberGroup = computed(() => accountGroups.value.find((group) => group.id === memberEditor.value.groupId));
+const grantSubjects = computed(() => (
+  grantEditor.value.subjectType === 'group'
+    ? accountGroups.value.map((group) => ({ id: group.id, label: group.name }))
+    : accountUsers.value.map((user) => ({ id: user.id, label: user.displayName || user.username }))
+));
 
 function createDefaultSettings(): SettingsState {
   return {
@@ -268,8 +305,144 @@ async function createSystemBackup() {
   }
 }
 
+async function loadAccounts() {
+  try {
+    accounts.value = await apiClient.accounts.getSummary();
+    memberEditor.value.groupId = accountGroups.value[0]?.id ?? 'family';
+    memberEditor.value.userId = accountUsers.value[0]?.id ?? 'admin';
+    grantEditor.value.subjectId = grantSubjects.value[0]?.id ?? 'admin';
+    accountState.value = `已同步 ${accountUsers.value.length} 个用户、${accountGroups.value.length} 个用户组、${accountGrants.value.length} 条授权。`;
+  } catch (error) {
+    accountState.value = `账号接口不可用：${error instanceof Error ? error.message : 'unknown error'}`;
+  }
+}
+
+async function createAccountUser() {
+  if (!newUser.value.username.trim()) {
+    accountState.value = '请输入用户名。';
+    return;
+  }
+  accountBusy.value = 'create-user';
+  try {
+    const user = await apiClient.accounts.createUser({
+      username: newUser.value.username.trim(),
+      displayName: newUser.value.displayName.trim() || newUser.value.username.trim(),
+      password: newUser.value.password,
+      role: newUser.value.role,
+      quotaBytes: Number(newUser.value.quotaGB) * 1024 * 1024 * 1024,
+      groups: newUser.value.groupId ? [newUser.value.groupId] : [],
+    });
+    accountState.value = `已创建用户 ${user.displayName || user.username}。`;
+    newUser.value.username = '';
+    newUser.value.displayName = '';
+    await loadAccounts();
+  } catch (error) {
+    accountState.value = `创建用户失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    accountBusy.value = '';
+  }
+}
+
+async function toggleAccountUser(user: AccountUser) {
+  accountBusy.value = user.id;
+  try {
+    const status = user.status === 'active' ? 'disabled' : 'active';
+    await apiClient.accounts.updateUser(user.id, { status });
+    accountState.value = `${user.displayName || user.username} 已${status === 'active' ? '启用' : '停用'}。`;
+    await loadAccounts();
+  } catch (error) {
+    accountState.value = `更新用户失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    accountBusy.value = '';
+  }
+}
+
+async function deleteAccountUser(user: AccountUser) {
+  if (user.role === 'admin') {
+    accountState.value = '管理员账号不能在此处删除。';
+    return;
+  }
+  accountBusy.value = user.id;
+  try {
+    await apiClient.accounts.deleteUser(user.id);
+    accountState.value = `${user.displayName || user.username} 已删除。`;
+    await loadAccounts();
+  } catch (error) {
+    accountState.value = `删除用户失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    accountBusy.value = '';
+  }
+}
+
+async function createAccountGroup() {
+  if (!newGroup.value.name.trim()) {
+    accountState.value = '请输入用户组名称。';
+    return;
+  }
+  accountBusy.value = 'create-group';
+  try {
+    const group = await apiClient.accounts.createGroup({
+      name: newGroup.value.name.trim(),
+      description: newGroup.value.description.trim(),
+    });
+    accountState.value = `已创建用户组 ${group.name}。`;
+    newGroup.value.name = '';
+    newGroup.value.description = '';
+    await loadAccounts();
+  } catch (error) {
+    accountState.value = `创建用户组失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    accountBusy.value = '';
+  }
+}
+
+async function addMemberToGroup() {
+  const group = selectedMemberGroup.value;
+  if (!group || !memberEditor.value.userId) {
+    accountState.value = '请选择用户组和用户。';
+    return;
+  }
+  accountBusy.value = 'members';
+  try {
+    const userIds = Array.from(new Set([...(group.userIds ?? []), memberEditor.value.userId]));
+    const updated = await apiClient.accounts.updateGroupMembers(group.id, userIds);
+    accountState.value = `${updated.name} 成员已更新。`;
+    await loadAccounts();
+  } catch (error) {
+    accountState.value = `更新成员失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    accountBusy.value = '';
+  }
+}
+
+async function grantAccountSpace() {
+  if (!grantEditor.value.subjectId || !grantEditor.value.spaceId.trim()) {
+    accountState.value = '请选择授权对象并填写空间 ID。';
+    return;
+  }
+  accountBusy.value = 'grant';
+  try {
+    const grant = await apiClient.accounts.grantSpace({
+      subjectType: grantEditor.value.subjectType,
+      subjectId: grantEditor.value.subjectId,
+      spaceId: grantEditor.value.spaceId.trim(),
+      access: grantEditor.value.access,
+      quotaBytes: Number(grantEditor.value.quotaGB) * 1024 * 1024 * 1024,
+    });
+    accountState.value = `已写入空间授权：${grant.subjectId} -> ${grant.spaceId}。`;
+    await loadAccounts();
+  } catch (error) {
+    accountState.value = `授权失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    accountBusy.value = '';
+  }
+}
+
 onMounted(async () => {
-  const nextSettings = await settingsStore.loadSettings();
+  const [nextSettings] = await Promise.all([
+    settingsStore.loadSettings(),
+    loadAccounts(),
+  ]);
   if (nextSettings.model || nextSettings.privacy) {
     applyBackendSettings(nextSettings);
     appliedState.value = '设置已从后端加载，等待管理员调整。';
@@ -321,42 +494,126 @@ onMounted(async () => {
 
       <section class="system-settings__content" aria-label="系统设置表单">
         <div v-if="activeCategoryId === 'accounts'" class="system-settings__panel">
-          <label class="system-settings__field">
-            <span>当前角色</span>
-            <select v-model="settings.role">
-              <option>管理员</option>
-              <option>家庭成员</option>
-              <option>团队成员</option>
-              <option>访客</option>
-            </select>
-          </label>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.guestAccess }"
-            type="button"
-            @click="settings.guestAccess = !settings.guestAccess"
-          >
-            <span>访客空间访问</span>
-            <b>{{ settings.guestAccess ? '开启' : '关闭' }}</b>
-          </button>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.agentApproval }"
-            type="button"
-            @click="settings.agentApproval = !settings.agentApproval"
-          >
-            <span>Agent 权限变更需确认</span>
-            <b>{{ settings.agentApproval ? '需要确认' : '仅审计' }}</b>
-          </button>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.mfaRequired }"
-            type="button"
-            @click="settings.mfaRequired = !settings.mfaRequired"
-          >
-            <span>管理员双重验证</span>
-            <b>{{ settings.mfaRequired ? '强制' : '可选' }}</b>
-          </button>
+          <div class="system-settings__account-status">
+            <strong>账号与空间授权</strong>
+            <span>{{ accountState }}</span>
+          </div>
+
+          <section class="system-settings__account-card" aria-label="创建用户">
+            <h4>创建用户</h4>
+            <div class="system-settings__account-form">
+              <label>
+                <span>用户名</span>
+                <input v-model="newUser.username" type="text" />
+              </label>
+              <label>
+                <span>显示名</span>
+                <input v-model="newUser.displayName" type="text" />
+              </label>
+              <label>
+                <span>密码</span>
+                <input v-model="newUser.password" type="password" />
+              </label>
+              <label>
+                <span>角色</span>
+                <select v-model="newUser.role">
+                  <option value="user">普通用户</option>
+                  <option value="admin">管理员</option>
+                  <option value="guest">访客</option>
+                </select>
+              </label>
+              <label>
+                <span>配额 GB</span>
+                <input v-model.number="newUser.quotaGB" min="0" type="number" />
+              </label>
+              <label>
+                <span>用户组</span>
+                <select v-model="newUser.groupId">
+                  <option value="">无</option>
+                  <option v-for="group in accountGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+                </select>
+              </label>
+              <button type="button" :disabled="accountBusy === 'create-user'" @click="createAccountUser">
+                {{ accountBusy === 'create-user' ? '创建中' : '创建用户' }}
+              </button>
+            </div>
+          </section>
+
+          <section class="system-settings__account-card" aria-label="用户列表">
+            <h4>用户</h4>
+            <div class="system-settings__account-list">
+              <article v-for="user in accountUsers" :key="user.id">
+                <div>
+                  <strong>{{ user.displayName || user.username }}</strong>
+                  <small>{{ user.username }} · {{ user.role }} · {{ user.status }} · {{ Math.round(user.quotaBytes / 1024 / 1024 / 1024) }} GB</small>
+                </div>
+                <button type="button" :disabled="accountBusy === user.id" @click="toggleAccountUser(user)">
+                  {{ user.status === 'active' ? '停用' : '启用' }}
+                </button>
+                <button type="button" :disabled="accountBusy === user.id || user.role === 'admin'" @click="deleteAccountUser(user)">删除</button>
+              </article>
+            </div>
+          </section>
+
+          <section class="system-settings__account-card" aria-label="用户组和授权">
+            <h4>用户组 / 授权</h4>
+            <div class="system-settings__account-form">
+              <label>
+                <span>新用户组</span>
+                <input v-model="newGroup.name" type="text" />
+              </label>
+              <label>
+                <span>描述</span>
+                <input v-model="newGroup.description" type="text" />
+              </label>
+              <button type="button" :disabled="accountBusy === 'create-group'" @click="createAccountGroup">创建组</button>
+              <label>
+                <span>选择组</span>
+                <select v-model="memberEditor.groupId">
+                  <option v-for="group in accountGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+                </select>
+              </label>
+              <label>
+                <span>添加成员</span>
+                <select v-model="memberEditor.userId">
+                  <option v-for="user in accountUsers" :key="user.id" :value="user.id">{{ user.displayName || user.username }}</option>
+                </select>
+              </label>
+              <button type="button" :disabled="accountBusy === 'members'" @click="addMemberToGroup">保存成员</button>
+            </div>
+            <div class="system-settings__account-form">
+              <label>
+                <span>授权类型</span>
+                <select v-model="grantEditor.subjectType" @change="grantEditor.subjectId = grantSubjects[0]?.id ?? ''">
+                  <option value="user">用户</option>
+                  <option value="group">用户组</option>
+                </select>
+              </label>
+              <label>
+                <span>授权对象</span>
+                <select v-model="grantEditor.subjectId">
+                  <option v-for="subject in grantSubjects" :key="subject.id" :value="subject.id">{{ subject.label }}</option>
+                </select>
+              </label>
+              <label>
+                <span>空间 ID</span>
+                <input v-model="grantEditor.spaceId" type="text" />
+              </label>
+              <label>
+                <span>权限</span>
+                <select v-model="grantEditor.access">
+                  <option value="read">只读</option>
+                  <option value="read_write">读写</option>
+                  <option value="manage">管理</option>
+                </select>
+              </label>
+              <label>
+                <span>配额 GB</span>
+                <input v-model.number="grantEditor.quotaGB" min="0" type="number" />
+              </label>
+              <button type="button" :disabled="accountBusy === 'grant'" @click="grantAccountSpace">保存授权</button>
+            </div>
+          </section>
         </div>
 
         <div v-else-if="activeCategoryId === 'network'" class="system-settings__panel">
@@ -621,6 +878,7 @@ onMounted(async () => {
         </div>
       </section>
     </main>
+    <NasFeaturePanel class="system-settings__features" :modules="['settings', 'remote', 'ai']" />
   </div>
 </template>
 
@@ -628,9 +886,14 @@ onMounted(async () => {
 .system-settings {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 14px;
   height: 100%;
   min-height: 0;
+}
+
+.system-settings__features {
+  grid-column: 1 / -1;
 }
 
 .system-settings__sidebar,
@@ -775,6 +1038,121 @@ onMounted(async () => {
   display: grid;
   gap: 10px;
   padding: 12px;
+}
+
+.system-settings__account-status,
+.system-settings__account-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 11px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(100, 136, 166, 0.14);
+  border-radius: var(--radius-sm);
+}
+
+.system-settings__account-status strong,
+.system-settings__account-card h4 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.system-settings__account-status span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.system-settings__account-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.system-settings__account-form label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.system-settings__account-form span {
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.system-settings__account-form input,
+.system-settings__account-form select {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  color: var(--text-strong);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+.system-settings__account-form button,
+.system-settings__account-list button {
+  align-self: end;
+  min-height: 30px;
+  padding: 0 9px;
+  color: var(--accent);
+  background: rgba(231, 247, 255, 0.72);
+  border: 1px solid rgba(19, 136, 255, 0.16);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.system-settings__account-form button:disabled,
+.system-settings__account-list button:disabled {
+  color: var(--text-soft);
+  cursor: not-allowed;
+  background: rgba(148, 163, 184, 0.14);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.system-settings__account-list {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.system-settings__account-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(100, 136, 166, 0.12);
+  border-radius: var(--radius-sm);
+}
+
+.system-settings__account-list strong,
+.system-settings__account-list small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-settings__account-list strong {
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.system-settings__account-list small {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .system-settings__field {

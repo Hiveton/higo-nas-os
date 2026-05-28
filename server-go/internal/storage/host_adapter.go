@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path"
@@ -25,6 +26,27 @@ type hostVolume struct {
 	usedKB     int64
 	available  int64
 	usedPct    int
+}
+
+type lsblkOutput struct {
+	BlockDevices []blockDevice `json:"blockdevices"`
+}
+
+type blockDevice struct {
+	Name        string          `json:"name"`
+	Path        string          `json:"path"`
+	Type        string          `json:"type"`
+	Size        int64           `json:"size"`
+	FSUsed      json.RawMessage `json:"fsused"`
+	FSSize      json.RawMessage `json:"fssize"`
+	Rotational  *bool           `json:"rota"`
+	Transport   string          `json:"tran"`
+	Model       string          `json:"model"`
+	Serial      string          `json:"serial"`
+	Mountpoints []string        `json:"mountpoints"`
+	FileSystem  string          `json:"fstype"`
+	State       string          `json:"state"`
+	Children    []blockDevice   `json:"children"`
 }
 
 func NewHostAdapter() *HostAdapter {
@@ -56,12 +78,21 @@ func (a *HostAdapter) Pools(ctx context.Context) ([]StoragePool, error) {
 			Total:       formatStorageBytes(volume.totalKB * 1024),
 			Health:      healthFromUsage(volume.usedPct),
 			Temperature: "N/A",
+			MountPath:   volume.mount,
 		})
 	}
 	return pools, nil
 }
 
 func (a *HostAdapter) Disks(ctx context.Context) ([]Disk, error) {
+	blockDisks, err := a.blockDisks(ctx)
+	if err == nil && len(blockDisks) > 0 {
+		return blockDisks, nil
+	}
+	return a.volumeDisks(ctx)
+}
+
+func (a *HostAdapter) volumeDisks(ctx context.Context) ([]Disk, error) {
 	volumes, err := a.volumes(ctx)
 	if err != nil {
 		return nil, err
@@ -79,9 +110,60 @@ func (a *HostAdapter) Disks(ctx context.Context) ([]Disk, error) {
 			PoolID:      volumeID(volume),
 			Model:       volumeName(volume.mount),
 			Interface:   "mount",
+			DeviceType:  "volume",
+			MediaType:   "挂载卷",
+			MountPath:   volume.mount,
 		})
 	}
 	return disks, nil
+}
+
+func (a *HostAdapter) blockDisks(ctx context.Context) ([]Disk, error) {
+	output, err := a.runner(ctx, "lsblk", "-J", "-b", "-o", "NAME,PATH,TYPE,SIZE,FSUSED,FSSIZE,ROTA,TRAN,MODEL,SERIAL,MOUNTPOINTS,FSTYPE,STATE")
+	if err != nil {
+		return nil, fmt.Errorf("read host block devices with lsblk: %w", err)
+	}
+	var decoded lsblkOutput
+	if err := json.Unmarshal(output, &decoded); err != nil {
+		return nil, fmt.Errorf("parse lsblk json: %w", err)
+	}
+	disks := make([]Disk, 0, len(decoded.BlockDevices))
+	for _, device := range decoded.BlockDevices {
+		if strings.ToLower(device.Type) != "disk" {
+			continue
+		}
+		disks = append(disks, diskFromBlockDevice(device))
+	}
+	return disks, nil
+}
+
+func diskFromBlockDevice(device blockDevice) Disk {
+	slot := strings.TrimSpace(device.Name)
+	if slot == "" {
+		slot = strings.TrimPrefix(device.Path, "/dev/")
+	}
+	transport := strings.TrimSpace(device.Transport)
+	mediaType := mediaTypeFromBlockDevice(device)
+	return Disk{
+		Slot:        slot,
+		Size:        formatStorageBytes(device.Size),
+		State:       diskStateFromBlockState(device.State),
+		Temperature: "N/A",
+		Serial:      strings.TrimSpace(device.Serial),
+		Health:      HealthHealthy,
+		Role:        "disk",
+		PoolID:      "disk-" + slugID(firstNonEmpty(device.Path, slot)),
+		Model:       firstNonEmpty(strings.TrimSpace(device.Model), slot),
+		Interface:   firstNonEmpty(transport, "block"),
+		DevicePath:  device.Path,
+		DeviceType:  device.Type,
+		MediaType:   mediaType,
+		Rotational:  device.Rotational,
+		SystemDisk:  hasSystemMount(device),
+		FileSystem:  firstFilesystem(device),
+		MountPath:   firstMountpoint(device),
+		Partitions:  partitionsFromBlockDevice(device),
+	}
 }
 
 func (a *HostAdapter) SmartReports(ctx context.Context) ([]SmartReport, error) {
@@ -186,7 +268,7 @@ func isPseudoFilesystem(filesystem string) bool {
 		return true
 	}
 	switch name {
-	case "devfs", "proc", "procfs", "sysfs", "devtmpfs", "autofs", "fdesc", "linprocfs", "linsysfs":
+	case "devfs", "proc", "procfs", "sysfs", "devtmpfs", "tmpfs", "efivarfs", "autofs", "fdesc", "linprocfs", "linsysfs":
 		return true
 	default:
 		return false
@@ -212,7 +294,11 @@ func slugID(value string) string {
 			}
 		}
 	}
-	return strings.Trim(builder.String(), "-")
+	out := strings.Trim(builder.String(), "-")
+	if out == "" {
+		return "item"
+	}
+	return out
 }
 
 func volumeName(mount string) string {
@@ -259,6 +345,132 @@ func diskStateFromUsage(usedPct int) DiskState {
 		return DiskStateOffline
 	}
 	return DiskStateHealthy
+}
+
+func diskStateFromBlockState(state string) DiskState {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "", "running", "live":
+		return DiskStateHealthy
+	case "offline":
+		return DiskStateOffline
+	default:
+		return DiskStateHealthy
+	}
+}
+
+func mediaTypeFromBlockDevice(device blockDevice) string {
+	model := strings.ToLower(device.Model)
+	transport := strings.ToLower(device.Transport)
+	switch {
+	case strings.Contains(model, "nvme") || transport == "nvme":
+		return "NVMe SSD"
+	case strings.Contains(model, "virtual"):
+		if device.Rotational != nil && !*device.Rotational {
+			return "虚拟 SSD"
+		}
+		return "虚拟磁盘"
+	case device.Rotational != nil && !*device.Rotational:
+		return "SSD"
+	case device.Rotational != nil && *device.Rotational:
+		return "HDD"
+	default:
+		return "磁盘"
+	}
+}
+
+func partitionsFromBlockDevice(device blockDevice) []DiskPartition {
+	partitions := make([]DiskPartition, 0, len(device.Children))
+	for _, child := range device.Children {
+		if strings.ToLower(strings.TrimSpace(child.Type)) == "part" {
+			partition := DiskPartition{
+				Name:       firstNonEmpty(child.Name, strings.TrimPrefix(child.Path, "/dev/")),
+				Path:       child.Path,
+				Size:       formatStorageBytes(child.Size),
+				FileSystem: strings.TrimSpace(child.FileSystem),
+				MountPath:  firstMountpoint(child),
+				System:     hasSystemMount(child),
+			}
+			if used := parseOptionalBlockBytes(child.FSUsed); used > 0 {
+				partition.Used = formatStorageBytes(used)
+			}
+			if total := parseOptionalBlockBytes(child.FSSize); total > 0 {
+				partition.Total = formatStorageBytes(total)
+			}
+			partitions = append(partitions, partition)
+			continue
+		}
+		partitions = append(partitions, partitionsFromBlockDevice(child)...)
+	}
+	return partitions
+}
+
+func parseOptionalBlockBytes(raw json.RawMessage) int64 {
+	text := strings.TrimSpace(string(raw))
+	if text == "" || text == "null" {
+		return 0
+	}
+	text = strings.Trim(text, `"`)
+	if text == "" || text == "-" {
+		return 0
+	}
+	if value, err := strconv.ParseInt(text, 10, 64); err == nil {
+		return value
+	}
+	value, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return 0
+	}
+	return int64(value)
+}
+
+func firstMountpoint(device blockDevice) string {
+	for _, mountpoint := range device.Mountpoints {
+		if strings.TrimSpace(mountpoint) != "" {
+			return mountpoint
+		}
+	}
+	for _, child := range device.Children {
+		if mountpoint := firstMountpoint(child); mountpoint != "" {
+			return mountpoint
+		}
+	}
+	return ""
+}
+
+func hasSystemMount(device blockDevice) bool {
+	for _, mountpoint := range device.Mountpoints {
+		switch path.Clean(strings.TrimSpace(mountpoint)) {
+		case "/", "/boot", "/boot/efi":
+			return true
+		}
+	}
+	for _, child := range device.Children {
+		if hasSystemMount(child) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstFilesystem(device blockDevice) string {
+	if strings.TrimSpace(device.FileSystem) != "" {
+		return device.FileSystem
+	}
+	for _, child := range device.Children {
+		if filesystem := firstFilesystem(child); filesystem != "" {
+			return filesystem
+		}
+	}
+	return ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func smartStatusFromHealth(health Health) string {

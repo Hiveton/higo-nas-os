@@ -1,0 +1,17 @@
+[Unit]
+Description=HiGoOS Worker
+After=network-online.target higo-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xuehui
+Group=xuehui
+EnvironmentFile=/etc/higoos/server.env
+ExecStart=/opt/higoos/bin/higo-worker
+Restart=always
+RestartSec=3
+WorkingDirectory=/opt/higoos
+
+[Install]
+WantedBy=multi-user.target

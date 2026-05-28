@@ -18,6 +18,7 @@ import {
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { AlbumItem, MediaItem } from '../../api/types';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type DimensionKey = 'timeline' | 'people' | 'places' | 'devices' | 'albums';
 type ID = string | number;
@@ -447,6 +448,7 @@ onMounted(loadMediaState);
         <span v-for="job in subtitleJobs" :key="`subtitle-${job}`">字幕：{{ job }}</span>
       </div>
     </aside>
+    <NasFeaturePanel class="photo-media__features" :modules="['photos', 'media']" compact />
   </div>
 </template>
 
@@ -454,9 +456,14 @@ onMounted(loadMediaState);
 .photo-media {
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr) 230px;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
+}
+
+.photo-media__features {
+  grid-column: 1 / -1;
 }
 
 .photo-media__sidebar,

@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import type { Component } from 'vue';
+import { computed, onMounted, ref, watch, type Component } from 'vue';
 import {
+  Activity,
   ArchiveRestore,
   Bell,
   Bot,
   Boxes,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Cpu,
-  Database,
   HardDrive,
-  LockKeyhole,
   MemoryStick,
   Network,
+  Settings2,
   ShieldAlert,
   ShieldCheck,
   UploadCloud,
@@ -22,21 +23,47 @@ import type { Alert, BackupJob, DockerContainer, Metric, RiskAction, StoragePool
 import { alerts as seedAlerts, metrics as seedMetrics } from '../data/higoos';
 
 type Tone = 'blue' | 'green' | 'orange' | 'red' | 'cyan';
+type WidgetId = 'system' | 'cpu' | 'memory' | 'network' | 'disk' | 'storage' | 'backup' | 'docker' | 'security' | 'alerts';
 
-type MiniCard = {
-  label: string;
+type OverviewCard = {
+  id: WidgetId;
+  title: string;
   value: string;
   detail: string;
   tone: Tone;
   icon: Component;
+  percent?: number;
 };
+
+type WidgetOption = {
+  id: WidgetId;
+  label: string;
+};
+
+const widgetOptions: WidgetOption[] = [
+  { id: 'system', label: '系统状况' },
+  { id: 'cpu', label: 'CPU' },
+  { id: 'memory', label: '内存' },
+  { id: 'network', label: '网速' },
+  { id: 'disk', label: '硬盘' },
+  { id: 'storage', label: '存储空间' },
+  { id: 'backup', label: '备份同步' },
+  { id: 'docker', label: 'Docker' },
+  { id: 'security', label: '安全' },
+  { id: 'alerts', label: '告警' },
+];
+
+const defaultVisibility = widgetOptions.reduce<Record<WidgetId, boolean>>((state, option) => {
+  state[option.id] = true;
+  return state;
+}, {} as Record<WidgetId, boolean>);
 
 const fallbackBackupJobs: BackupJob[] = [
   {
     id: 'family-photo',
     name: '家庭相册增量备份',
     source: '照片与视频',
-    target: '照片与视频 -> 异地备份卷',
+    target: '异地备份卷',
     state: '同步中',
     schedule: '每 6 小时',
     progress: 72,
@@ -53,7 +80,7 @@ const fallbackBackupJobs: BackupJob[] = [
     id: 'team-snapshot',
     name: '团队空间快照',
     source: '项目资料',
-    target: '项目资料 -> 每日快照',
+    target: '每日快照',
     state: '校验中',
     schedule: '每天 02:00',
     progress: 94,
@@ -119,20 +146,30 @@ const alerts = ref<Array<Alert & { icon?: Component }>>(seedAlerts);
 const backupJobs = ref<BackupJob[]>(fallbackBackupJobs);
 const dockerContainers = ref<DockerContainer[]>(fallbackDockerContainers);
 const riskActions = ref<RiskAction[]>([]);
-const widgetNotice = ref('桌面概览正在从后端同步真实存储卷、监控和告警。');
+const widgetNotice = ref('正在同步设备状态。');
+const expanded = ref(true);
+const settingsOpen = ref(false);
+const visibleWidgets = ref<Record<WidgetId, boolean>>(loadVisibility());
+
+const cpuMetric = computed(() => findMetric('cpu', 'CPU') ?? metrics.value[0]);
+const memoryMetric = computed(() => findMetric('memory', '内存') ?? metrics.value[1]);
+const diskMetric = computed(() => findMetric('disk', '磁盘') ?? findMetric('storage', '存储'));
+const networkDownText = computed(() => formatMetricValue(findDirectionalMetric(['download', 'down', '下载', '下行']), '88.5 KB/s'));
+const networkUpText = computed(() => formatMetricValue(findDirectionalMetric(['upload', 'up', '上传', '上行']), '19.5 KB/s'));
+const diskReadText = computed(() => formatMetricValue(findDirectionalMetric(['read', '读取', '读', 'R']), '23.22 KB/s'));
+const diskWriteText = computed(() => formatMetricValue(findDirectionalMetric(['write', '写入', '写', 'W']), '12 KB/s'));
+
+const activeBackup = computed(() => backupJobs.value.find((job) => job.state === '同步中' || job.state === '校验中') ?? backupJobs.value[0]);
+const primaryPool = computed(() => storagePools.value[0]);
 
 const dockerStatus = computed(() => {
   const containers = dockerContainers.value.length ? dockerContainers.value : fallbackDockerContainers;
   const running = containers.filter((container) => container.status === '运行中').length;
-  const paused = containers.filter((container) => container.status !== '运行中').length;
-  const cpu = `${Math.min(100, containers.reduce((sum, container) => sum + container.cpu, 0))}%`;
-  const memory = `${Math.round(containers.reduce((sum, container) => sum + container.memory, 0) / Math.max(containers.length, 1))}%`;
+  const cpu = Math.min(100, containers.reduce((sum, container) => sum + container.cpu, 0));
   return {
     running,
-    paused,
     cpu,
-    memory,
-    services: containers.slice(0, 3).map((container) => container.name),
+    memory: Math.round(containers.reduce((sum, container) => sum + container.memory, 0) / Math.max(containers.length, 1)),
   };
 });
 
@@ -145,29 +182,95 @@ const securityWarnings = computed(() => {
   }));
 });
 
-const miniCards = computed<MiniCard[]>(() => [
+const systemCards = computed<OverviewCard[]>(() => [
   {
-    label: metrics.value[0]?.label ?? 'CPU',
-    value: formatMetricValue(metrics.value[0], '32%'),
-    detail: metrics.value[0]?.detail ?? `容器调度 ${dockerStatus.value.cpu}`,
+    id: 'cpu',
+    title: 'CPU',
+    value: formatMetricValue(cpuMetric.value, '38%'),
+    detail: cpuMetric.value?.detail ?? '当前负载',
     tone: 'cyan',
     icon: Cpu,
+    percent: percentFromMetric(cpuMetric.value, 38),
   },
   {
-    label: metrics.value[1]?.label ?? '内存',
-    value: formatMetricValue(metrics.value[1], '58%'),
-    detail: metrics.value[1]?.detail ?? `模型缓存 ${dockerStatus.value.memory}`,
+    id: 'memory',
+    title: '内存',
+    value: formatMetricValue(memoryMetric.value, '62%'),
+    detail: memoryMetric.value?.detail ?? '系统内存',
     tone: 'green',
     icon: MemoryStick,
+    percent: percentFromMetric(memoryMetric.value, 62),
   },
   {
-    label: '网络',
-    value: `${formatMetricValue(metrics.value[2], '18 MB/s')} / ${formatMetricValue(metrics.value[3], '42 MB/s')}`,
-    detail: '远程访问链路稳定',
+    id: 'network',
+    title: '网速',
+    value: `↓ ${networkDownText.value}`,
+    detail: `↑ ${networkUpText.value}`,
     tone: 'blue',
     icon: Network,
   },
+  {
+    id: 'disk',
+    title: '硬盘',
+    value: `R ${diskReadText.value}`,
+    detail: `W ${diskWriteText.value}`,
+    tone: 'orange',
+    icon: HardDrive,
+    percent: diskMetric.value ? percentFromMetric(diskMetric.value, 46) : primaryPool.value?.used,
+  },
 ]);
+
+const chartCards = computed(() => visibleSystemCards.value.filter((card) => ['cpu', 'memory', 'network', 'disk'].includes(card.id)));
+const summaryCards = computed<OverviewCard[]>(() => [
+  {
+    id: 'storage',
+    title: '存储空间',
+    value: primaryPool.value ? `${clampPercent(primaryPool.value.used)}%` : '待同步',
+    detail: primaryPool.value ? `${primaryPool.value.name} · ${primaryPool.value.total}` : '等待后端磁盘数据',
+    tone: 'green',
+    icon: HardDrive,
+    percent: primaryPool.value?.used,
+  },
+  {
+    id: 'backup',
+    title: '备份同步',
+    value: activeBackup.value ? `${activeBackup.value.progress}%` : '待同步',
+    detail: activeBackup.value ? activeBackup.value.name : '暂无任务',
+    tone: 'blue',
+    icon: UploadCloud,
+    percent: activeBackup.value?.progress,
+  },
+  {
+    id: 'docker',
+    title: 'Docker',
+    value: `${dockerStatus.value.running} 个运行`,
+    detail: `CPU ${dockerStatus.value.cpu}% · 内存 ${dockerStatus.value.memory}%`,
+    tone: 'cyan',
+    icon: Boxes,
+    percent: dockerStatus.value.cpu,
+  },
+  {
+    id: 'security',
+    title: '安全',
+    value: `${securityWarnings.value.length} 项`,
+    detail: securityWarnings.value[0]?.title ?? '无风险',
+    tone: securityWarnings.value.some((item) => item.tone === 'orange' || item.tone === 'red') ? 'orange' : 'green',
+    icon: ShieldCheck,
+  },
+  {
+    id: 'alerts',
+    title: '告警',
+    value: `${alerts.value.length} 条`,
+    detail: alerts.value[0]?.title ?? '暂无告警',
+    tone: 'orange',
+    icon: Bell,
+  },
+]);
+
+const visibleSystemCards = computed(() => systemCards.value.filter((card) => visibleWidgets.value[card.id]));
+const visibleSummaryCards = computed(() => summaryCards.value.filter((card) => visibleWidgets.value[card.id]));
+
+const hasVisibleContent = computed(() => visibleWidgets.value.system || visibleSystemCards.value.length || visibleSummaryCards.value.length);
 
 async function loadWidgetState() {
   try {
@@ -188,11 +291,46 @@ async function loadWidgetState() {
     storagePools.value = nextPools;
     metrics.value = nextMetrics;
     alerts.value = nextAlerts.map((alert) => ({ ...alert, icon: iconForAlert(alert) }));
-    widgetNotice.value = '桌面概览已从后端同步。';
+    widgetNotice.value = '桌面总览已同步。';
   } catch (error) {
     storagePools.value = [];
     widgetNotice.value = `后端暂不可用，存储池不使用本地演示数据：${error instanceof Error ? error.message : 'unknown error'}`;
   }
+}
+
+function loadVisibility() {
+  if (typeof window === 'undefined') return { ...defaultVisibility };
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem('higoos.desktopOverview.visibility') ?? '{}') as Partial<
+      Record<WidgetId, boolean>
+    >;
+    return { ...defaultVisibility, ...parsed };
+  } catch {
+    return { ...defaultVisibility };
+  }
+}
+
+function updateVisibility(id: WidgetId, event: Event) {
+  visibleWidgets.value = {
+    ...visibleWidgets.value,
+    [id]: (event.target as HTMLInputElement).checked,
+  };
+}
+
+function resetVisibility() {
+  visibleWidgets.value = { ...defaultVisibility };
+}
+
+function findMetric(key: string, label: string) {
+  const lowerKey = key.toLowerCase();
+  return metrics.value.find((metric) => metric.key?.toLowerCase().includes(lowerKey) || metric.label.includes(label));
+}
+
+function findDirectionalMetric(terms: string[]) {
+  return metrics.value.find((metric) => {
+    const text = `${metric.key ?? ''} ${metric.label} ${metric.detail ?? ''}`.toLowerCase();
+    return terms.some((term) => text.includes(term.toLowerCase()));
+  });
 }
 
 function toneForRisk(risk: string): Tone {
@@ -208,13 +346,34 @@ function toneClass(tone: string) {
 
 function formatMetricValue(metric: Metric | undefined, fallback: string) {
   if (!metric) return fallback;
-  const value = metric.unit ? `${metric.value}${metric.unit}` : String(metric.value);
-  return value;
+  return metric.unit ? `${metric.value}${metric.unit}` : String(metric.value);
 }
 
-function clampPercent(value: number) {
+function percentFromMetric(metric: Metric | undefined, fallback: number) {
+  if (!metric) return fallback;
+  const value = typeof metric.value === 'number' ? metric.value : Number.parseFloat(metric.value);
+  return clampPercent(Number.isFinite(value) ? value : fallback);
+}
+
+function clampPercent(value: number | undefined) {
   if (!Number.isFinite(value)) return 0;
-  return Math.min(100, Math.max(0, value));
+  return Math.min(100, Math.max(0, value ?? 0));
+}
+
+function sparklinePoints(card: OverviewCard, offset = 0) {
+  const base = clampPercent(card.percent ?? 52);
+  return [0, 1, 2, 3, 4, 5, 6, 7]
+    .map((index) => {
+      const x = Math.round((index / 7) * 100);
+      const wave = Math.sin(index * 0.88 + offset) * 10;
+      const y = Math.round(74 - Math.min(58, Math.max(16, base * 0.44 + wave + index * 2)));
+      return `${x},${y}`;
+    })
+    .join(' ');
+}
+
+function sparklineArea(card: OverviewCard, offset = 0) {
+  return `0,80 ${sparklinePoints(card, offset)} 100,80`;
 }
 
 function iconForAlert(alert: Alert): Component {
@@ -222,461 +381,554 @@ function iconForAlert(alert: Alert): Component {
   if (text.includes('备份')) return ArchiveRestore;
   if (text.includes('模型')) return Bot;
   if (text.includes('权限') || text.includes('审计')) return ShieldCheck;
-  if (text.includes('CPU')) return Database;
+  if (text.includes('CPU')) return Cpu;
   if (text.includes('硬盘') || text.includes('存储')) return HardDrive;
   if (alert.tone === 'green') return CheckCircle2;
   return Bell;
 }
 
+watch(
+  visibleWidgets,
+  (next) => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('higoos.desktopOverview.visibility', JSON.stringify(next));
+    }
+  },
+  { deep: true },
+);
+
 onMounted(loadWidgetState);
 </script>
 
 <template>
-  <aside class="desktop-widgets" aria-label="HiGoOS 桌面小组件">
-    <section class="widget-card storage-card" aria-label="存储池健康">
-      <div class="widget-card__header">
-        <div>
-          <p class="eyebrow">存储池健康</p>
-          <h2 :title="widgetNotice">AI NAS 总览</h2>
-        </div>
-        <ShieldCheck class="header-icon is-green" :size="22" />
-      </div>
+  <aside class="desktop-overview" :class="{ 'desktop-overview--collapsed': !expanded }" aria-label="桌面总览">
+    <button v-if="!expanded" class="overview-collapsed" type="button" @click="expanded = true">
+      <Activity :size="18" />
+      <span>总览</span>
+      <ChevronUp :size="16" />
+    </button>
 
-      <div class="pool-list">
-        <article v-if="storagePools.length === 0" class="pool-row pool-row--empty">
-          <div class="pool-row__top">
+    <template v-else>
+      <header class="overview-header">
+        <div>
+          <strong>总览</strong>
+          <span>{{ widgetNotice }}</span>
+        </div>
+        <div class="overview-header__actions">
+          <button type="button" title="自定义卡片" @click="settingsOpen = !settingsOpen">
+            <Settings2 :size="16" />
+          </button>
+          <button type="button" title="收起总览" @click="expanded = false">
+            <ChevronDown :size="16" />
+          </button>
+        </div>
+      </header>
+
+      <section v-if="settingsOpen" class="overview-settings" aria-label="总览显示设置">
+        <div class="overview-settings__head">
+          <strong>显示卡片</strong>
+          <button type="button" @click="resetVisibility">全部显示</button>
+        </div>
+        <label v-for="option in widgetOptions" :key="option.id">
+          <input
+            type="checkbox"
+            :checked="visibleWidgets[option.id]"
+            @change="updateVisibility(option.id, $event)"
+          />
+          <span>{{ option.label }}</span>
+        </label>
+      </section>
+
+      <section v-if="visibleWidgets.system" class="overview-system" aria-label="系统状况">
+        <div>
+          <span>系统状况</span>
+          <strong>HiGoNAS</strong>
+          <small>{{ hasVisibleContent ? '设备运行正常' : '已隐藏全部卡片' }}</small>
+        </div>
+        <div class="overview-rings">
+          <article v-for="card in visibleSystemCards.slice(0, 4)" :key="card.id" :class="toneClass(card.tone)">
+            <span class="ring" :style="{ '--value': `${clampPercent(card.percent ?? 0) * 3.6}deg` }">
+              <component :is="card.icon" :size="14" />
+            </span>
+            <strong>{{ card.value }}</strong>
+            <small>{{ card.title }}</small>
+          </article>
+        </div>
+      </section>
+
+      <section class="overview-chart-list" aria-label="资源图表">
+        <article
+          v-for="card in chartCards"
+          :key="card.id"
+          :class="['overview-chart-card', toneClass(card.tone), { 'overview-chart-card--dual': card.id === 'network' || card.id === 'disk' }]"
+        >
+          <div class="overview-chart-card__head">
             <div>
-              <strong>等待后端磁盘数据</strong>
-              <span>未使用本地演示容量</span>
+              <component :is="card.icon" :size="17" />
+              <strong>{{ card.title }}</strong>
             </div>
-            <em>--</em>
+            <p v-if="card.id === 'network'">
+              <b>↓ {{ networkDownText }}</b>
+              <b>↑ {{ networkUpText }}</b>
+            </p>
+            <p v-else-if="card.id === 'disk'">
+              <b>R {{ diskReadText }}</b>
+              <b>W {{ diskWriteText }}</b>
+            </p>
+            <p v-else>
+              <b>{{ card.value }}</b>
+              <span>{{ card.detail }}</span>
+            </p>
+          </div>
+          <div class="overview-sparkline" aria-hidden="true">
+            <svg viewBox="0 0 100 80" preserveAspectRatio="none">
+              <polygon class="spark-area spark-area--down" :points="sparklineArea(card, 0.4)" />
+              <polyline class="spark-line spark-line--down" :points="sparklinePoints(card, 0.4)" />
+              <template v-if="card.id === 'network' || card.id === 'disk'">
+                <polygon class="spark-area spark-area--up" :points="sparklineArea(card, 1.8)" />
+                <polyline class="spark-line spark-line--up" :points="sparklinePoints(card, 1.8)" />
+              </template>
+            </svg>
           </div>
         </article>
-        <article v-for="pool in storagePools" :key="pool.name" class="pool-row">
-          <div class="pool-row__top">
-            <div>
-              <strong>{{ pool.name }}</strong>
-              <span>{{ pool.type }} · {{ pool.total }}</span>
-            </div>
-            <em>{{ pool.health }}</em>
-          </div>
-          <div class="meter" aria-hidden="true">
-            <span :style="{ width: `${clampPercent(pool.used)}%` }"></span>
-          </div>
-          <div class="pool-row__meta">
-            <span>{{ clampPercent(pool.used) }}% 已用</span>
-            <span>{{ pool.temp }}</span>
-          </div>
-        </article>
-      </div>
-    </section>
+      </section>
 
-    <section class="widget-card backup-card" aria-label="备份进度">
-      <div class="widget-card__header">
-        <div>
-          <p class="eyebrow">备份进度</p>
-          <h2>快照与异地同步</h2>
-        </div>
-        <UploadCloud class="header-icon is-blue" :size="22" />
-      </div>
-
-      <article v-for="job in backupJobs" :key="job.name" class="backup-job">
-        <div class="backup-job__copy">
-          <strong>{{ job.name }}</strong>
-          <span>{{ job.target }}</span>
-        </div>
-        <b>{{ job.progress }}%</b>
-        <div class="meter backup-meter" aria-hidden="true">
-          <span :style="{ width: `${job.progress}%` }"></span>
-        </div>
-        <div class="backup-job__meta">
-          <span>{{ job.speed }}</span>
-          <span>{{ job.eta }}</span>
-        </div>
-      </article>
-    </section>
-
-    <section class="widget-card docker-card" aria-label="Docker 状态">
-      <div class="widget-card__header">
-        <div>
-          <p class="eyebrow">Docker 状态</p>
-          <h2>应用容器运行正常</h2>
-        </div>
-        <Boxes class="header-icon is-cyan" :size="22" />
-      </div>
-
-      <div class="docker-grid">
-        <div>
-          <b>{{ dockerStatus.running }}</b>
-          <span>运行中</span>
-        </div>
-        <div>
-          <b>{{ dockerStatus.paused }}</b>
-          <span>待更新</span>
-        </div>
-        <div>
-          <b>{{ dockerStatus.cpu }}</b>
-          <span>CPU</span>
-        </div>
-      </div>
-
-      <div class="service-strip" aria-label="关键容器">
-        <span v-for="service in dockerStatus.services" :key="service">{{ service }}</span>
-      </div>
-    </section>
-
-    <section class="widget-card security-card" aria-label="安全告警">
-      <div class="widget-card__header">
-        <div>
-          <p class="eyebrow">安全告警</p>
-          <h2>权限与 AI 执行风控</h2>
-        </div>
-        <ShieldAlert class="header-icon is-orange" :size="22" />
-      </div>
-
-      <div class="warning-list">
-        <article v-for="warning in securityWarnings" :key="warning.title" :class="['warning-row', toneClass(warning.tone)]">
-          <LockKeyhole :size="16" />
+      <section class="overview-info-list" aria-label="其他总览卡片">
+        <article v-for="card in visibleSummaryCards" :key="card.id" :class="['overview-info-row', toneClass(card.tone)]">
+          <component :is="card.icon" :size="17" />
           <div>
-            <strong>{{ warning.title }}</strong>
-            <span>{{ warning.detail }}</span>
+            <strong>{{ card.title }}</strong>
+            <span>{{ card.detail }}</span>
           </div>
+          <b>{{ card.value }}</b>
         </article>
-      </div>
-    </section>
-
-    <section class="mini-grid" aria-label="设备资源 mini cards">
-      <article v-for="card in miniCards" :key="card.label" :class="['mini-card', toneClass(card.tone)]">
-        <component :is="card.icon" :size="18" />
-        <div>
-          <span>{{ card.label }}</span>
-          <strong>{{ card.value }}</strong>
-          <small>{{ card.detail }}</small>
-        </div>
-      </article>
-    </section>
-
-    <section class="alert-strip" aria-label="系统提示">
-      <article v-for="alert in alerts" :key="alert.title" :class="['alert-pill', toneClass(alert.tone ?? 'blue')]">
-        <component :is="alert.icon" :size="15" />
-        <div>
-          <strong>{{ alert.title }}</strong>
-          <span>{{ alert.detail }}</span>
-        </div>
-      </article>
-    </section>
+      </section>
+    </template>
   </aside>
 </template>
 
 <style scoped>
-.desktop-widgets {
-  position: absolute;
-  left: 28px;
-  top: 78px;
-  z-index: 2;
-  display: grid;
-  width: min(380px, calc(100vw - 420px));
-  max-height: calc(100vh - var(--dock-height) - 104px);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  overflow-y: auto;
+.desktop-overview {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 8;
+  width: min(420px, calc(100vw - 28px));
+  height: min(68vh, calc(100vh - var(--topbar-height, 64px) - 24px));
+  max-height: calc(100vh - var(--topbar-height, 64px) - 24px);
+  padding: 10px;
+  overflow: auto;
   pointer-events: auto;
-  scrollbar-width: none;
-}
-
-.desktop-widgets::-webkit-scrollbar {
-  display: none;
-}
-
-.widget-card,
-.mini-card,
-.alert-pill {
-  border: 1px solid rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 22px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(241, 248, 255, 0.58)),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(232, 246, 255, 0.52)),
     var(--surface-glass);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(24px) saturate(155%);
 }
 
-.widget-card {
-  min-width: 0;
-  padding: 14px;
+.desktop-overview--collapsed {
+  width: auto;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.overview-collapsed,
+.overview-header__actions button,
+.overview-settings__head button {
+  font-family: inherit;
+}
+
+.overview-collapsed {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 14px;
+  color: var(--text-strong);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.overview-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 4px 8px;
+  background: linear-gradient(180deg, rgba(244, 251, 255, 0.95), rgba(244, 251, 255, 0.78));
+  backdrop-filter: blur(14px);
+}
+
+.overview-header strong,
+.overview-system strong,
+.overview-settings__head strong,
+.overview-chart-card strong,
+.overview-info-row strong,
+.overview-rings strong {
+  color: var(--text-strong);
+}
+
+.overview-header strong {
+  display: block;
+  font-size: 15px;
+}
+
+.overview-header span {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.overview-header__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.overview-header__actions button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.overview-settings,
+.overview-system,
+.overview-chart-card,
+.overview-info-row {
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(100, 136, 166, 0.14);
   border-radius: var(--radius-md);
 }
 
-.storage-card,
-.backup-card,
-.security-card,
-.mini-grid,
-.alert-strip {
-  grid-column: 1 / -1;
-}
-
-.widget-card__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 12px;
-}
-
-.eyebrow {
-  margin: 0 0 4px;
-  color: var(--text-soft);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0;
-}
-
-h2 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 15px;
-  line-height: 1.25;
-}
-
-.header-icon {
-  flex: 0 0 auto;
-  padding: 5px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.66);
-}
-
-.pool-list,
-.warning-list {
+.overview-settings {
   display: grid;
-  gap: 10px;
-}
-
-.pool-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
   padding: 10px;
-  border: 1px solid rgba(90, 128, 160, 0.14);
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.5);
 }
 
-.pool-row--empty {
-  border-style: dashed;
-}
-
-.pool-row__top,
-.pool-row__meta,
-.backup-job__meta {
+.overview-settings__head {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.pool-row__top strong,
-.backup-job strong,
-.warning-row strong,
-.alert-pill strong {
-  display: block;
-  color: var(--text-strong);
-  font-size: 13px;
-  line-height: 1.25;
-}
-
-.pool-row__top span,
-.pool-row__meta,
-.backup-job span,
-.warning-row span,
-.alert-pill span {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.pool-row__top em {
-  flex: 0 0 auto;
-  color: var(--accent-green);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 800;
-}
-
-.meter {
-  height: 6px;
-  margin: 9px 0 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(120, 151, 178, 0.18);
-}
-
-.meter span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan));
-}
-
-.backup-job {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 6px 10px;
-  padding: 10px 0;
-  border-top: 1px solid rgba(90, 128, 160, 0.14);
-}
-
-.backup-job:first-of-type {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.backup-job b {
+.overview-settings__head button {
   color: var(--accent);
-  font-size: 18px;
-}
-
-.backup-meter {
-  grid-column: 1 / -1;
-  margin: 2px 0 0;
-}
-
-.backup-meter span {
-  background: linear-gradient(90deg, var(--accent), #8b5cf6);
-}
-
-.backup-job__meta {
-  grid-column: 1 / -1;
-}
-
-.docker-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.docker-grid div {
-  min-width: 0;
-  padding: 10px;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.52);
-}
-
-.docker-grid b {
-  display: block;
-  color: var(--text-strong);
-  font-size: 20px;
-  line-height: 1;
-}
-
-.docker-grid span {
-  display: block;
-  margin-top: 6px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.service-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.service-strip span {
-  padding: 5px 7px;
+  background: rgba(231, 247, 255, 0.8);
   border: 1px solid rgba(19, 136, 255, 0.16);
   border-radius: 999px;
-  color: var(--text);
-  background: rgba(231, 247, 255, 0.72);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.overview-settings label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.overview-system {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 14px;
+}
+
+.overview-system span,
+.overview-system small,
+.overview-chart-card span,
+.overview-chart-card small,
+.overview-info-row span,
+.overview-rings small {
+  color: var(--text-muted);
+}
+
+.overview-system span,
+.overview-chart-card span {
+  display: block;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.overview-system strong {
+  display: block;
+  margin: 5px 0 3px;
+  font-size: 17px;
+}
+
+.overview-system small {
   font-size: 11px;
 }
 
-.warning-row,
-.alert-pill {
+.overview-rings {
   display: flex;
-  min-width: 0;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: end;
   gap: 8px;
 }
 
-.warning-row {
-  padding: 9px;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.46);
+.overview-rings article {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 48px;
 }
 
-.mini-grid {
+.ring {
+  position: relative;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  color: currentColor;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.95) 0 58%, transparent 59%),
+    conic-gradient(var(--overview-color, currentColor) var(--value), rgba(148, 163, 184, 0.18) 0);
+  border-radius: 999px;
+}
+
+.ring svg {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  color: var(--overview-color, currentColor);
+  stroke-width: 2.4;
+}
+
+.overview-rings strong {
+  font-size: 11px;
+}
+
+.overview-rings small {
+  font-size: 10px;
+}
+
+.overview-chart-list,
+.overview-info-list {
+  display: grid;
   gap: 10px;
 }
 
-.mini-card {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 11px 10px;
-  border-radius: var(--radius-md);
+.overview-chart-list {
+  grid-template-columns: 1fr;
+  margin-bottom: 10px;
 }
 
-.mini-card span,
-.mini-card small {
-  display: block;
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.25;
-}
-
-.mini-card strong {
-  display: block;
-  margin: 3px 0;
-  color: var(--text-strong);
-  font-size: 14px;
-  line-height: 1.12;
-  overflow-wrap: anywhere;
-}
-
-.alert-strip {
+.overview-chart-card {
   display: grid;
-  gap: 8px;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  min-width: 0;
+  min-height: 172px;
+  padding: 14px;
 }
 
-.alert-pill {
-  padding: 9px 10px;
-  border-radius: var(--radius-sm);
+.overview-chart-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.overview-chart-card__head > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.overview-chart-card__head strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 15px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-chart-card__head p {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.overview-chart-card__head p b {
+  color: var(--overview-color, var(--accent));
+  font-size: 14px;
+}
+
+.overview-chart-card__head p span {
+  color: var(--text-muted);
+}
+
+.overview-sparkline {
+  height: 108px;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+}
+
+.overview-sparkline svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.spark-area {
+  opacity: 0.22;
+}
+
+.spark-line {
+  fill: none;
+  stroke-width: 1.05;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.spark-area--down {
+  fill: #3b82f6;
+}
+
+.spark-line--down {
+  stroke: #3b82f6;
+}
+
+.spark-area--up {
+  fill: #22b573;
+}
+
+.spark-line--up {
+  stroke: #22b573;
+}
+
+.overview-chart-card:not(.overview-chart-card--dual) .spark-area--down {
+  fill: var(--overview-color, #3b82f6);
+}
+
+.overview-chart-card:not(.overview-chart-card--dual) .spark-line--down {
+  stroke: var(--overview-color, #3b82f6);
+}
+
+.overview-info-list {
+  grid-template-columns: 1fr;
+  padding-bottom: 2px;
+}
+
+.overview-info-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 54px;
+  padding: 10px 12px;
+}
+
+.overview-info-row strong,
+.overview-info-row span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-info-row strong {
+  font-size: 12px;
+}
+
+.overview-info-row span {
+  margin-top: 3px;
+  font-size: 10px;
+}
+
+.overview-info-row b {
+  color: var(--text-strong);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .is-blue {
   color: var(--accent);
+  --overview-color: var(--accent);
 }
 
 .is-green {
   color: var(--accent-green);
+  --overview-color: var(--accent-green);
 }
 
 .is-orange {
   color: var(--accent-orange);
+  --overview-color: var(--accent-orange);
 }
 
 .is-red {
   color: var(--accent-red);
+  --overview-color: var(--accent-red);
 }
 
 .is-cyan {
   color: var(--accent-cyan);
+  --overview-color: var(--accent-cyan);
 }
 
-@media (max-width: 1180px) {
-  .desktop-widgets {
-    width: 320px;
+@media (max-width: 860px) {
+  .desktop-overview {
+    right: 14px;
+    bottom: 14px;
+    width: min(340px, calc(100vw - 28px));
+    height: min(66vh, calc(100vh - var(--topbar-height, 64px) - 24px));
+    max-height: calc(100vh - var(--topbar-height, 64px) - 24px);
+  }
+
+  .overview-settings {
     grid-template-columns: 1fr;
   }
 
-  .docker-card {
-    grid-column: 1 / -1;
+  .overview-chart-card {
+    min-height: 152px;
   }
-}
 
-@media (max-height: 840px), (max-width: 980px) {
-  .desktop-widgets {
-    display: none;
+  .overview-system {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-rings {
+    justify-content: start;
   }
 }
 </style>

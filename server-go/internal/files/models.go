@@ -1,6 +1,9 @@
 package files
 
-import "time"
+import (
+	"io"
+	"time"
+)
 
 type FileNode struct {
 	ID         string     `json:"id"`
@@ -30,6 +33,7 @@ type FileRow struct {
 	Tags       []string `json:"tags"`
 	Permission string   `json:"permission"`
 	AISummary  string   `json:"aiSummary"`
+	IsDir      bool     `json:"isDir"`
 }
 
 type SearchQuery struct {
@@ -65,6 +69,39 @@ type BatchOperation struct {
 	Destination string            `json:"destination"`
 	Rename      map[string]string `json:"rename"`
 	Actor       string            `json:"actor"`
+}
+
+type CreateFolderRequest struct {
+	Space string `json:"space"`
+	Path  string `json:"path"`
+	Name  string `json:"name"`
+	Actor string `json:"actor"`
+}
+
+type CreateFileRequest struct {
+	Space   string `json:"space"`
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
+	Actor   string `json:"actor"`
+}
+
+type UploadFileRequest struct {
+	Space   string
+	Path    string
+	Name    string
+	Content io.Reader
+	Actor   string
+}
+
+type RenameRequest struct {
+	Name  string `json:"name"`
+	Actor string `json:"actor"`
+}
+
+type MoveRequest struct {
+	Destination string `json:"destination"`
+	Actor       string `json:"actor"`
 }
 
 type Preview struct {

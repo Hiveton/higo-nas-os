@@ -5,6 +5,7 @@ import { ArchiveRestore, CheckCircle2, CircleAlert, FileSearch, KeyRound, Play, 
 import { apiClient } from '../../api/client';
 import type { AgentTemplate, WorkflowNode } from '../../api/types';
 import { agentTemplates as seedAgentTemplates, workflowNodes as seedWorkflowNodes } from '../../data/higoos';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type LocalWorkflowNode = WorkflowNode & { icon?: Component };
 
@@ -207,17 +208,29 @@ onMounted(loadAgentWorkbench);
         {{ executionConfirmed ? '已确认' : '确认执行' }}
       </button>
     </section>
+    <NasFeaturePanel class="agent-workbench__features" :modules="['ai', 'vm']" />
   </div>
 </template>
 
 <style scoped>
 .agent-workbench {
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr) 180px;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(190px, 210px) minmax(320px, 1fr) minmax(170px, 190px);
+  grid-template-rows: minmax(260px, 1fr) auto auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.agent-workbench__features {
+  grid-column: 1 / -1;
+  --nas-feature-min: 260px;
+
+  width: 100%;
+  min-width: 0;
+  align-self: start;
 }
 
 .agent-workbench__templates,
@@ -294,6 +307,8 @@ onMounted(loadAgentWorkbench);
 }
 
 .agent-workbench__workflow {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -315,6 +330,8 @@ onMounted(loadAgentWorkbench);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  min-height: 0;
+  overflow: auto;
   padding: 12px;
 }
 
@@ -358,7 +375,8 @@ onMounted(loadAgentWorkbench);
 
 .agent-workbench__permissions {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .agent-workbench__permissions h3 {
@@ -372,6 +390,8 @@ onMounted(loadAgentWorkbench);
   flex-wrap: wrap;
   align-content: start;
   gap: 8px;
+  min-height: 0;
+  overflow: auto;
   padding: 12px;
 }
 
@@ -390,7 +410,7 @@ onMounted(loadAgentWorkbench);
 }
 
 .agent-workbench__confirm {
-  grid-column: 2 / span 2;
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -423,5 +443,34 @@ onMounted(loadAgentWorkbench);
   border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 760;
+}
+
+@media (max-width: 900px) {
+  .agent-workbench {
+    grid-template-columns: minmax(180px, 0.72fr) minmax(280px, 1fr);
+    grid-template-rows: minmax(240px, 1fr) auto auto auto;
+  }
+
+  .agent-workbench__permissions {
+    grid-column: 1 / -1;
+  }
+
+  .agent-workbench__nodes {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .agent-workbench {
+    display: block;
+  }
+
+  .agent-workbench__templates,
+  .agent-workbench__workflow,
+  .agent-workbench__permissions,
+  .agent-workbench__confirm,
+  .agent-workbench__features {
+    margin-bottom: 12px;
+  }
 }
 </style>

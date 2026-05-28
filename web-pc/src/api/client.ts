@@ -1,8 +1,12 @@
-import { DELETE, GET, POST, PUT, createEventStream } from './runtime';
+import { DELETE, GET, POST, PUT, buildApiUrl, createEventStream } from './runtime';
 import type {
   AiPolicy,
   Alert,
   AlbumItem,
+  AccountGroup,
+  AccountSpaceGrant,
+  AccountSummary,
+  AccountUser,
   AppCenterApp,
   AssistantMessage,
   AssistantThread,
@@ -34,6 +38,7 @@ import type {
   SettingsState,
   SpeedProfile,
   StewardSuggestion,
+  StorageSpace,
   StoragePool,
   StorageTask,
   SystemInfo,
@@ -43,8 +48,54 @@ import type {
 
 type Id = string | number;
 type RecordPayload = Record<string, unknown>;
+type UploadFilesPayload = {
+  space?: string;
+  path?: string;
+  actor?: string;
+  files: File[];
+  names?: string[];
+};
 
 const pathId = (value: Id) => encodeURIComponent(String(value));
+
+function uploadFilesWithProgress(payload: UploadFilesPayload, onProgress?: (progress: number) => void) {
+  const body = new FormData();
+  if (payload.space) body.set('space', payload.space);
+  if (payload.path) body.set('path', payload.path);
+  if (payload.actor) body.set('actor', payload.actor);
+  payload.files.forEach((file, index) => body.append('file', file, payload.names?.[index] ?? file.name));
+
+  return new Promise<FileRow[]>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', buildApiUrl('/api/v1/files/upload'));
+    request.withCredentials = true;
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress?.(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+    request.onerror = () => reject(new Error('上传连接失败'));
+    request.onload = () => {
+      let payloadBody: any;
+      try {
+        payloadBody = request.responseText ? JSON.parse(request.responseText) : undefined;
+      } catch {
+        payloadBody = request.responseText;
+      }
+      if (request.status < 200 || request.status >= 300 || payloadBody?.ok === false || payloadBody?.success === false) {
+        const message =
+          typeof payloadBody?.error === 'string'
+            ? payloadBody.error
+            : payloadBody?.error?.message || payloadBody?.message || request.statusText || '上传失败';
+        reject(new Error(message));
+        return;
+      }
+      onProgress?.(100);
+      resolve((payloadBody?.data ?? payloadBody ?? []) as FileRow[]);
+    };
+    request.send(body);
+  });
+}
 
 export const apiClient = {
   desktop: {
@@ -63,13 +114,20 @@ export const apiClient = {
   },
 
   files: {
-    getTree: (space?: string) => GET<FileTreeNode[]>('/api/v1/files/tree', { query: { space } }),
+    getTree: (space?: string) => GET<FileTreeNode>('/api/v1/files/tree', { query: { space } }),
     search: (query: { q?: string; space?: string; type?: string; tags?: string[] }) =>
       GET<FileRow[]>('/api/v1/files/search', { query }),
     getFile: (id: Id) => GET<FileRow>(`/api/v1/files/${pathId(id)}`),
     getPreview: (id: Id) => GET<RecordPayload>(`/api/v1/files/${pathId(id)}/preview`),
+    createFolder: (payload: RecordPayload) => POST<FileRow>('/api/v1/files/folders', payload),
+    uploadFiles: (payload: UploadFilesPayload) => uploadFilesWithProgress(payload),
+    uploadFilesWithProgress,
+    downloadUrl: (id: Id) => buildApiUrl(`/api/v1/files/${pathId(id)}/download`),
     addTags: (id: Id, tags: string[]) => POST<FileRow>(`/api/v1/files/${pathId(id)}/tags`, { tags }),
     createShare: (id: Id, payload: RecordPayload) => POST<FileShare>(`/api/v1/files/${pathId(id)}/shares`, payload),
+    rename: (id: Id, payload: RecordPayload) => POST<FileRow>(`/api/v1/files/${pathId(id)}/rename`, payload),
+    move: (id: Id, payload: RecordPayload) => POST<FileRow>(`/api/v1/files/${pathId(id)}/move`, payload),
+    delete: (id: Id, payload?: RecordPayload) => POST<FileRow>(`/api/v1/files/${pathId(id)}/delete`, payload ?? {}),
     moveBatch: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/files/batch/move', payload),
     renameBatch: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/files/batch/rename', payload),
     deleteBatch: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/files/batch/delete', payload),
@@ -78,12 +136,35 @@ export const apiClient = {
 
   storage: {
     getPools: () => GET<StoragePool[]>('/api/v1/storage/pools'),
+    getSpaces: () => GET<StorageSpace[]>('/api/v1/storage/spaces'),
+    createSpace: (payload: RecordPayload) => POST<StorageSpace>('/api/v1/storage/spaces', payload),
+    deleteSpace: (id: Id, payload?: RecordPayload) =>
+      DELETE<StorageTask>(`/api/v1/storage/spaces/${pathId(id)}`, { body: payload ?? {} }),
     getDisks: () => GET<Disk[]>('/api/v1/storage/disks'),
+    addDisk: (payload: RecordPayload) => POST<Disk>('/api/v1/storage/disks', payload),
+    removeDisk: (slot: Id, payload?: RecordPayload) =>
+      DELETE<StorageTask>(`/api/v1/storage/disks/${pathId(slot)}`, { body: payload ?? {} }),
+    updateDiskSettings: (slot: Id, payload: RecordPayload) =>
+      PUT<Disk>(`/api/v1/storage/disks/${pathId(slot)}/settings`, payload),
     getSmartReports: () => GET<RecordPayload[]>('/api/v1/storage/smart'),
     startSmartScan: (payload?: RecordPayload) => POST<TaskResponse>('/api/v1/storage/tasks/smart-scan', payload ?? {}),
     startRepair: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/storage/tasks/repair', payload),
     createSnapshot: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/storage/tasks/snapshot', payload),
     getTask: (id: Id) => GET<StorageTask>(`/api/v1/storage/tasks/${pathId(id)}`),
+  },
+
+  accounts: {
+    getSummary: () => GET<AccountSummary>('/api/v1/accounts/summary'),
+    getUsers: () => GET<AccountUser[]>('/api/v1/accounts/users'),
+    createUser: (payload: RecordPayload) => POST<AccountUser>('/api/v1/accounts/users', payload),
+    updateUser: (id: Id, payload: RecordPayload) => PUT<AccountUser>(`/api/v1/accounts/users/${pathId(id)}`, payload),
+    deleteUser: (id: Id) => DELETE<TaskResponse>(`/api/v1/accounts/users/${pathId(id)}`),
+    getGroups: () => GET<AccountGroup[]>('/api/v1/accounts/groups'),
+    createGroup: (payload: RecordPayload) => POST<AccountGroup>('/api/v1/accounts/groups', payload),
+    updateGroupMembers: (id: Id, userIds: Id[]) =>
+      PUT<AccountGroup>(`/api/v1/accounts/groups/${pathId(id)}/members`, { userIds }),
+    grantSpace: (payload: RecordPayload) => POST<AccountSpaceGrant>('/api/v1/accounts/grants', payload),
+    deleteGrant: (id: Id) => DELETE<TaskResponse>(`/api/v1/accounts/grants/${pathId(id)}`),
   },
 
   steward: {

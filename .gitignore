@@ -19,3 +19,4 @@ web-pc/tmp-*.webp
 coverage/
 .vite/
 .cache/
+server-go/.gocache/

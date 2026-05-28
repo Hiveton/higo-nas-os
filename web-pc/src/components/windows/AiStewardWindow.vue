@@ -4,6 +4,7 @@ import { AlertTriangle, ArchiveRestore, CheckCircle2, History, ShieldAlert } fro
 import { apiClient } from '../../api/client';
 import type { AuditEntry, StewardSuggestion } from '../../api/types';
 import { auditEntries as seedAuditEntries, stewardSuggestions as seedStewardSuggestions } from '../../data/higoos';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 const riskClass = {
   低风险: 'ai-steward__risk--low',
@@ -178,15 +179,21 @@ onMounted(loadStewardState);
         </li>
       </ul>
     </section>
+    <NasFeaturePanel class="ai-steward__features" :modules="['files', 'security', 'ai']" />
   </div>
 </template>
 
 <style scoped>
 .ai-steward {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   gap: 12px;
   height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ai-steward__features {
   min-height: 0;
 }
 

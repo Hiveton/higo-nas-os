@@ -26,16 +26,126 @@ func (a *API) storagePools(w http.ResponseWriter, r *http.Request) {
 	platform.WriteJSON(w, r, http.StatusOK, mapStoragePools(pools))
 }
 
-func (a *API) storageDisks(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodGet) {
+func (a *API) storageSpaces(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		spaces, err := a.storage.Spaces(r.Context())
+		if err != nil {
+			platform.WriteError(w, r, http.StatusInternalServerError, "storage_spaces_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, spaces)
+	case http.MethodPost:
+		var body storage.CreateSpaceRequest
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		space, err := a.storage.CreateSpace(r.Context(), body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "storage_space_create_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, space)
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPost)
+	}
+}
+
+func (a *API) storageSpaceByID(w http.ResponseWriter, r *http.Request) {
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/storage/spaces/"), "/")
+	if id == "" {
+		platform.WriteError(w, r, http.StatusNotFound, "storage_space_route_not_found", "storage space id is required")
 		return
 	}
-	disks, err := a.storage.Disks(r.Context())
+	if !allowMethod(w, r, http.MethodDelete) {
+		return
+	}
+	var body storage.DeleteSpaceRequest
+	if r.ContentLength != 0 {
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+	}
+	task, err := a.storage.DeleteSpace(r.Context(), id, body)
 	if err != nil {
-		platform.WriteError(w, r, http.StatusInternalServerError, "storage_disks_failed", err.Error())
+		platform.WriteError(w, r, http.StatusBadRequest, "storage_space_delete_failed", err.Error())
 		return
 	}
-	platform.WriteJSON(w, r, http.StatusOK, mapStorageDisks(disks))
+	if _, err := a.accounts.DeleteSpaceGrants(r.Context(), id); err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "storage_space_grants_cleanup_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, task)
+}
+
+func (a *API) storageDisks(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		disks, err := a.storage.Disks(r.Context())
+		if err != nil {
+			platform.WriteError(w, r, http.StatusInternalServerError, "storage_disks_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, mapStorageDisks(disks))
+	case http.MethodPost:
+		var body storage.AddDiskRequest
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		disk, err := a.storage.AddDisk(r.Context(), body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "storage_disk_add_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, mapStorageDisk(disk))
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPost)
+	}
+}
+
+func (a *API) storageDiskByID(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/storage/disks/"), "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		platform.WriteError(w, r, http.StatusNotFound, "storage_disk_route_not_found", "storage disk route not found")
+		return
+	}
+	if len(parts) == 1 && r.Method == http.MethodDelete {
+		var body storage.RemoveDiskRequest
+		if r.ContentLength != 0 {
+			if err := decodeJSON(r, &body); err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+				return
+			}
+		}
+		task, err := a.storage.RemoveDisk(r.Context(), parts[0], body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "storage_disk_remove_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, task)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "settings" {
+		if !allowMethod(w, r, http.MethodPut) {
+			return
+		}
+		var body storage.DiskSettingsRequest
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		disk, err := a.storage.UpdateDiskSettings(r.Context(), parts[0], body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "storage_disk_settings_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, mapStorageDisk(disk))
+		return
+	}
+	platform.WriteError(w, r, http.StatusNotFound, "storage_disk_route_not_found", "storage disk route not found")
 }
 
 func (a *API) storageSmartReports(w http.ResponseWriter, r *http.Request) {
@@ -475,13 +585,14 @@ func mapStoragePools(pools []storage.StoragePool) []map[string]any {
 	out := make([]map[string]any, 0, len(pools))
 	for _, pool := range pools {
 		out = append(out, map[string]any{
-			"id":     pool.ID,
-			"name":   pool.Name,
-			"type":   pool.Type,
-			"used":   pool.UsedPercent,
-			"total":  pool.Total,
-			"health": pool.Health,
-			"temp":   pool.Temperature,
+			"id":        pool.ID,
+			"name":      pool.Name,
+			"type":      pool.Type,
+			"used":      pool.UsedPercent,
+			"total":     pool.Total,
+			"health":    pool.Health,
+			"temp":      pool.Temperature,
+			"mountPath": pool.MountPath,
 		})
 	}
 	return out
@@ -490,18 +601,35 @@ func mapStoragePools(pools []storage.StoragePool) []map[string]any {
 func mapStorageDisks(disks []storage.Disk) []map[string]any {
 	out := make([]map[string]any, 0, len(disks))
 	for _, disk := range disks {
-		out = append(out, map[string]any{
-			"slot":   disk.Slot,
-			"size":   disk.Size,
-			"state":  disk.State,
-			"temp":   disk.Temperature,
-			"serial": disk.Serial,
-			"health": disk.Health,
-			"role":   disk.Role,
-			"poolId": disk.PoolID,
-		})
+		out = append(out, mapStorageDisk(disk))
 	}
 	return out
+}
+
+func mapStorageDisk(disk storage.Disk) map[string]any {
+	return map[string]any{
+		"slot":           disk.Slot,
+		"size":           disk.Size,
+		"state":          disk.State,
+		"temp":           disk.Temperature,
+		"serial":         disk.Serial,
+		"health":         disk.Health,
+		"role":           disk.Role,
+		"poolId":         disk.PoolID,
+		"model":          disk.Model,
+		"interface":      disk.Interface,
+		"devicePath":     disk.DevicePath,
+		"deviceType":     disk.DeviceType,
+		"mediaType":      disk.MediaType,
+		"rotational":     disk.Rotational,
+		"systemDisk":     disk.SystemDisk,
+		"fileSystem":     disk.FileSystem,
+		"mountPath":      disk.MountPath,
+		"standbyMinutes": disk.StandbyMinutes,
+		"ssdCache":       disk.SSDCache,
+		"cacheMode":      disk.CacheMode,
+		"partitions":     disk.Partitions,
+	}
 }
 
 func mapDockerContainers(containers []hdocker.Container) []map[string]any {

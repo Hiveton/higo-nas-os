@@ -15,6 +15,7 @@ import {
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { AiPolicy, AuditEntry, FileShare, IdentityPolicy, RiskAction, RiskLevel } from '../../api/types';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type RiskFilter = '全部' | RiskLevel;
 
@@ -408,6 +409,7 @@ onMounted(loadSecurityState);
         </article>
       </div>
     </section>
+    <NasFeaturePanel class="security-center__features" :modules="['security', 'files']" />
   </div>
 </template>
 
@@ -415,10 +417,14 @@ onMounted(loadSecurityState);
 .security-center {
   display: grid;
   grid-template-columns: minmax(260px, 1.1fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
+}
+
+.security-center__features {
+  grid-column: 1 / -1;
 }
 
 .security-center__overview,

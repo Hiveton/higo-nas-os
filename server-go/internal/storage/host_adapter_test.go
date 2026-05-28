@@ -57,3 +57,44 @@ map auto_home            0         0         0   100%    /System/Volumes/Data/ho
 		}
 	}
 }
+
+func TestHostAdapterBuildsDisksFromLSBLK(t *testing.T) {
+	lsblk := []byte(`{
+  "blockdevices": [
+    {"name":"sda","path":"/dev/sda","type":"disk","size":64424509440,"rota":false,"tran":null,"model":"Virtual disk","serial":null,"mountpoints":[null],"fstype":null,"state":"running","children":[
+      {"name":"sda1","path":"/dev/sda1","type":"part","size":1127219200,"fsused":94371840,"fssize":1127219200,"rota":false,"tran":null,"model":null,"serial":null,"mountpoints":["/boot/efi"],"fstype":"vfat","state":null},
+      {"name":"sda2","path":"/dev/sda2","type":"part","size":2147483648,"fsused":1073741824,"fssize":2147483648,"rota":false,"tran":null,"model":null,"serial":null,"mountpoints":["/boot"],"fstype":"ext4","state":null}
+    ]},
+    {"name":"sdb","path":"/dev/sdb","type":"disk","size":15032385536,"rota":false,"tran":"sata","model":"Samsung SSD","serial":"S123","mountpoints":[null],"fstype":null,"state":"running"}
+  ]
+}`)
+	adapter := NewHostAdapterWithRunner(func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name != "lsblk" {
+			t.Fatalf("unexpected command %s %v", name, args)
+		}
+		if !strings.Contains(strings.Join(args, " "), "FSUSED,FSSIZE") {
+			t.Fatalf("lsblk fields missing partition usage columns: %v", args)
+		}
+		return lsblk, nil
+	})
+
+	disks, err := adapter.Disks(context.Background())
+	if err != nil {
+		t.Fatalf("disks: %v", err)
+	}
+	if len(disks) != 2 {
+		t.Fatalf("expected 2 physical disks, got %d: %#v", len(disks), disks)
+	}
+	if disks[0].Slot != "sda" || disks[0].DevicePath != "/dev/sda" || disks[0].MediaType != "虚拟 SSD" || disks[0].Interface != "block" || disks[0].MountPath != "/boot/efi" || !disks[0].SystemDisk {
+		t.Fatalf("unexpected first lsblk disk: %#v", disks[0])
+	}
+	if len(disks[0].Partitions) != 2 {
+		t.Fatalf("expected first disk partitions, got %#v", disks[0].Partitions)
+	}
+	if disks[0].Partitions[0].Name != "sda1" || disks[0].Partitions[0].FileSystem != "vfat" || !disks[0].Partitions[0].System || disks[0].Partitions[0].Used == "" || disks[0].Partitions[0].Total == "" {
+		t.Fatalf("unexpected first partition: %#v", disks[0].Partitions[0])
+	}
+	if disks[1].Slot != "sdb" || disks[1].MediaType != "NVMe SSD" && disks[1].MediaType != "SSD" || disks[1].Interface != "sata" || disks[1].Serial != "S123" || disks[1].SystemDisk {
+		t.Fatalf("unexpected second lsblk disk: %#v", disks[1])
+	}
+}

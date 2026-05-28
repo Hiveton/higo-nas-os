@@ -16,6 +16,7 @@ import {
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { ComposeStack, DockerContainer } from '../../api/types';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type ContainerStatus = '运行中' | '已停止' | '重启中' | string;
 type StartStopStatus = '运行中' | '已停止';
@@ -418,6 +419,7 @@ onMounted(() => {
         </template>
       </div>
     </aside>
+    <NasFeaturePanel class="docker-window__features" :modules="['docker', 'apps']" compact />
   </div>
 </template>
 
@@ -425,9 +427,14 @@ onMounted(() => {
 .docker-window {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr) 210px;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
+}
+
+.docker-window__features {
+  grid-column: 1 / -1;
 }
 
 .docker-window__stacks,

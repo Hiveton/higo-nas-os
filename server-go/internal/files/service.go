@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +18,17 @@ type Repository interface {
 	List(context.Context) ([]FileNode, error)
 	Get(context.Context, string) (FileNode, error)
 	Put(context.Context, FileNode) error
+}
+
+type MutableRepository interface {
+	Repository
+	CreateFolder(context.Context, CreateFolderRequest) (FileNode, error)
+	CreateFile(context.Context, CreateFileRequest) (FileNode, error)
+	UploadFile(context.Context, UploadFileRequest) (FileNode, error)
+	Rename(context.Context, string, RenameRequest) (FileNode, error)
+	Move(context.Context, string, MoveRequest) (FileNode, error)
+	Delete(context.Context, string, string) (FileNode, error)
+	Open(context.Context, string) (io.ReadCloser, FileNode, error)
 }
 
 type Service struct {
@@ -142,6 +154,86 @@ func (s *Service) Preview(ctx context.Context, id string) (Preview, error) {
 	}
 }
 
+func (s *Service) CreateFolder(ctx context.Context, request CreateFolderRequest) (FileRow, error) {
+	repo, ok := s.repo.(MutableRepository)
+	if !ok {
+		return FileRow{}, fmt.Errorf("file repository does not support mutations")
+	}
+	node, err := repo.CreateFolder(ctx, request)
+	if err != nil {
+		return FileRow{}, err
+	}
+	return rowFromNode(node), nil
+}
+
+func (s *Service) CreateFile(ctx context.Context, request CreateFileRequest) (FileRow, error) {
+	repo, ok := s.repo.(MutableRepository)
+	if !ok {
+		return FileRow{}, fmt.Errorf("file repository does not support mutations")
+	}
+	node, err := repo.CreateFile(ctx, request)
+	if err != nil {
+		return FileRow{}, err
+	}
+	return rowFromNode(node), nil
+}
+
+func (s *Service) UploadFile(ctx context.Context, request UploadFileRequest) (FileRow, error) {
+	repo, ok := s.repo.(MutableRepository)
+	if !ok {
+		return FileRow{}, fmt.Errorf("file repository does not support mutations")
+	}
+	node, err := repo.UploadFile(ctx, request)
+	if err != nil {
+		return FileRow{}, err
+	}
+	return rowFromNode(node), nil
+}
+
+func (s *Service) Rename(ctx context.Context, id string, request RenameRequest) (FileRow, error) {
+	repo, ok := s.repo.(MutableRepository)
+	if !ok {
+		return FileRow{}, fmt.Errorf("file repository does not support mutations")
+	}
+	node, err := repo.Rename(ctx, id, request)
+	if err != nil {
+		return FileRow{}, err
+	}
+	return rowFromNode(node), nil
+}
+
+func (s *Service) Move(ctx context.Context, id string, request MoveRequest) (FileRow, error) {
+	repo, ok := s.repo.(MutableRepository)
+	if !ok {
+		return FileRow{}, fmt.Errorf("file repository does not support mutations")
+	}
+	node, err := repo.Move(ctx, id, request)
+	if err != nil {
+		return FileRow{}, err
+	}
+	return rowFromNode(node), nil
+}
+
+func (s *Service) Delete(ctx context.Context, id string, actor string) (FileRow, error) {
+	repo, ok := s.repo.(MutableRepository)
+	if !ok {
+		return FileRow{}, fmt.Errorf("file repository does not support mutations")
+	}
+	node, err := repo.Delete(ctx, id, actor)
+	if err != nil {
+		return FileRow{}, err
+	}
+	return rowFromNode(node), nil
+}
+
+func (s *Service) Open(ctx context.Context, id string) (io.ReadCloser, FileNode, error) {
+	repo, ok := s.repo.(MutableRepository)
+	if !ok {
+		return nil, FileNode{}, fmt.Errorf("file repository does not support downloads")
+	}
+	return repo.Open(ctx, id)
+}
+
 func (s *Service) AddTags(ctx context.Context, mutation TagMutation) (FileRow, error) {
 	node, err := s.repo.Get(ctx, mutation.FileID)
 	if err != nil {
@@ -265,6 +357,7 @@ func rowFromNode(node FileNode) FileRow {
 		Tags:       append([]string(nil), node.Tags...),
 		Permission: node.Permission,
 		AISummary:  node.Summary,
+		IsDir:      node.IsDir,
 	}
 }
 

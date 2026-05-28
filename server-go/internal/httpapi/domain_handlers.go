@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -51,6 +53,90 @@ func (a *API) filesSearch(w http.ResponseWriter, r *http.Request) {
 	platform.WriteJSON(w, r, http.StatusOK, rows)
 }
 
+func (a *API) filesFolders(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	if a.files == nil {
+		platform.WriteError(w, r, http.StatusServiceUnavailable, "files_unavailable", "files service is unavailable")
+		return
+	}
+	var body files.CreateFolderRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	row, err := a.files.CreateFolder(r.Context(), body)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "folder_create_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, row)
+}
+
+func (a *API) filesUpload(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	if a.files == nil {
+		platform.WriteError(w, r, http.StatusServiceUnavailable, "files_unavailable", "files service is unavailable")
+		return
+	}
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		a.filesMultipartUpload(w, r)
+		return
+	}
+	var body files.CreateFileRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	row, err := a.files.CreateFile(r.Context(), body)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "file_create_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, row)
+}
+
+func (a *API) filesMultipartUpload(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_multipart", err.Error())
+		return
+	}
+	space := r.FormValue("space")
+	pathValue := r.FormValue("path")
+	actor := r.FormValue("actor")
+	var rows []files.FileRow
+	for _, headers := range r.MultipartForm.File {
+		for _, header := range headers {
+			file, err := header.Open()
+			if err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "upload_open_failed", err.Error())
+				return
+			}
+			row, err := a.files.UploadFile(r.Context(), files.UploadFileRequest{
+				Space:   space,
+				Path:    pathValue,
+				Name:    header.Filename,
+				Content: file,
+				Actor:   actor,
+			})
+			_ = file.Close()
+			if err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "file_upload_failed", err.Error())
+				return
+			}
+			rows = append(rows, row)
+		}
+	}
+	if len(rows) == 0 {
+		platform.WriteError(w, r, http.StatusBadRequest, "missing_upload_file", "upload file is required")
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, rows)
+}
+
 func (a *API) fileByID(w http.ResponseWriter, r *http.Request) {
 	if a.files == nil {
 		platform.WriteError(w, r, http.StatusServiceUnavailable, "files_unavailable", "files service is unavailable")
@@ -81,15 +167,39 @@ func (a *API) fileByID(w http.ResponseWriter, r *http.Request) {
 	switch parts[1] {
 	case "preview":
 		a.filePreview(w, r, id)
+	case "download":
+		a.fileDownload(w, r, id)
 	case "tags":
 		a.fileAddTags(w, r, id)
 	case "shares":
 		a.fileCreateShare(w, r, id)
+	case "rename":
+		a.fileRename(w, r, id)
+	case "move":
+		a.fileMove(w, r, id)
+	case "delete":
+		a.fileDelete(w, r, id)
 	case "restore":
 		a.fileRestore(w, r, id)
 	default:
 		platform.WriteError(w, r, http.StatusNotFound, "file_route_not_found", "file route not found")
 	}
+}
+
+func (a *API) fileDownload(w http.ResponseWriter, r *http.Request, id string) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	reader, node, err := a.files.Open(r.Context(), id)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusNotFound, "file_download_failed", err.Error())
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", node.Name))
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, reader)
 }
 
 func (a *API) filePreview(w http.ResponseWriter, r *http.Request, id string) {
@@ -149,6 +259,61 @@ func (a *API) fileCreateShare(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 	platform.WriteJSON(w, r, http.StatusOK, share)
+}
+
+func (a *API) fileRename(w http.ResponseWriter, r *http.Request, id string) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	var body files.RenameRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	row, err := a.files.Rename(r.Context(), id, body)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "file_rename_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, row)
+}
+
+func (a *API) fileMove(w http.ResponseWriter, r *http.Request, id string) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	var body files.MoveRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	row, err := a.files.Move(r.Context(), id, body)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "file_move_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, row)
+}
+
+func (a *API) fileDelete(w http.ResponseWriter, r *http.Request, id string) {
+	if !allowMethod(w, r, http.MethodPost, http.MethodDelete) {
+		return
+	}
+	var body struct {
+		Actor string `json:"actor"`
+	}
+	if r.Method == http.MethodPost && r.ContentLength != 0 {
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+	}
+	row, err := a.files.Delete(r.Context(), id, body.Actor)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "file_delete_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, row)
 }
 
 func (a *API) fileRestore(w http.ResponseWriter, r *http.Request, id string) {

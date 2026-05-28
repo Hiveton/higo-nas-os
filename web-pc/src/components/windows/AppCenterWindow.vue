@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { Boxes, CheckCircle2, DownloadCloud, Play, RefreshCw, Search, ShieldCheck, Square, Tags } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { AppCenterApp } from '../../api/types';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 const fallbackApps: AppCenterApp[] = [
   {
@@ -241,13 +242,14 @@ onMounted(loadApps);
       <CheckCircle2 :size="15" />
       <span>{{ actionState }}</span>
     </section>
+    <NasFeaturePanel :modules="['apps', 'vm', 'protocols']" />
   </div>
 </template>
 
 <style scoped>
 .app-center {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 12px;
   height: 100%;
   min-height: 0;

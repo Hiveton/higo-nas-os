@@ -109,7 +109,7 @@ function isPinned(id: string) {
   width: max-content;
   max-width: 100%;
   min-height: clamp(78px, 8.3vw, 96px);
-  padding: clamp(10px, 1.05vw, 14px) clamp(14px, 1.45vw, 22px) clamp(9px, 0.92vw, 13px);
+  padding: clamp(9px, 0.9vw, 12px) clamp(12px, 1.25vw, 18px) clamp(8px, 0.8vw, 11px);
   overflow: visible;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(223, 250, 249, 0.48)),
@@ -169,8 +169,8 @@ function isPinned(id: string) {
   position: relative;
   display: grid;
   flex: 0 0 auto;
-  width: clamp(52px, 5.05vw, 74px);
-  height: clamp(62px, 6.35vw, 86px);
+  width: clamp(50px, 4.55vw, 66px);
+  height: clamp(60px, 5.65vw, 78px);
   place-items: end center;
   padding: 0;
   color: var(--text-strong);
@@ -186,8 +186,8 @@ function isPinned(id: string) {
 .dock__icon-wrap {
   position: relative;
   display: grid;
-  width: clamp(50px, 4.9vw, 70px);
-  height: clamp(50px, 4.9vw, 70px);
+  width: clamp(48px, 4.3vw, 62px);
+  height: clamp(48px, 4.3vw, 62px);
   place-items: center;
   transform-origin: 50% 100%;
   transition:
@@ -200,7 +200,7 @@ function isPinned(id: string) {
   height: 100%;
   object-fit: contain;
   filter: drop-shadow(0 12px 14px rgba(21, 52, 78, 0.2));
-  transform: scale(1.42);
+  transform: scale(1.16);
   transform-origin: 50% 60%;
   user-select: none;
 }
@@ -208,7 +208,7 @@ function isPinned(id: string) {
 .dock__item:hover .dock__icon-wrap,
 .dock__item:focus-visible .dock__icon-wrap {
   filter: brightness(1.04) saturate(1.06);
-  transform: translateY(-15px) scale(1.22);
+  transform: translateY(-10px) scale(1.1);
 }
 
 .dock__item:focus-visible .dock__icon-wrap {
@@ -219,8 +219,8 @@ function isPinned(id: string) {
 
 .dock__badge {
   position: absolute;
-  top: -4px;
-  right: -5px;
+  top: -3px;
+  right: -3px;
   min-width: 19px;
   height: 19px;
   padding: 0 5px;
@@ -261,23 +261,24 @@ function isPinned(id: string) {
 
 .dock__temporary-pill {
   position: absolute;
-  right: 6px;
-  bottom: 8px;
+  right: 4px;
+  bottom: 14px;
   z-index: 2;
-  padding: 2px 5px;
-  color: rgba(18, 44, 68, 0.74);
-  font-size: 9px;
-  font-weight: 800;
-  line-height: 1;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(100, 136, 166, 0.22);
+  width: 8px;
+  height: 8px;
+  overflow: hidden;
+  padding: 0;
+  color: transparent;
+  text-indent: 999px;
+  background: rgba(20, 184, 166, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.88);
   border-radius: 999px;
-  box-shadow: 0 4px 10px rgba(24, 64, 99, 0.14);
+  box-shadow: 0 4px 10px rgba(20, 184, 166, 0.25);
 }
 
 .dock__tooltip {
   position: absolute;
-  bottom: 75px;
+  bottom: 70px;
   left: 50%;
   z-index: 3;
   max-width: 108px;
@@ -309,12 +310,12 @@ function isPinned(id: string) {
 @media (hover: hover) {
   .dock__item:hover + .dock__item .dock__icon-wrap,
   .dock__item:has(+ .dock__item:hover) .dock__icon-wrap {
-    transform: translateY(-8px) scale(1.1);
+    transform: translateY(-5px) scale(1.04);
   }
 
   .dock__item:hover + .dock__item + .dock__item .dock__icon-wrap,
   .dock__item:has(+ .dock__item + .dock__item:hover) .dock__icon-wrap {
-    transform: translateY(-3px) scale(1.04);
+    transform: translateY(-2px) scale(1.02);
   }
 }
 

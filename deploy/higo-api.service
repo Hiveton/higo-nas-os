@@ -1,0 +1,17 @@
+[Unit]
+Description=HiGoOS Go API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/higoos/server.env
+ExecStart=/opt/higoos/bin/higo-api
+Restart=always
+RestartSec=3
+WorkingDirectory=/opt/higoos
+
+[Install]
+WantedBy=multi-user.target

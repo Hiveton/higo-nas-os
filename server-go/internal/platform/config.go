@@ -12,6 +12,8 @@ type Config struct {
 	HTTPAddr     string
 	PublicOrigin string
 	StateDir     string
+	NASRoot      string
+	StaticDir    string
 	Ready        bool
 }
 
@@ -23,6 +25,8 @@ func LoadConfig() Config {
 		HTTPAddr:     getenv("HIGO_HTTP_ADDR", ":8080"),
 		PublicOrigin: getenv("HIGO_PUBLIC_ORIGIN", "http://localhost:5173"),
 		StateDir:     getenv("HIGO_STATE_DIR", defaultStateDir()),
+		NASRoot:      getenv("HIGO_NAS_ROOT", ""),
+		StaticDir:    getenv("HIGO_STATIC_DIR", ""),
 		Ready:        true,
 	}
 }

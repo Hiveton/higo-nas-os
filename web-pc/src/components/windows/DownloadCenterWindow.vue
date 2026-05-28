@@ -18,6 +18,7 @@ import {
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { DownloadTask, SpeedProfile } from '../../api/types';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type SourceType = 'BT' | 'HTTP' | '磁力' | '订阅';
 type SpeedMode = '智能限速' | '夜间全速' | '家庭优先';
@@ -388,6 +389,7 @@ onMounted(loadDownloadState);
         </ul>
       </section>
     </aside>
+    <NasFeaturePanel class="download-center__features" :modules="['downloads', 'files']" compact />
   </div>
 </template>
 
@@ -395,9 +397,14 @@ onMounted(loadDownloadState);
 .download-center {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr) 230px;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
+}
+
+.download-center__features {
+  grid-column: 1 / -1;
 }
 
 .download-center__control,

@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,30 @@ import (
 	"higoos/server-go/internal/devstub"
 	"higoos/server-go/internal/httpapi"
 	"higoos/server-go/internal/platform"
+	"higoos/server-go/internal/storage"
 )
+
+type storageTestAdapter struct {
+	disks []storage.Disk
+}
+
+func (a storageTestAdapter) Pools(context.Context) ([]storage.StoragePool, error) {
+	return nil, nil
+}
+
+func (a storageTestAdapter) Disks(context.Context) ([]storage.Disk, error) {
+	return append([]storage.Disk(nil), a.disks...), nil
+}
+
+func (a storageTestAdapter) SmartReports(context.Context) ([]storage.SmartReport, error) {
+	return nil, nil
+}
+
+type storageTestProvisioner struct{}
+
+func (storageTestProvisioner) Provision(context.Context, storage.SpaceProvisionPlan) error {
+	return nil
+}
 
 func TestHealthzReturnsOK(t *testing.T) {
 	router := httpapi.NewRouter(httpapi.Dependencies{
@@ -1018,5 +1042,122 @@ func TestSessionGuardRequiresCookieOutsideDev(t *testing.T) {
 	}
 	if body.OK {
 		t.Fatal("expected error envelope ok=false")
+	}
+}
+
+func TestStorageManagementEndpoints(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HIGO_NAS_ROOT", root)
+	router := httpapi.NewRouter(httpapi.Dependencies{
+		Config: platform.Config{Environment: "test", Version: "test"},
+		Dev:    devstub.NewStore(),
+		Storage: storage.NewServiceWithProvisioner(storageTestAdapter{disks: []storage.Disk{{
+			Slot:       "1",
+			Size:       "30 GB",
+			State:      storage.DiskStateHealthy,
+			Health:     storage.HealthHealthy,
+			Role:       "disk",
+			DevicePath: "/dev/test-storage",
+			DeviceType: "disk",
+		}}}, storageTestProvisioner{}),
+	})
+
+	createRec := httptest.NewRecorder()
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/storage/spaces", bytes.NewBufferString(`{"name":"家庭照片","mode":"basic","fileSystem":"ext4","diskSlots":["1"],"confirm":true,"formatDisk":true}`))
+	router.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("expected create space HTTP 200, got %d: %s", createRec.Code, createRec.Body.String())
+	}
+	var createBody struct {
+		Data struct {
+			ID         string   `json:"id"`
+			Name       string   `json:"name"`
+			DiskSlots  []string `json:"diskSlots"`
+			FileSystem string   `json:"fileSystem"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(createRec.Body.Bytes(), &createBody); err != nil {
+		t.Fatalf("decode create space: %v", err)
+	}
+	if createBody.Data.ID == "" || createBody.Data.FileSystem != "ext4" || len(createBody.Data.DiskSlots) != 1 {
+		t.Fatalf("unexpected created space: %#v", createBody.Data)
+	}
+
+	deleteRec := httptest.NewRecorder()
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/storage/spaces/"+createBody.Data.ID, bytes.NewBufferString(`{"confirm":true}`))
+	router.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("expected delete space HTTP 200, got %d: %s", deleteRec.Code, deleteRec.Body.String())
+	}
+}
+
+func TestAccountManagementEndpoints(t *testing.T) {
+	router := httpapi.NewRouter(httpapi.Dependencies{
+		Config: platform.Config{Environment: "test", Version: "test"},
+		Dev:    devstub.NewStore(),
+	})
+
+	userRec := httptest.NewRecorder()
+	userReq := httptest.NewRequest(http.MethodPost, "/api/v1/accounts/users", bytes.NewBufferString(`{"username":"lin","displayName":"林同学","password":"Passw0rd!","role":"user","quotaBytes":53687091200,"groups":["family"]}`))
+	router.ServeHTTP(userRec, userReq)
+	if userRec.Code != http.StatusOK {
+		t.Fatalf("expected create user HTTP 200, got %d: %s", userRec.Code, userRec.Body.String())
+	}
+	var userBody struct {
+		Data struct {
+			ID       string `json:"id"`
+			Username string `json:"username"`
+			Status   string `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(userRec.Body.Bytes(), &userBody); err != nil {
+		t.Fatalf("decode create user: %v", err)
+	}
+	if userBody.Data.ID == "" || userBody.Data.Username != "lin" || userBody.Data.Status != "active" {
+		t.Fatalf("unexpected user response: %#v", userBody.Data)
+	}
+
+	summaryRec := httptest.NewRecorder()
+	summaryReq := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/summary", nil)
+	router.ServeHTTP(summaryRec, summaryReq)
+	if summaryRec.Code != http.StatusOK {
+		t.Fatalf("expected accounts summary HTTP 200, got %d: %s", summaryRec.Code, summaryRec.Body.String())
+	}
+	var summaryBody struct {
+		Data struct {
+			Users []struct {
+				ID string `json:"id"`
+			} `json:"users"`
+			Groups []struct {
+				ID string `json:"id"`
+			} `json:"groups"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(summaryRec.Body.Bytes(), &summaryBody); err != nil {
+		t.Fatalf("decode summary: %v", err)
+	}
+	if len(summaryBody.Data.Users) < 2 || len(summaryBody.Data.Groups) < 2 {
+		t.Fatalf("unexpected account summary: %#v", summaryBody.Data)
+	}
+
+	grantRec := httptest.NewRecorder()
+	grantReq := httptest.NewRequest(http.MethodPost, "/api/v1/accounts/grants", bytes.NewBufferString(`{"subjectType":"user","subjectId":"admin","spaceId":"space-test","access":"manage"}`))
+	router.ServeHTTP(grantRec, grantReq)
+	if grantRec.Code != http.StatusOK {
+		t.Fatalf("expected grant HTTP 200, got %d: %s", grantRec.Code, grantRec.Body.String())
+	}
+	var grantBody struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(grantRec.Body.Bytes(), &grantBody); err != nil {
+		t.Fatalf("decode grant: %v", err)
+	}
+	deleteGrantRec := httptest.NewRecorder()
+	deleteGrantReq := httptest.NewRequest(http.MethodDelete, "/api/v1/accounts/grants/"+grantBody.Data.ID, nil)
+	router.ServeHTTP(deleteGrantRec, deleteGrantReq)
+	if deleteGrantRec.Code != http.StatusOK {
+		t.Fatalf("expected delete grant HTTP 200, got %d: %s", deleteGrantRec.Code, deleteGrantRec.Body.String())
 	}
 }

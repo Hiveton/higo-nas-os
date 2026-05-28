@@ -20,6 +20,7 @@ import {
 } from 'lucide-vue-next';
 import { remoteStore } from '../../stores/remote';
 import type { AccessPolicy, RemoteDevice, RemoteLoginAlert } from '../../api/types';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type PolicyKey = string;
 
@@ -375,13 +376,14 @@ onMounted(async () => {
       <ShieldCheck :size="16" />
       <span>{{ feedback }}</span>
     </section>
+    <NasFeaturePanel :modules="['remote', 'protocols']" />
   </div>
 </template>
 
 <style scoped>
 .remote-access {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   gap: 12px;
   height: 100%;
   min-height: 0;

@@ -3,36 +3,56 @@ package storage
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"higoos/server-go/internal/state"
 )
 
 type Service struct {
-	adapter Adapter
-	now     func() time.Time
+	adapter     Adapter
+	now         func() time.Time
+	provisioner SpaceProvisioner
 
 	mu        sync.Mutex
 	taskSeq   int
 	tasks     map[string]StorageTask
+	disks     []Disk
+	spaces    []StorageSpace
 	statePath string
 }
 
 type snapshot struct {
 	TaskSeq int                    `json:"taskSeq"`
 	Tasks   map[string]StorageTask `json:"tasks"`
+	Disks   []Disk                 `json:"disks"`
+	Spaces  []StorageSpace         `json:"spaces"`
 }
 
 func NewService(adapter Adapter) *Service {
 	if adapter == nil {
 		adapter = NewHostAdapter()
 	}
+	return NewServiceWithProvisioner(adapter, NewCommandSpaceProvisioner())
+}
+
+func NewServiceWithProvisioner(adapter Adapter, provisioner SpaceProvisioner) *Service {
+	if adapter == nil {
+		adapter = NewHostAdapter()
+	}
+	if provisioner == nil {
+		provisioner = NewCommandSpaceProvisioner()
+	}
 	return &Service{
-		adapter: adapter,
-		now:     time.Now,
-		tasks:   map[string]StorageTask{},
+		adapter:     adapter,
+		now:         time.Now,
+		provisioner: provisioner,
+		tasks:       map[string]StorageTask{},
 	}
 }
 
@@ -53,19 +73,71 @@ func NewServiceWithStateDir(adapter Adapter, stateDir string) (*Service, error) 
 			service.taskSeq = len(service.tasks)
 		}
 	}
+	service.disks = cloneDisks(persisted.Disks)
+	service.spaces = cloneSpaces(persisted.Spaces)
 	return service, nil
 }
 
 func (s *Service) Pools(ctx context.Context) ([]StoragePool, error) {
-	return s.adapter.Pools(ctx)
+	pools, err := s.adapter.Pools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, disk := range s.disks {
+		pools = append(pools, StoragePool{
+			ID:          disk.PoolID,
+			Name:        disk.Model,
+			Type:        "NAS 管理卷",
+			UsedPercent: 0,
+			Total:       disk.Size,
+			Health:      disk.Health,
+			Temperature: disk.Temperature,
+			MountPath:   disk.MountPath,
+		})
+	}
+	for _, space := range s.spaces {
+		pools = append(pools, StoragePool{
+			ID:          space.ID,
+			Name:        space.Name,
+			Type:        fmt.Sprintf("%s / %s", space.Mode, space.FileSystem),
+			UsedPercent: space.UsedPercent,
+			Total:       space.Total,
+			Health:      space.Health,
+			Temperature: "N/A",
+			MountPath:   space.MountPath,
+		})
+	}
+	return pools, nil
 }
 
 func (s *Service) Disks(ctx context.Context) ([]Disk, error) {
-	return s.adapter.Disks(ctx)
+	disks, err := s.adapter.Disks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	managed := cloneDisks(s.disks)
+	for index := range managed {
+		refreshDiskCapacity(&managed[index])
+	}
+	disks = append(disks, managed...)
+	return disks, nil
 }
 
 func (s *Service) SmartReports(ctx context.Context) ([]SmartReport, error) {
 	return s.adapter.SmartReports(ctx)
+}
+
+func (s *Service) Spaces(ctx context.Context) ([]StorageSpace, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return cloneSpaces(s.spaces), nil
 }
 
 func (s *Service) StartSMARTScan(ctx context.Context, target TaskTarget) (StorageTask, error) {
@@ -73,6 +145,238 @@ func (s *Service) StartSMARTScan(ctx context.Context, target TaskTarget) (Storag
 		return StorageTask{}, err
 	}
 	return s.createTask(TaskKindSMARTScan, target, "SMART 扫描已加入任务队列")
+}
+
+func (s *Service) AddDisk(ctx context.Context, request AddDiskRequest) (Disk, error) {
+	if err := ctx.Err(); err != nil {
+		return Disk{}, err
+	}
+	if request.MountPath == "" {
+		return Disk{}, fmt.Errorf("mountPath is required")
+	}
+	info, err := os.Stat(request.MountPath)
+	if err != nil {
+		return Disk{}, err
+	}
+	if !info.IsDir() {
+		return Disk{}, fmt.Errorf("mountPath is not a directory: %s", request.MountPath)
+	}
+	name := request.Name
+	if name == "" {
+		name = filepath.Base(request.MountPath)
+	}
+	if name == "." || name == "/" || name == "" {
+		name = request.MountPath
+	}
+	size := "待探测"
+	if bytes, ok := mountCapacityBytes(request.MountPath); ok {
+		size = formatStorageBytes(bytes)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, disk := range s.disks {
+		if disk.MountPath == request.MountPath {
+			return disk, nil
+		}
+	}
+	slot := fmt.Sprintf("managed-%03d", len(s.disks)+1)
+	disk := Disk{
+		Slot:        slot,
+		Size:        size,
+		State:       DiskStateHealthy,
+		Temperature: "N/A",
+		Serial:      request.MountPath,
+		Health:      HealthHealthy,
+		Role:        emptyDefault(request.Role, "data"),
+		PoolID:      "managed-" + slugID(request.MountPath),
+		Model:       name,
+		Interface:   "mount",
+		MountPath:   request.MountPath,
+	}
+	s.disks = append(s.disks, disk)
+	return disk, s.saveLocked()
+}
+
+func (s *Service) CreateSpace(ctx context.Context, request CreateSpaceRequest) (StorageSpace, error) {
+	if err := ctx.Err(); err != nil {
+		return StorageSpace{}, err
+	}
+	if !request.Confirm {
+		return StorageSpace{}, fmt.Errorf("format confirmation is required")
+	}
+	if request.Name == "" {
+		return StorageSpace{}, fmt.Errorf("name is required")
+	}
+	if len(request.DiskSlots) == 0 {
+		return StorageSpace{}, fmt.Errorf("at least one disk slot is required")
+	}
+	mode := request.Mode
+	if mode == "" {
+		mode = SpaceModeBasic
+	}
+	if err := validateSpaceMode(mode, len(request.DiskSlots)); err != nil {
+		return StorageSpace{}, err
+	}
+	fs := request.FileSystem
+	if fs == "" {
+		fs = FileSystemEXT4
+	}
+	if err := validateFileSystem(fs); err != nil {
+		return StorageSpace{}, err
+	}
+	mountPath := request.MountPath
+	if mountPath == "" {
+		mountPath = filepath.Join(defaultSpaceRoot(), slugID(request.Name))
+	}
+	hostDisks, err := s.adapter.Disks(ctx)
+	if err != nil {
+		return StorageSpace{}, err
+	}
+
+	s.mu.Lock()
+	for _, space := range s.spaces {
+		if space.Name == request.Name {
+			s.mu.Unlock()
+			return StorageSpace{}, fmt.Errorf("storage space already exists: %s", request.Name)
+		}
+	}
+	allDisks := append(cloneDisks(hostDisks), cloneDisks(s.disks)...)
+	selectedDisks, err := selectDisks(allDisks, request.DiskSlots)
+	if err != nil {
+		s.mu.Unlock()
+		return StorageSpace{}, err
+	}
+	totalGB, err := estimateSpaceCapacityGB(mode, selectedDisks)
+	if err != nil {
+		s.mu.Unlock()
+		return StorageSpace{}, err
+	}
+	s.mu.Unlock()
+
+	plan := SpaceProvisionPlan{
+		Name:       request.Name,
+		Mode:       mode,
+		FileSystem: fs,
+		FormatDisk: requestWantsFormat(request),
+		Disks:      selectedDisks,
+		MountPath:  mountPath,
+	}
+	if err := validateProvisionPlan(plan); err != nil {
+		return StorageSpace{}, err
+	}
+	if err := os.MkdirAll(mountPath, 0o755); err != nil {
+		return StorageSpace{}, fmt.Errorf("create mount path: %w", err)
+	}
+	if err := s.provisioner.Provision(ctx, plan); err != nil {
+		return StorageSpace{}, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, space := range s.spaces {
+		if space.Name == request.Name {
+			return StorageSpace{}, fmt.Errorf("storage space already exists: %s", request.Name)
+		}
+	}
+	s.taskSeq++
+	space := StorageSpace{
+		ID:          fmt.Sprintf("space-%03d-%s", s.taskSeq, slugID(request.Name)),
+		Name:        request.Name,
+		Mode:        mode,
+		FileSystem:  fs,
+		DiskSlots:   append([]string(nil), request.DiskSlots...),
+		MountPath:   mountPath,
+		UsedPercent: 0,
+		Total:       formatCapacityGB(totalGB),
+		Health:      HealthHealthy,
+		CreatedAt:   s.now().UTC(),
+		CreatedBy:   request.Actor,
+	}
+	s.spaces = append(s.spaces, space)
+	s.tasks[fmt.Sprintf("create-space-%03d", s.taskSeq)] = StorageTask{
+		ID:         fmt.Sprintf("create-space-%03d", s.taskSeq),
+		Kind:       TaskKindCreateSpace,
+		State:      TaskStateQueued,
+		Progress:   0,
+		Message:    "存储空间创建已加入任务队列",
+		TargetPool: space.ID,
+		CreatedAt:  s.now().UTC(),
+	}
+	return space, s.saveLocked()
+}
+
+func requestWantsFormat(request CreateSpaceRequest) bool {
+	if request.FormatDisk == nil {
+		return true
+	}
+	return *request.FormatDisk
+}
+
+func (s *Service) DeleteSpace(ctx context.Context, id string, request DeleteSpaceRequest) (StorageTask, error) {
+	if err := ctx.Err(); err != nil {
+		return StorageTask{}, err
+	}
+	if !request.Confirm {
+		return StorageTask{}, fmt.Errorf("delete confirmation is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := -1
+	for i, space := range s.spaces {
+		if space.ID == id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return StorageTask{}, fmt.Errorf("storage space not found: %s", id)
+	}
+	s.spaces = append(s.spaces[:index], s.spaces[index+1:]...)
+	return s.createTaskLocked(TaskKindDeleteSpace, TaskTarget{TargetPool: id}, "存储空间删除已加入任务队列")
+}
+
+func (s *Service) RemoveDisk(ctx context.Context, slot string, request RemoveDiskRequest) (StorageTask, error) {
+	if err := ctx.Err(); err != nil {
+		return StorageTask{}, err
+	}
+	if !request.Confirm {
+		return StorageTask{}, fmt.Errorf("remove confirmation is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := -1
+	for i, disk := range s.disks {
+		if disk.Slot == slot {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return StorageTask{}, fmt.Errorf("managed disk not found: %s", slot)
+	}
+	s.disks = append(s.disks[:index], s.disks[index+1:]...)
+	return s.createTaskLocked(TaskKindRemoveDisk, TaskTarget{TargetSlot: slot}, "硬盘移除已加入任务队列")
+}
+
+func (s *Service) UpdateDiskSettings(ctx context.Context, slot string, request DiskSettingsRequest) (Disk, error) {
+	if err := ctx.Err(); err != nil {
+		return Disk{}, err
+	}
+	if request.StandbyMinutes < 0 {
+		return Disk{}, fmt.Errorf("standbyMinutes must be non-negative")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for index := range s.disks {
+		if s.disks[index].Slot != slot {
+			continue
+		}
+		s.disks[index].StandbyMinutes = request.StandbyMinutes
+		s.disks[index].SSDCache = request.SSDCache
+		s.disks[index].CacheMode = emptyDefault(request.CacheMode, "read")
+		return s.disks[index], s.saveLocked()
+	}
+	return Disk{}, fmt.Errorf("managed disk not found: %s", slot)
 }
 
 func (s *Service) StartRepair(ctx context.Context, target TaskTarget) (StorageTask, error) {
@@ -106,7 +410,10 @@ func (s *Service) GetTask(ctx context.Context, id string) (StorageTask, error) {
 func (s *Service) createTask(kind TaskKind, target TaskTarget, message string) (StorageTask, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.createTaskLocked(kind, target, message)
+}
 
+func (s *Service) createTaskLocked(kind TaskKind, target TaskTarget, message string) (StorageTask, error) {
 	s.taskSeq++
 	task := StorageTask{
 		ID:         fmt.Sprintf("%s-%03d", taskPrefix(kind), s.taskSeq),
@@ -129,7 +436,202 @@ func (s *Service) saveLocked() error {
 	return state.SaveJSON(s.statePath, snapshot{
 		TaskSeq: s.taskSeq,
 		Tasks:   cloneTasks(s.tasks),
+		Disks:   cloneDisks(s.disks),
+		Spaces:  cloneSpaces(s.spaces),
 	})
+}
+
+func emptyDefault(value string, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func validateFileSystem(fs FileSystem) error {
+	switch fs {
+	case FileSystemEXT4, FileSystemBTRFS, FileSystemZFS:
+		return nil
+	default:
+		return fmt.Errorf("unsupported file system: %s", fs)
+	}
+}
+
+func validateSpaceMode(mode SpaceMode, diskCount int) error {
+	minDisks := map[SpaceMode]int{
+		SpaceModeBasic:  1,
+		SpaceModeLinear: 1,
+		SpaceModeRAID0:  2,
+		SpaceModeRAID1:  2,
+		SpaceModeRAID5:  3,
+		SpaceModeRAID6:  4,
+		SpaceModeRAID10: 4,
+	}
+	min, ok := minDisks[mode]
+	if !ok {
+		return fmt.Errorf("unsupported storage mode: %s", mode)
+	}
+	if diskCount < min {
+		return fmt.Errorf("%s requires at least %d disks", mode, min)
+	}
+	if mode == SpaceModeRAID10 && diskCount%2 != 0 {
+		return fmt.Errorf("raid10 requires an even number of disks")
+	}
+	return nil
+}
+
+func selectDisks(disks []Disk, slots []string) ([]Disk, error) {
+	selected := make([]Disk, 0, len(slots))
+	seen := map[string]struct{}{}
+	for _, slot := range slots {
+		slot = strings.TrimSpace(slot)
+		if slot == "" {
+			return nil, fmt.Errorf("disk slot is required")
+		}
+		if _, ok := seen[slot]; ok {
+			return nil, fmt.Errorf("duplicated disk slot: %s", slot)
+		}
+		seen[slot] = struct{}{}
+		var found *Disk
+		for index := range disks {
+			if disks[index].Slot == slot {
+				found = &disks[index]
+				break
+			}
+		}
+		if found == nil {
+			return nil, fmt.Errorf("disk slot not found: %s", slot)
+		}
+		if found.SystemDisk {
+			return nil, fmt.Errorf("system disk cannot be used for storage space: %s", slot)
+		}
+		selected = append(selected, *found)
+	}
+	return selected, nil
+}
+
+func estimateSpaceCapacityGB(mode SpaceMode, disks []Disk) (float64, error) {
+	sizes := make([]float64, 0, len(disks))
+	for _, disk := range disks {
+		size := diskCapacityGB(disk)
+		if size <= 0 {
+			return 0, fmt.Errorf("disk %s has unknown capacity", disk.Slot)
+		}
+		sizes = append(sizes, size)
+	}
+	switch mode {
+	case SpaceModeBasic:
+		return sizes[0], nil
+	case SpaceModeLinear, SpaceModeRAID0:
+		return sumFloat(sizes), nil
+	case SpaceModeRAID1:
+		return minFloat(sizes), nil
+	case SpaceModeRAID5:
+		return minFloat(sizes) * float64(len(sizes)-1), nil
+	case SpaceModeRAID6:
+		return minFloat(sizes) * float64(len(sizes)-2), nil
+	case SpaceModeRAID10:
+		return minFloat(sizes) * float64(len(sizes)/2), nil
+	default:
+		return 0, fmt.Errorf("unsupported storage mode: %s", mode)
+	}
+}
+
+func diskCapacityGB(disk Disk) float64 {
+	size := parseCapacityGB(disk.Size)
+	if size > 0 {
+		return size
+	}
+	if disk.MountPath == "" {
+		return 0
+	}
+	bytes, ok := mountCapacityBytes(disk.MountPath)
+	if !ok {
+		return 0
+	}
+	return float64(bytes) / 1000 / 1000 / 1000
+}
+
+func refreshDiskCapacity(disk *Disk) {
+	if disk == nil || disk.MountPath == "" {
+		return
+	}
+	if disk.Size != "" && disk.Size != "待探测" {
+		return
+	}
+	if bytes, ok := mountCapacityBytes(disk.MountPath); ok {
+		disk.Size = formatStorageBytes(bytes)
+	}
+}
+
+func mountCapacityBytes(path string) (int64, bool) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, false
+	}
+	return int64(stat.Blocks) * int64(stat.Bsize), true
+}
+
+func parseCapacityGB(value string) float64 {
+	parts := strings.Fields(strings.TrimSpace(value))
+	if len(parts) == 0 {
+		return 0
+	}
+	number, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return 0
+	}
+	unit := "GB"
+	if len(parts) > 1 {
+		unit = strings.ToUpper(parts[1])
+	}
+	switch unit {
+	case "TB", "TIB":
+		return number * 1024
+	case "GB", "GIB":
+		return number
+	case "MB", "MIB":
+		return number / 1024
+	case "KB", "KIB":
+		return number / 1024 / 1024
+	default:
+		return number
+	}
+}
+
+func formatCapacityGB(value float64) string {
+	if value >= 1024 {
+		return fmt.Sprintf("%.2f TB", value/1024)
+	}
+	if value == float64(int64(value)) {
+		return fmt.Sprintf("%.0f GB", value)
+	}
+	return fmt.Sprintf("%.2f GB", value)
+}
+
+func sumFloat(values []float64) float64 {
+	var total float64
+	for _, value := range values {
+		total += value
+	}
+	return total
+}
+
+func minFloat(values []float64) float64 {
+	min := values[0]
+	for _, value := range values[1:] {
+		if value < min {
+			min = value
+		}
+	}
+	return min
+}
+
+func defaultSpaceRoot() string {
+	if root := os.Getenv("HIGO_NAS_ROOT"); root != "" {
+		return root
+	}
+	return filepath.Join(os.TempDir(), "higoos", "nas")
 }
 
 func taskPrefix(kind TaskKind) string {
@@ -140,6 +642,12 @@ func taskPrefix(kind TaskKind) string {
 		return "repair"
 	case TaskKindSnapshot:
 		return "snapshot"
+	case TaskKindCreateSpace:
+		return "create-space"
+	case TaskKindDeleteSpace:
+		return "delete-space"
+	case TaskKindRemoveDisk:
+		return "remove-disk"
 	default:
 		return "task"
 	}
@@ -151,6 +659,15 @@ func clonePools(pools []StoragePool) []StoragePool {
 
 func cloneDisks(disks []Disk) []Disk {
 	return append([]Disk(nil), disks...)
+}
+
+func cloneSpaces(spaces []StorageSpace) []StorageSpace {
+	out := make([]StorageSpace, 0, len(spaces))
+	for _, space := range spaces {
+		space.DiskSlots = append([]string(nil), space.DiskSlots...)
+		out = append(out, space)
+	}
+	return out
 }
 
 func cloneSmartReports(reports []SmartReport) []SmartReport {

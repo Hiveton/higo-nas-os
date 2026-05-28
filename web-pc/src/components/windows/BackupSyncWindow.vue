@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { ArchiveRestore, CheckCircle2, CloudUpload, DatabaseBackup, Pause, Play, RefreshCw, ShieldCheck } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { BackupJob } from '../../api/types';
+import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 const fallbackJobs: BackupJob[] = [
   {
@@ -195,16 +196,19 @@ onMounted(loadBackupJobs);
       <ShieldCheck :size="15" />
       <span>{{ actionState }}</span>
     </section>
+
+    <NasFeaturePanel :modules="['backup', 'sync']" />
   </div>
 </template>
 
 <style scoped>
 .backup-sync {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
+  overflow: auto;
 }
 
 .backup-sync__summary {
@@ -256,9 +260,7 @@ onMounted(loadBackupJobs);
 }
 
 .backup-sync__jobs {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
+  overflow: auto;
 }
 
 .backup-sync__jobs header,
@@ -269,6 +271,13 @@ onMounted(loadBackupJobs);
   gap: 10px;
   padding: 11px 12px;
   border-bottom: 1px solid rgba(100, 136, 166, 0.14);
+}
+
+.backup-sync__jobs header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(247, 252, 255, 0.92);
 }
 
 .backup-sync h3 {
@@ -283,6 +292,8 @@ onMounted(loadBackupJobs);
 .backup-sync__job {
   display: grid;
   gap: 5px;
+  width: 100%;
+  min-height: 78px;
   padding: 12px;
   text-align: left;
   background: transparent;

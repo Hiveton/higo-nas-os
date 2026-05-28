@@ -41,8 +41,11 @@ import SecurityCenterWindow from './components/windows/SecurityCenterWindow.vue'
 import DeviceMonitorWindow from './components/windows/DeviceMonitorWindow.vue';
 import SystemSettingsWindow from './components/windows/SystemSettingsWindow.vue';
 import RemoteAccessWindow from './components/windows/RemoteAccessWindow.vue';
+import FeatureModuleWindow from './components/windows/FeatureModuleWindow.vue';
 import { desktopStore } from './stores/desktop';
 import type { DesktopApp, DesktopSession, DesktopWindowConfig } from './api/types';
+import { desktopWindows as seedDesktopWindows, dockApps as seedDockApps } from './data/higoos';
+import type { NasFeatureKey } from './data/nasFeatures';
 import wallpaperUrl from './assets/higoos-dock/wallpaper.png';
 
 type WindowGeometry = {
@@ -93,6 +96,8 @@ const minWindowWidth = 360;
 const minWindowHeight = 300;
 const dockApps = reactive<DesktopApp[]>([]);
 const desktopWindows = reactive<DesktopWindowConfig[]>([]);
+const apiDesktopAppIds = ref<Set<string>>(new Set());
+const apiDesktopWindowIds = ref<Set<string>>(new Set());
 const openWindowIds = ref<string[]>([]);
 const minimizedWindowIds = ref<string[]>([]);
 const activeWindowId = ref('');
@@ -116,6 +121,14 @@ const contextMenu = ref<ContextMenuState>({
   source: 'desktop',
   items: [],
 });
+const featureModuleByWindowId: Record<string, NasFeatureKey> = {
+  'file-protocols': 'protocols',
+  'virtual-machine': 'vm',
+  'sync-service': 'sync',
+  'iscsi-manager': 'iscsi',
+  'hardware-center': 'hardware',
+  'openclaw-center': 'ai',
+};
 let launchTimer: number | undefined;
 let toastTimer: number | undefined;
 let sessionSaveTimer: number | undefined;
@@ -198,8 +211,10 @@ async function loadDesktopBootstrapFromApi() {
   isHydratingSession = true;
   try {
     const bootstrap = await desktopStore.loadDesktopBootstrap();
-    dockApps.splice(0, dockApps.length, ...bootstrap.apps);
-    desktopWindows.splice(0, desktopWindows.length, ...bootstrap.windows);
+    apiDesktopAppIds.value = new Set(bootstrap.apps.map((app) => app.id));
+    apiDesktopWindowIds.value = new Set(bootstrap.windows.map((window) => window.id));
+    dockApps.splice(0, dockApps.length, ...mergeDesktopApps(bootstrap.apps));
+    desktopWindows.splice(0, desktopWindows.length, ...mergeDesktopWindows(bootstrap.windows));
     applyDesktopSession(readDesktopSession(bootstrap.status));
     updateCompactState();
     if (bootstrap.fallback) {
@@ -208,6 +223,35 @@ async function loadDesktopBootstrapFromApi() {
   } finally {
     isHydratingSession = false;
   }
+}
+
+function normalizeDesktopApps(apps: DesktopApp[]) {
+  const seedIcons = new Map(seedDockApps.map((app) => [app.id, app.icon]));
+  return apps.map((app) => {
+    const seedIcon = seedIcons.get(app.id);
+    const icon = app.icon && !app.icon.startsWith('/src/') ? app.icon : seedIcon;
+    return {
+      ...app,
+      icon: icon ?? app.icon,
+    };
+  });
+}
+
+function mergeDesktopApps(apps: DesktopApp[]) {
+  const normalized = normalizeDesktopApps(apps);
+  const existingIds = new Set(normalized.map((app) => app.id));
+  return [
+    ...normalized,
+    ...seedDockApps.filter((app) => !existingIds.has(app.id)).map((app) => ({ ...app })),
+  ];
+}
+
+function mergeDesktopWindows(windows: DesktopWindowConfig[]) {
+  const existingIds = new Set(windows.map((window) => window.id));
+  return [
+    ...windows,
+    ...seedDesktopWindows.filter((window) => !existingIds.has(window.id)).map((window) => ({ ...window })),
+  ];
 }
 
 function readDesktopSession(value: unknown): DesktopSession {
@@ -314,11 +358,32 @@ function snapshotDesktopSession(): DesktopSession {
   };
 }
 
+function snapshotDesktopSessionForApi(): DesktopSession {
+  const appIds = apiDesktopAppIds.value.size ? apiDesktopAppIds.value : new Set(dockApps.map((app) => app.id));
+  const windowIds = apiDesktopWindowIds.value.size
+    ? apiDesktopWindowIds.value
+    : new Set(desktopWindows.map((window) => window.id));
+  const snapshot = snapshotDesktopSession();
+
+  return {
+    ...snapshot,
+    openWindowIds: filterKnownIds(snapshot.openWindowIds, windowIds),
+    minimizedWindowIds: filterKnownIds(snapshot.minimizedWindowIds, windowIds),
+    activeWindowId: appIds.has(snapshot.activeWindowId) || windowIds.has(snapshot.activeWindowId) ? snapshot.activeWindowId : '',
+    utilityAppId: appIds.has(snapshot.utilityAppId ?? '') ? snapshot.utilityAppId ?? '' : '',
+    maximizedWindowId: windowIds.has(snapshot.maximizedWindowId ?? '') ? snapshot.maximizedWindowId ?? '' : '',
+    dockOrder: filterKnownIds(snapshot.dockOrder, appIds),
+    pinnedDockAppIds: filterKnownIds(snapshot.pinnedDockAppIds, appIds),
+    desktopIconPositions: filterIconPositions(snapshot.desktopIconPositions ?? {}, appIds),
+    windowGeometries: filterWindowGeometries(snapshot.windowGeometries ?? {}, windowIds),
+  };
+}
+
 function queueSessionSave() {
   if (isHydratingSession || dockApps.length === 0 || desktopStore.usingFallback.value) return;
   if (sessionSaveTimer) window.clearTimeout(sessionSaveTimer);
   sessionSaveTimer = window.setTimeout(() => {
-    void saveSessionPatch(snapshotDesktopSession());
+    void saveSessionPatch(snapshotDesktopSessionForApi());
   }, 450);
 }
 
@@ -1002,6 +1067,12 @@ onUnmounted(() => {
         <DeviceMonitorWindow v-else-if="window.id === 'device-monitor'" />
         <SystemSettingsWindow v-else-if="window.id === 'system-settings'" />
         <RemoteAccessWindow v-else-if="window.id === 'remote-access'" />
+        <FeatureModuleWindow
+          v-else-if="featureModuleByWindowId[window.id]"
+          :module-key="featureModuleByWindowId[window.id]"
+          :title="window.title"
+          :subtitle="window.subtitle"
+        />
       </DesktopWindow>
 
       <section v-if="activeUtilityApp" class="utility-launcher" aria-label="应用启动反馈">

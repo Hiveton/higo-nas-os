@@ -123,12 +123,14 @@ export type FileRow = {
   type: string;
   space: string;
   size: string;
+  sizeBytes?: number;
   modified: string;
   tags: string[];
   permission: string;
   aiSummary: string;
   path?: string;
   previewUrl?: string;
+  isDir?: boolean;
 };
 
 export type FileTreeNode = {
@@ -136,6 +138,15 @@ export type FileTreeNode = {
   name: string;
   type: 'space' | 'folder' | 'file' | string;
   path: string;
+  space?: string;
+  size?: string;
+  sizeBytes?: number;
+  modifiedAt?: string;
+  modified?: string;
+  tags?: string[];
+  permission?: string;
+  aiSummary?: string;
+  isDir?: boolean;
   children?: FileTreeNode[];
 };
 
@@ -143,6 +154,7 @@ export type FileShare = {
   id: string;
   name: string;
   target: string;
+  url?: string;
   access: string;
   downloads: number;
   risk: RiskLevel;
@@ -157,6 +169,21 @@ export type StoragePool = {
   total: string;
   health: string;
   temp: string;
+  mountPath?: string;
+};
+
+export type StorageSpace = {
+  id: string;
+  name: string;
+  mode: 'basic' | 'raid0' | 'raid1' | 'raid5' | 'raid6' | 'raid10' | string;
+  fileSystem: 'ext4' | 'btrfs' | 'zfs' | string;
+  diskSlots: string[];
+  mountPath: string;
+  usedPercent: number;
+  total: string;
+  health: string;
+  createdAt: string;
+  createdBy?: string;
 };
 
 export type Disk = {
@@ -172,14 +199,76 @@ export type Disk = {
   model?: string;
   interface?: string;
   smart?: string;
+  devicePath?: string;
+  deviceType?: string;
+  mediaType?: string;
+  rotational?: boolean;
+  systemDisk?: boolean;
+  fileSystem?: string;
+  mountPath?: string;
+  standbyMinutes?: number;
+  ssdCache?: boolean;
+  cacheMode?: string;
+  partitions?: DiskPartition[];
+};
+
+export type DiskPartition = {
+  name: string;
+  path: string;
+  size: string;
+  used?: string;
+  total?: string;
+  fileSystem?: string;
+  mountPath?: string;
+  system?: boolean;
 };
 
 export type StorageTask = {
   id: string;
-  kind: 'smart-scan' | 'repair' | 'snapshot' | string;
+  kind: 'smart-scan' | 'repair' | 'snapshot' | 'create-space' | 'delete-space' | 'remove-disk' | string;
   state: string;
   progress?: number;
   message?: string;
+  targetSlot?: string;
+  targetPool?: string;
+};
+
+export type AccountUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  role: 'admin' | 'user' | 'guest' | string;
+  status: 'active' | 'disabled' | 'locked' | string;
+  quotaBytes: number;
+  groups: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AccountGroup = {
+  id: string;
+  name: string;
+  description: string;
+  userIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AccountSpaceGrant = {
+  id: string;
+  subjectId: string;
+  subjectType: 'user' | 'group' | string;
+  spaceId: string;
+  access: 'read' | 'read_write' | 'manage' | string;
+  quotaBytes: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AccountSummary = {
+  users: AccountUser[];
+  groups: AccountGroup[];
+  grants: AccountSpaceGrant[];
 };
 
 export type StewardSuggestion = {
