@@ -865,14 +865,14 @@ func TestDesktopAppsReturnsSeedApps(t *testing.T) {
 	if !body.OK {
 		t.Fatal("expected ok envelope")
 	}
-	if len(body.Data) != 14 {
-		t.Fatalf("expected 14 seed apps, got %d", len(body.Data))
+	if len(body.Data) != 15 {
+		t.Fatalf("expected 15 seed apps, got %d", len(body.Data))
 	}
 	if body.Data[0].ID != "file-manager" || body.Data[0].Name != "文件管理" || body.Data[0].Badge != 2 {
 		t.Fatalf("unexpected first app: %#v", body.Data[0])
 	}
-	if body.Data[13].ID != "remote-access" || body.Data[13].Name != "远程访问" {
-		t.Fatalf("unexpected last app: %#v", body.Data[13])
+	if body.Data[14].ID != "remote-access" || body.Data[14].Name != "远程访问" {
+		t.Fatalf("unexpected last app: %#v", body.Data[14])
 	}
 }
 
@@ -897,8 +897,8 @@ func TestDesktopBootstrapEndpointsReturnSeedState(t *testing.T) {
 	if err := json.Unmarshal(windowsRec.Body.Bytes(), &windowsBody); err != nil {
 		t.Fatalf("decode desktop windows: %v", err)
 	}
-	if !windowsBody.OK || len(windowsBody.Data) != 13 {
-		t.Fatalf("expected 13 ok seed windows, got ok=%v len=%d", windowsBody.OK, len(windowsBody.Data))
+	if !windowsBody.OK || len(windowsBody.Data) != 14 {
+		t.Fatalf("expected 14 ok seed windows, got ok=%v len=%d", windowsBody.OK, len(windowsBody.Data))
 	}
 
 	sessionRec := httptest.NewRecorder()
@@ -918,7 +918,7 @@ func TestDesktopBootstrapEndpointsReturnSeedState(t *testing.T) {
 	if err := json.Unmarshal(sessionRec.Body.Bytes(), &sessionBody); err != nil {
 		t.Fatalf("decode desktop session: %v", err)
 	}
-	if !sessionBody.OK || len(sessionBody.Data.OpenWindowIDs) != 3 || len(sessionBody.Data.DockOrder) != 14 {
+	if !sessionBody.OK || len(sessionBody.Data.OpenWindowIDs) != 3 || len(sessionBody.Data.DockOrder) != 15 {
 		t.Fatalf("unexpected desktop session: %#v", sessionBody.Data)
 	}
 	if len(sessionBody.Data.PinnedDockAppIDs) != 4 {

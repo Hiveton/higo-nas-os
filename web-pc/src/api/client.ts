@@ -25,6 +25,10 @@ import type {
   FileTreeNode,
   IdentityPolicy,
   MediaItem,
+  MusicAlbum,
+  MusicLibrarySettings,
+  MusicScanResult,
+  MusicTrack,
   Metric,
   DiagnosticResult,
   RemoteDevice,
@@ -209,6 +213,18 @@ export const apiClient = {
     createSubtitleJob: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/media/subtitles/jobs', payload),
     createTranscodeJob: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/media/transcode/jobs', payload),
     createShare: (payload: RecordPayload) => POST<FileShare>('/api/v1/media/shares', payload),
+  },
+
+  music: {
+    getLibrary: () => GET<MusicLibrarySettings>('/api/v1/music/library'),
+    updateLibrary: (payload: { paths: string[]; autoScan?: boolean }) =>
+      PUT<MusicLibrarySettings>('/api/v1/music/library', payload),
+    scan: () => POST<MusicScanResult>('/api/v1/music/scan'),
+    getTracks: (query?: { q?: string }) => GET<MusicTrack[]>('/api/v1/music/tracks', { query }),
+    getAlbums: () => GET<MusicAlbum[]>('/api/v1/music/albums'),
+    getLyrics: (id: Id) => GET<string>(`/api/v1/music/tracks/${pathId(id)}/lyrics`, { parseAs: 'text' }),
+    streamUrl: (id: Id) => buildApiUrl(`/api/v1/music/tracks/${pathId(id)}/stream`),
+    coverUrl: (id: Id) => buildApiUrl(`/api/v1/music/tracks/${pathId(id)}/cover`),
   },
 
   downloads: {

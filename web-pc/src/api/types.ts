@@ -462,6 +462,52 @@ export type AlbumItem = {
   privacy: string;
 };
 
+export type MusicLibrarySettings = {
+  paths: string[];
+  autoScan: boolean;
+  lastScanAt?: string;
+  trackCount: number;
+  status: string;
+};
+
+export type MusicTrack = {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  trackNumber?: number;
+  year?: string;
+  codec: string;
+  format: string;
+  sizeBytes: number;
+  size: string;
+  modifiedAt: string;
+  discoveredAt: string;
+  fileName: string;
+  path?: string;
+  streamUrl: string;
+  coverUrl?: string;
+  lyricsUrl?: string;
+  lyrics?: string;
+  status: string;
+};
+
+export type MusicAlbum = {
+  id: string;
+  name: string;
+  artist: string;
+  count: number;
+  coverUrl?: string;
+};
+
+export type MusicScanResult = {
+  id: string;
+  state: string;
+  message: string;
+  trackCount: number;
+  scannedAt: string;
+};
+
 export type SettingsState = {
   model?: {
     mode?: 'family_hybrid' | 'provider' | 'enterprise_local' | string;

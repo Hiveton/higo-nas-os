@@ -33,6 +33,7 @@ import AiStewardWindow from './components/windows/AiStewardWindow.vue';
 import AgentWorkbenchWindow from './components/windows/AgentWorkbenchWindow.vue';
 import StorageMonitorWindow from './components/windows/StorageMonitorWindow.vue';
 import PhotoMediaWindow from './components/windows/PhotoMediaWindow.vue';
+import MusicCenterWindow from './components/windows/MusicCenterWindow.vue';
 import DownloadCenterWindow from './components/windows/DownloadCenterWindow.vue';
 import BackupSyncWindow from './components/windows/BackupSyncWindow.vue';
 import AppCenterWindow from './components/windows/AppCenterWindow.vue';
@@ -82,7 +83,7 @@ type ContextMenuState = {
   items: AppContextMenuItem[];
 };
 
-const defaultPinnedDockAppIds = ['file-manager', 'ai-file-steward', 'ai-assistant', 'system-settings'];
+const defaultPinnedDockAppIds = ['file-manager', 'music-center', 'ai-file-steward', 'ai-assistant', 'system-settings'];
 const desktopIconWidth = 82;
 const desktopIconHeight = 82;
 const desktopIconGapX = 12;
@@ -1060,6 +1061,7 @@ onUnmounted(() => {
         <StorageMonitorWindow v-else-if="window.id === 'storage-monitor'" />
         <BackupSyncWindow v-else-if="window.id === 'backup-sync'" />
         <PhotoMediaWindow v-else-if="window.id === 'photo-media'" />
+        <MusicCenterWindow v-else-if="window.id === 'music-center'" />
         <DownloadCenterWindow v-else-if="window.id === 'download-center'" />
         <AppCenterWindow v-else-if="window.id === 'app-center'" />
         <DockerWindow v-else-if="window.id === 'docker'" />

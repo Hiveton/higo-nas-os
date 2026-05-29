@@ -16,6 +16,7 @@ import (
 	"higoos/server-go/internal/files"
 	"higoos/server-go/internal/media"
 	"higoos/server-go/internal/monitoring"
+	"higoos/server-go/internal/music"
 	"higoos/server-go/internal/platform"
 	"higoos/server-go/internal/remote"
 	"higoos/server-go/internal/security"
@@ -37,6 +38,7 @@ type Dependencies struct {
 	AppCenter  *appcenter.Service
 	Remote     *remote.Service
 	Media      *media.Service
+	Music      *music.Service
 	Assistant  *assistant.Service
 	Agents     *agents.Service
 	Accounts   *accounts.Service
@@ -159,6 +161,15 @@ func NewRouter(deps Dependencies) http.Handler {
 			mediaService = media.NewService()
 		}
 	}
+	musicService := deps.Music
+	if musicService == nil {
+		var err error
+		musicService, err = music.NewServiceWithStateDir(cfg.StateDir)
+		if err != nil {
+			logger.Warn("music state unavailable", slog.Any("error", err))
+			musicService = music.NewService()
+		}
+	}
 	assistantService := deps.Assistant
 	if assistantService == nil {
 		var err error
@@ -218,6 +229,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		appCenter:  appCenterService,
 		remote:     remoteService,
 		media:      mediaService,
+		music:      musicService,
 		assistant:  assistantService,
 		agents:     agentsService,
 		accounts:   accountsService,
@@ -293,6 +305,11 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/media/subtitles/jobs", api.mediaSubtitleJobs)
 	mux.HandleFunc("/api/v1/media/transcode/jobs", api.mediaTranscodeJobs)
 	mux.HandleFunc("/api/v1/media/shares", api.mediaShares)
+	mux.HandleFunc("/api/v1/music/library", api.musicLibrary)
+	mux.HandleFunc("/api/v1/music/scan", api.musicScan)
+	mux.HandleFunc("/api/v1/music/tracks", api.musicTracks)
+	mux.HandleFunc("/api/v1/music/albums", api.musicAlbums)
+	mux.HandleFunc("/api/v1/music/tracks/", api.musicTrackByID)
 	mux.HandleFunc("/api/v1/search/semantic", api.assistantSemanticSearch)
 	mux.HandleFunc("/api/v1/assistant/threads", api.assistantThreads)
 	mux.HandleFunc("/api/v1/assistant/threads/", api.assistantThreadByID)
@@ -350,6 +367,7 @@ type API struct {
 	appCenter  *appcenter.Service
 	remote     *remote.Service
 	media      *media.Service
+	music      *music.Service
 	assistant  *assistant.Service
 	agents     *agents.Service
 	accounts   *accounts.Service

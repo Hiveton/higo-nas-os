@@ -1031,11 +1031,12 @@ onMounted(loadStorageState);
 <style scoped>
 .storage-monitor {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
   gap: 12px;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
+  height: auto;
+  min-height: 100%;
+  min-width: 0;
+  overflow: visible;
 }
 
 .storage-monitor__topbar,
@@ -1137,9 +1138,9 @@ button:disabled {
 
 .storage-monitor__workspace {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-height: 0;
-  overflow: hidden;
+  grid-template-rows: auto auto;
+  min-width: 0;
+  overflow: visible;
 }
 
 .storage-monitor__tabs {
@@ -1176,8 +1177,7 @@ button:disabled {
 
 .storage-monitor__space-view,
 .storage-monitor__cache-view {
-  min-height: 0;
-  overflow: auto;
+  overflow: visible;
   padding: 14px 18px 18px;
 }
 
@@ -1190,7 +1190,7 @@ button:disabled {
 
 .storage-monitor__content-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(460px, 46%);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
   gap: 12px;
 }
 
@@ -1404,6 +1404,7 @@ button:disabled {
   display: grid;
   grid-template-columns: 28px 58px minmax(0, 1fr);
   gap: 12px;
+  min-width: 0;
   padding: 14px;
   cursor: pointer;
   background: rgba(255, 255, 255, 0.62);
@@ -1475,7 +1476,7 @@ button:disabled {
 
 .storage-monitor__disk-detail dl {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px 18px;
   margin: 0;
 }
@@ -1519,7 +1520,7 @@ button:disabled {
 
 .storage-monitor__partitions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
   padding: 10px;
   border: 1px dashed rgba(100, 136, 166, 0.24);
@@ -1689,8 +1690,9 @@ button:disabled {
   inset: 0;
   z-index: 50;
   display: grid;
-  place-items: center;
+  place-items: start center;
   padding: 32px;
+  overflow: auto;
   background: rgba(15, 23, 42, 0.16);
   backdrop-filter: blur(10px);
 }
@@ -1698,10 +1700,10 @@ button:disabled {
 .storage-monitor__wizard {
   position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
   width: min(1060px, calc(100vw - 96px));
-  height: min(680px, calc(100dvh - 150px));
-  min-height: 0;
+  min-height: min(620px, calc(100dvh - 64px));
+  max-height: none;
   padding: 22px 26px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(100, 136, 166, 0.18);
@@ -1748,10 +1750,8 @@ button:disabled {
 }
 
 .storage-monitor__wizard-body {
-  min-height: 0;
-  overflow: auto;
+  overflow: visible;
   padding: 14px 2px;
-  scrollbar-gutter: stable;
 }
 
 .storage-monitor__fs-list {
@@ -1818,7 +1818,7 @@ button:disabled {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
   gap: 18px;
-  min-height: 0;
+  min-width: 0;
 }
 
 .storage-monitor__mode-step aside,
@@ -1826,9 +1826,8 @@ button:disabled {
   display: grid;
   align-content: start;
   gap: 10px;
-  min-height: 0;
-  max-height: 100%;
-  overflow: auto;
+  min-width: 0;
+  overflow: visible;
   padding-right: 4px;
 }
 
@@ -2216,7 +2215,7 @@ button:disabled {
 
   .storage-monitor__wizard {
     width: calc(100vw - 32px);
-    height: calc(100vh - 32px);
+    min-height: calc(100vh - 32px);
     padding: 22px;
   }
 

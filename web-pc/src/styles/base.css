@@ -229,7 +229,7 @@ svg {
   .desktop-window__body .security-center.security-center,
   .desktop-window__body .system-settings.system-settings,
   .desktop-window__body .device-monitor.device-monitor {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .desktop-window__body :is(
@@ -246,24 +246,48 @@ svg {
     .system-settings,
     .device-monitor
   ) {
-    height: auto;
-    min-height: 100%;
-    overflow: visible;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
   }
 
   .desktop-window__body :is(
     .file-manager__sidebar,
+    .file-manager__tree,
+    .file-manager__main,
+    .file-manager__table,
+    .file-manager__inspector,
     .app-center__catalog,
+    .app-center__detail,
     .backup-sync__jobs,
+    .backup-sync__detail,
     .docker-window__stacks,
+    .docker-window__main,
+    .docker-window__logs,
+    .docker-window__inspector,
     .download-center__control,
+    .download-center__main,
+    .download-center__tasks,
+    .download-center__detail,
     .photo-media__sidebar,
+    .photo-media__main,
+    .photo-media__details,
+    .photo-media__grid,
     .remote-access__security,
+    .remote-access__activity,
     .system-settings__sidebar,
-    .device-monitor__metrics
+    .system-settings__main,
+    .device-monitor__metrics,
+    .device-monitor__main,
+    .device-monitor__logs,
+    .storage-monitor__space-view,
+    .storage-monitor__cache-view,
+    .storage-monitor__wizard-body,
+    .storage-monitor__mode-list,
+    .storage-monitor__mode-step aside
   ) {
-    max-height: min(42vh, 260px);
-    overflow: auto;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   .desktop-window__body :is(
@@ -273,8 +297,8 @@ svg {
     .photo-media__details,
     .device-monitor__side
   ) {
-    grid-column: auto;
-    overflow: visible;
+    grid-column: auto !important;
+    overflow: visible !important;
   }
 
   .desktop-window__body :is(
@@ -288,7 +312,7 @@ svg {
     .system-settings__main,
     .device-monitor__main
   ) {
-    min-height: 420px;
+    min-height: 420px !important;
   }
 
   .desktop-window__body :is(
@@ -300,7 +324,7 @@ svg {
     .security-center__overview,
     .device-monitor__services
   ) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 
   .desktop-window__body :is(
@@ -312,7 +336,7 @@ svg {
     .security-center__permission-grid,
     .system-settings__segmented
   ) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 
   .desktop-window__body :is(
@@ -326,7 +350,35 @@ svg {
     .system-settings__footer,
     .device-monitor__hero
   ) {
-    flex-wrap: wrap;
+    flex-wrap: wrap !important;
+  }
+}
+
+@container desktop-window-body (max-width: 900px) {
+  .desktop-window__body .file-manager__row.file-manager__row {
+    grid-template-columns: minmax(0, 1fr) 82px 82px !important;
+  }
+
+  .desktop-window__body .file-manager__row > span:nth-child(4),
+  .desktop-window__body .file-manager__row > span:nth-child(5) {
+    display: none !important;
+  }
+}
+
+@container desktop-window-body (max-width: 1100px) {
+  .desktop-window__body .storage-monitor__content-grid.storage-monitor__content-grid,
+  .desktop-window__body .storage-monitor__mode-step.storage-monitor__mode-step,
+  .desktop-window__body .storage-monitor__users-step.storage-monitor__users-step {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .desktop-window__body .storage-monitor__disk-info-head.storage-monitor__disk-info-head {
+    flex-wrap: wrap !important;
+  }
+
+  .desktop-window__body .storage-monitor__disk-info-head nav {
+    flex-wrap: wrap !important;
+    gap: 10px 16px !important;
   }
 }
 

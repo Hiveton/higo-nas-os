@@ -21,6 +21,7 @@ import agentWorkbenchIcon from '../assets/higoos-dock/icons/04-agent-workbench.p
 import aiAssistantIcon from '../assets/higoos-dock/icons/05-ai-assistant.png';
 import backupSyncIcon from '../assets/higoos-dock/icons/06-backup-sync.png';
 import photoMediaIcon from '../assets/higoos-dock/icons/07-photo-media.png';
+import musicCenterIcon from '../assets/higoos-dock/icons/15-music-center.svg';
 import downloadCenterIcon from '../assets/higoos-dock/icons/08-download-center.png';
 import appCenterIcon from '../assets/higoos-dock/icons/09-app-center.png';
 import dockerIcon from '../assets/higoos-dock/icons/10-docker.png';
@@ -84,6 +85,7 @@ export const dockApps: DockApp[] = [
   { id: 'ai-assistant', name: 'AI 助手', icon: aiAssistantIcon },
   { id: 'backup-sync', name: '备份同步', icon: backupSyncIcon, badge: 1 },
   { id: 'photo-media', name: '相册媒体', icon: photoMediaIcon },
+  { id: 'music-center', name: '音乐中心', icon: musicCenterIcon },
   { id: 'download-center', name: '下载中心', icon: downloadCenterIcon },
   { id: 'app-center', name: '应用中心', icon: appCenterIcon },
   { id: 'docker', name: 'Docker', icon: dockerIcon },
@@ -171,6 +173,18 @@ export const desktopWindows: DesktopWindowConfig[] = [
     width: 760,
     height: 536,
     z: 8,
+  },
+  {
+    id: 'music-center',
+    title: '音乐中心',
+    subtitle: '媒体库 / 解码 / 歌词 / 专辑',
+    status: '待扫描',
+    statusTone: 'blue',
+    x: 176,
+    y: 106,
+    width: 820,
+    height: 560,
+    z: 9,
   },
   {
     id: 'download-center',

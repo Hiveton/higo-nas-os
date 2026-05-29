@@ -648,9 +648,11 @@ onMounted(() => {
   position: relative;
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr) 310px;
+  align-items: start;
   gap: 14px;
-  height: 100%;
-  min-height: 0;
+  height: auto;
+  min-height: 100%;
+  min-width: 0;
 }
 
 .file-manager__file-input {
@@ -723,8 +725,7 @@ onMounted(() => {
 .file-manager__tree {
   display: grid;
   gap: 5px;
-  min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .file-manager__folder {
@@ -758,7 +759,6 @@ onMounted(() => {
 .file-manager__status {
   display: grid;
   gap: 5px;
-  margin-top: auto;
   padding: 11px;
   color: var(--text-muted);
   background: rgba(231, 247, 255, 0.76);
@@ -802,8 +802,9 @@ onMounted(() => {
 
 .file-manager__main {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  overflow: hidden;
+  grid-template-rows: auto auto auto;
+  align-content: start;
+  overflow: visible;
 }
 
 .file-manager__pathbar,
@@ -859,8 +860,7 @@ onMounted(() => {
 }
 
 .file-manager__table {
-  min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .file-manager__row {
@@ -954,7 +954,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 14px;
   padding: 14px;
-  overflow: auto;
+  overflow: visible;
 }
 
 .file-manager__inspector-head {
@@ -1073,9 +1073,8 @@ onMounted(() => {
 }
 
 .file-manager__preview p {
-  max-height: 180px;
   margin: 0;
-  overflow: auto;
+  overflow: visible;
   white-space: pre-wrap;
 }
 
@@ -1112,7 +1111,7 @@ onMounted(() => {
 @media (max-width: 760px) {
   .file-manager {
     grid-template-columns: 1fr;
-    overflow: auto;
+    overflow: visible;
   }
 
   .file-manager__sidebar {
