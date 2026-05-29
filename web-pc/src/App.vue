@@ -136,12 +136,7 @@ let sessionSaveTimer: number | undefined;
 let isHydratingSession = false;
 
 const visibleWindowIds = computed(() => {
-  const visibleIds = openWindowIds.value.filter((id) => !minimizedWindowIds.value.includes(id));
-  if (!isCompact.value) return visibleIds;
-
-  const activeIsWindow = desktopWindows.some((item) => item.id === activeWindowId.value);
-  const compactActiveId = activeIsWindow ? activeWindowId.value : visibleIds[visibleIds.length - 1];
-  return compactActiveId ? visibleIds.filter((id) => id === compactActiveId) : [];
+  return openWindowIds.value.filter((id) => !minimizedWindowIds.value.includes(id));
 });
 
 const openWindows = computed(() =>
@@ -406,7 +401,7 @@ function getWindowFrameBounds() {
   const viewportHeight = typeof window === 'undefined' ? 900 : window.innerHeight;
   const side = viewportWidth <= compactBreakpointWidth ? 14 : windowFrameMargin;
   const top = viewportWidth <= compactBreakpointWidth ? 84 : windowFrameTop;
-  const bottom = viewportWidth <= compactBreakpointWidth ? 104 : windowFrameBottom;
+  const bottom = 12;
 
   return {
     left: side,

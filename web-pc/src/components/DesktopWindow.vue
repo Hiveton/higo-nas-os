@@ -35,7 +35,7 @@ function clampWindowPosition(x: number, y: number, width = props.window.width, h
   const viewportHeight = globalThis.window.innerHeight;
   const side = viewportWidth <= 980 ? 14 : 16;
   const top = viewportWidth <= 980 ? 84 : 78;
-  const bottom = viewportWidth <= 980 ? 104 : 118;
+  const bottom = 12;
   const maxWidth = Math.max(280, viewportWidth - side * 2);
   const maxHeight = Math.max(240, viewportHeight - top - bottom);
   const nextWidth = Math.min(Math.max(minWindowWidth, width), maxWidth);
@@ -237,7 +237,7 @@ function startWindowResize(event: PointerEvent, direction: string) {
 }
 
 .desktop-window--maximized {
-  inset: 84px 24px calc(var(--dock-height) + 28px) 24px !important;
+  inset: calc(var(--topbar-height) + 30px) 12px calc(var(--dock-height) + 28px) 12px !important;
   width: auto !important;
   height: auto !important;
 }
@@ -457,19 +457,6 @@ function startWindowResize(event: PointerEvent, direction: string) {
 }
 
 @media (max-width: 900px) {
-  .desktop-window {
-    left: 14px !important;
-    top: 104px !important;
-    width: calc(100vw - 28px) !important;
-    height: calc(100vh - var(--dock-height) - 132px) !important;
-    max-height: calc(100vh - var(--dock-height) - 132px);
-    min-width: 0;
-  }
-
-  .desktop-window__resize-handle {
-    display: none;
-  }
-
   .desktop-window__titlebar {
     grid-template-columns: 82px minmax(0, 1fr);
     min-height: 56px;
@@ -500,13 +487,6 @@ function startWindowResize(event: PointerEvent, direction: string) {
   .desktop-window__dot {
     flex-basis: 27px;
     width: 27px;
-  }
-}
-
-@media (max-height: 840px) and (min-width: 901px) {
-  .desktop-window {
-    height: calc(100vh - var(--dock-height) - 188px) !important;
-    max-height: calc(100vh - var(--dock-height) - 188px);
   }
 }
 </style>
