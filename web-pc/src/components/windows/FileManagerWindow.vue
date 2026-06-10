@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import {
+  ChevronLeft,
+  ChevronRight,
   Download,
   Edit3,
   Eye,
@@ -27,6 +29,9 @@ type DisplayNode = FileTreeNode & {
 const tree = ref<FileTreeNode | null>(null);
 const currentPath = ref('/');
 const selectedId = ref('');
+const pathDraft = ref('/');
+const pathHistory = ref<string[]>([]);
+const pathHistoryIndex = ref(-1);
 const search = ref('');
 const searchRows = ref<DisplayNode[]>([]);
 const loading = ref(false);
@@ -56,12 +61,14 @@ const selectedNode = computed<DisplayNode | null>(() => {
   if (!selectedId.value) return visibleItems.value[0] ?? null;
   return findNodeById(tree.value, selectedId.value) ?? searchRows.value.find((item) => item.id === selectedId.value) ?? null;
 });
-const crumbs = computed(() => buildCrumbs(currentPath.value));
-const uploadTargetPath = computed(() => {
+const currentDirectoryPath = computed(() => {
   const node = currentNode.value;
   if (!node || node.path === '/') return currentSpace.value;
   return node.isDir ? node.path : parentPath(node.path);
 });
+const uploadTargetPath = computed(() => currentDirectoryPath.value);
+const canGoBack = computed(() => pathHistoryIndex.value > 0);
+const canGoForward = computed(() => pathHistoryIndex.value >= 0 && pathHistoryIndex.value < pathHistory.value.length - 1);
 
 function flattenFolders(root: FileTreeNode | null, depth = 0): Array<FileTreeNode & { depth: number }> {
   if (!root) return [];
@@ -100,6 +107,12 @@ function normalizePath(path: string) {
   return clean === '/.' ? '/' : clean;
 }
 
+function normalizeInputPath(path: string) {
+  let value = String(path || '').trim();
+  value = value.replace(/^higonas\s*[/>]\s*/i, '').replace(/\\/g, '/').replace(/\s*\/\s*/g, '/');
+  return normalizePath(value);
+}
+
 function parentPath(path: string) {
   const parts = normalizePath(path).split('/').filter(Boolean);
   parts.pop();
@@ -108,17 +121,6 @@ function parentPath(path: string) {
 
 function leafName(path: string) {
   return normalizePath(path).split('/').filter(Boolean).pop() ?? '';
-}
-
-function buildCrumbs(path: string) {
-  const parts = normalizePath(path).split('/').filter(Boolean);
-  const crumbs = [{ label: 'HiGoNAS', path: '/' }];
-  parts.reduce((acc, part) => {
-    const next = `${acc}/${part}`.replace(/\/+/g, '/');
-    crumbs.push({ label: part, path: next });
-    return next;
-  }, '');
-  return crumbs;
 }
 
 function isDir(node: FileTreeNode | FileRow | null | undefined) {
@@ -170,21 +172,67 @@ function selectNode(node: DisplayNode) {
 function openNode(node: DisplayNode) {
   selectNode(node);
   if (isDir(node)) {
-    goToPath(node.path);
+    navigateToPath(node.path);
   }
 }
 
-function goToPath(path: string) {
-  currentPath.value = path;
+function navigateToPath(path: string) {
+  const normalized = normalizeInputPath(path);
+  if (!findNodeByPath(tree.value, normalized)) {
+    notice.value = `目录不存在：${normalized}`;
+    pathDraft.value = currentPath.value;
+    return;
+  }
+  setCurrentPath(normalized);
+  pushPathHistory(normalized);
+}
+
+function setCurrentPath(path: string) {
+  currentPath.value = normalizePath(path);
+  pathDraft.value = currentPath.value;
   searchRows.value = [];
   search.value = '';
   ensureSelection();
 }
 
 function goToUploadTarget(path: string) {
-  currentPath.value = normalizePath(path);
-  searchRows.value = [];
-  search.value = '';
+  setCurrentPath(path);
+  pushPathHistory(currentPath.value);
+}
+
+function pushPathHistory(path: string) {
+  const normalized = normalizePath(path);
+  if (pathHistory.value[pathHistoryIndex.value] === normalized) return;
+  const previous = pathHistory.value.slice(0, pathHistoryIndex.value + 1);
+  previous.push(normalized);
+  pathHistory.value = previous.slice(-50);
+  pathHistoryIndex.value = pathHistory.value.length - 1;
+}
+
+function goBack() {
+  if (!canGoBack.value) return;
+  pathHistoryIndex.value -= 1;
+  setCurrentPath(pathHistory.value[pathHistoryIndex.value] ?? currentPath.value);
+}
+
+function goForward() {
+  if (!canGoForward.value) return;
+  pathHistoryIndex.value += 1;
+  setCurrentPath(pathHistory.value[pathHistoryIndex.value] ?? currentPath.value);
+}
+
+function submitPath() {
+  navigateToPath(pathDraft.value);
+}
+
+function resetPathDraft() {
+  pathDraft.value = currentPath.value;
+}
+
+function selectPathDraft(event: FocusEvent) {
+  if (event.target instanceof HTMLInputElement) {
+    event.target.select();
+  }
 }
 
 function ensureSelection() {
@@ -199,9 +247,12 @@ async function loadTree(keepSelection = false) {
   try {
     const nextTree = await apiClient.files.getTree();
     tree.value = nextTree;
+    let nextPath = currentPath.value;
     if (!findNodeByPath(nextTree, currentPath.value)) {
-      currentPath.value = nextTree.children?.[0]?.path ?? '/';
+      nextPath = nextTree.children?.[0]?.path ?? '/';
     }
+    setCurrentPath(nextPath);
+    if (pathHistoryIndex.value < 0) pushPathHistory(currentPath.value);
     if (!keepSelection) selectedId.value = '';
     ensureSelection();
     notice.value = `已读取 ${countFiles(nextTree)} 个文件，${countFolders(nextTree)} 个目录。`;
@@ -344,7 +395,9 @@ function onDragLeave(event: DragEvent) {
 }
 
 async function onDrop(event: DragEvent) {
-  await uploadFiles(event.dataTransfer?.files ?? null);
+  const files = event.dataTransfer?.files ?? null;
+  dragging.value = false;
+  await uploadFiles(files);
 }
 
 async function createFolder() {
@@ -352,14 +405,15 @@ async function createFolder() {
   if (!name?.trim()) return;
   busyAction.value = 'folder';
   try {
-    await apiClient.files.createFolder({
+    const folder = await apiClient.files.createFolder({
       space: currentSpace.value,
-      path: uploadTargetPath.value,
+      path: currentDirectoryPath.value,
       name: name.trim(),
       actor: 'file-manager',
     });
-    notice.value = `已创建文件夹 ${name.trim()}。`;
+    notice.value = `已在 ${currentDirectoryPath.value} 创建文件夹 ${name.trim()}。`;
     await loadTree(true);
+    selectedId.value = folder.id ?? (folder.path ? findNodeByPath(tree.value, folder.path)?.id : '') ?? selectedId.value;
   } catch (error) {
     notice.value = `创建文件夹失败：${error instanceof Error ? error.message : 'unknown error'}`;
   } finally {
@@ -530,11 +584,24 @@ onMounted(() => {
 
     <main class="file-manager__main">
       <header class="file-manager__pathbar">
-        <div class="file-manager__crumbs" aria-label="路径面包屑">
-          <button v-for="crumb in crumbs" :key="crumb.path" type="button" @click="goToPath(crumb.path)">
-            {{ crumb.label }}
+        <div class="file-manager__nav-controls" aria-label="目录历史导航">
+          <button type="button" :disabled="!canGoBack" title="后退" aria-label="后退" @click="goBack">
+            <ChevronLeft :size="17" />
+          </button>
+          <button type="button" :disabled="!canGoForward" title="前进" aria-label="前进" @click="goForward">
+            <ChevronRight :size="17" />
           </button>
         </div>
+        <form class="file-manager__path-entry" aria-label="文件路径" @submit.prevent="submitPath">
+          <input
+            v-model="pathDraft"
+            aria-label="当前文件路径"
+            spellcheck="false"
+            @focus="selectPathDraft"
+            @keydown.esc.prevent="resetPathDraft"
+            @blur="resetPathDraft"
+          />
+        </form>
         <button class="file-manager__refresh" type="button" @click="loadTree(true)">
           <RefreshCw :size="15" />
           刷新
@@ -817,34 +884,63 @@ onMounted(() => {
 }
 
 .file-manager__pathbar {
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
 }
 
-.file-manager__crumbs {
+.file-manager__nav-controls {
   display: flex;
   align-items: center;
   min-width: 0;
-  overflow: hidden;
 }
 
-.file-manager__crumbs button {
-  position: relative;
-  max-width: 180px;
-  overflow: hidden;
-  padding: 0 16px 0 0;
-  color: var(--text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  background: transparent;
-  border: 0;
+.file-manager__nav-controls button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(100, 136, 166, 0.2);
+}
+
+.file-manager__nav-controls button:first-child {
+  border-radius: 999px 0 0 999px;
+}
+
+.file-manager__nav-controls button:last-child {
+  margin-left: -1px;
+  border-radius: 0 999px 999px 0;
+}
+
+.file-manager__nav-controls button:disabled {
+  color: var(--text-soft);
+  cursor: not-allowed;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.file-manager__path-entry {
+  min-width: 0;
+}
+
+.file-manager__path-entry input {
+  width: 100%;
+  height: 32px;
+  min-width: 0;
+  padding: 0 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(100, 136, 166, 0.2);
+  border-radius: 999px;
+  outline: 0;
+  font-family: inherit;
   font-size: 12px;
 }
 
-.file-manager__crumbs button:not(:last-child)::after {
-  position: absolute;
-  right: 5px;
-  color: var(--text-soft);
-  content: "/";
+.file-manager__path-entry input:focus {
+  border-color: rgba(19, 136, 255, 0.42);
+  box-shadow: 0 0 0 3px rgba(19, 136, 255, 0.1);
 }
 
 .file-manager__toolbar {

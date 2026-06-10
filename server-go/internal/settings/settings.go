@@ -19,6 +19,7 @@ const (
 type Settings struct {
 	Model   ModelPolicy   `json:"model"`
 	Privacy PrivacyPolicy `json:"privacy"`
+	UI      UIPolicy      `json:"ui"`
 }
 
 type ModelPolicy struct {
@@ -32,6 +33,14 @@ type ModelPolicy struct {
 type PrivacyPolicy struct {
 	SensitiveDataLocalOnly bool `json:"sensitiveDataLocalOnly"`
 	AuditRetentionDays     int  `json:"auditRetentionDays"`
+}
+
+type UIPolicy struct {
+	Theme        string `json:"theme"`
+	WindowRadius string `json:"windowRadius"`
+	DockPosition string `json:"dockPosition"`
+	DockStyle    string `json:"dockStyle"`
+	DockIconSize string `json:"dockIconSize"`
 }
 
 type Store struct {
@@ -77,6 +86,13 @@ func DefaultSettings() Settings {
 		Privacy: PrivacyPolicy{
 			SensitiveDataLocalOnly: true,
 			AuditRetentionDays:     90,
+		},
+		UI: UIPolicy{
+			Theme:        "auto",
+			WindowRadius: "default",
+			DockPosition: "bottom",
+			DockStyle:    "floating",
+			DockIconSize: "default",
 		},
 	}
 }
@@ -128,16 +144,55 @@ func normalize(settings Settings) (Settings, error) {
 	if settings.Privacy.AuditRetentionDays == 0 {
 		settings.Privacy.AuditRetentionDays = 90
 	}
+	if settings.UI.Theme == "" {
+		settings.UI.Theme = "auto"
+	}
+	if settings.UI.WindowRadius == "" {
+		settings.UI.WindowRadius = "default"
+	}
+	if settings.UI.DockPosition == "" {
+		settings.UI.DockPosition = "bottom"
+	}
+	if settings.UI.DockStyle == "" {
+		settings.UI.DockStyle = "floating"
+	}
+	if settings.UI.DockIconSize == "" {
+		settings.UI.DockIconSize = "default"
+	}
 	if settings.Privacy.AuditRetentionDays < 1 {
 		return Settings{}, fmt.Errorf("settings: audit retention days must be positive")
 	}
 	if !settings.Privacy.SensitiveDataLocalOnly {
 		return Settings{}, fmt.Errorf("settings: sensitive data must remain local-only")
 	}
+	if !allowedString(settings.UI.Theme, "auto", "light", "dark") {
+		return Settings{}, fmt.Errorf("settings: invalid ui theme")
+	}
+	if !allowedString(settings.UI.WindowRadius, "compact", "default", "rounded") {
+		return Settings{}, fmt.Errorf("settings: invalid ui window radius")
+	}
+	if !allowedString(settings.UI.DockPosition, "bottom", "left", "right") {
+		return Settings{}, fmt.Errorf("settings: invalid ui dock position")
+	}
+	if !allowedString(settings.UI.DockStyle, "floating", "side", "compact") {
+		return Settings{}, fmt.Errorf("settings: invalid ui dock style")
+	}
+	if !allowedString(settings.UI.DockIconSize, "small", "default", "large") {
+		return Settings{}, fmt.Errorf("settings: invalid ui dock icon size")
+	}
 	if settings.Model.Mode == ModelModeEnterpriseLocal {
 		settings.Model.CloudEnabled = false
 	}
 	return settings, nil
+}
+
+func allowedString(value string, allowed ...string) bool {
+	for _, item := range allowed {
+		if value == item {
+			return true
+		}
+	}
+	return false
 }
 
 func isZeroSettings(settings Settings) bool {
@@ -147,5 +202,10 @@ func isZeroSettings(settings Settings) bool {
 		settings.Model.CloudModel == "" &&
 		!settings.Model.CloudEnabled &&
 		!settings.Privacy.SensitiveDataLocalOnly &&
-		settings.Privacy.AuditRetentionDays == 0
+		settings.Privacy.AuditRetentionDays == 0 &&
+		settings.UI.Theme == "" &&
+		settings.UI.WindowRadius == "" &&
+		settings.UI.DockPosition == "" &&
+		settings.UI.DockStyle == "" &&
+		settings.UI.DockIconSize == ""
 }

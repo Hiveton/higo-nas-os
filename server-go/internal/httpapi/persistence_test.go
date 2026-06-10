@@ -31,7 +31,7 @@ func TestStatefulAPIsPersistAcrossRouterRestart(t *testing.T) {
 		} `json:"data"`
 	}
 	requestJSON(t, router, http.MethodPost, "/api/v1/storage/tasks/smart-scan", `{"targetSlot":"1"}`, &storageTask)
-	request(t, router, http.MethodPut, "/api/v1/docker/containers/jellyfin/limits", `{"limitCpu":5,"limitMemory":6144}`)
+	request(t, router, http.MethodPut, "/api/v1/docker/containers/media-server/limits", `{"limitCpu":5,"limitMemory":6144}`)
 	request(t, router, http.MethodPost, "/api/v1/security/risk-actions/r2/block", `{"actorId":"tester","reason":"persistent smoke"}`)
 	request(t, router, http.MethodDelete, "/api/v1/shares/s2", ``)
 	var fileSearch struct {
@@ -85,11 +85,19 @@ func TestStatefulAPIsPersistAcrossRouterRestart(t *testing.T) {
 			Privacy struct {
 				AuditRetentionDays int `json:"auditRetentionDays"`
 			} `json:"privacy"`
+			UI struct {
+				Theme        string `json:"theme"`
+				WindowRadius string `json:"windowRadius"`
+				DockPosition string `json:"dockPosition"`
+			} `json:"ui"`
 		} `json:"data"`
 	}
 	getJSON(t, restarted, "/api/v1/settings", &settings)
 	if settings.Data.Model.Mode != "enterprise_local" || settings.Data.Model.CloudEnabled || settings.Data.Privacy.AuditRetentionDays != 365 {
 		t.Fatalf("settings were not persisted and normalized: %#v", settings.Data)
+	}
+	if settings.Data.UI.Theme != "auto" || settings.Data.UI.WindowRadius != "default" || settings.Data.UI.DockPosition != "bottom" {
+		t.Fatalf("ui settings defaults were not normalized: %#v", settings.Data.UI)
 	}
 
 	var downloads struct {
@@ -192,7 +200,7 @@ func TestStatefulAPIsPersistAcrossRouterRestart(t *testing.T) {
 		} `json:"data"`
 	}
 	getJSON(t, restarted, "/api/v1/docker/containers", &containers)
-	if !hasContainerLimits(containers.Data, "jellyfin", 5, 6144) {
+	if !hasContainerLimits(containers.Data, "media-server", 5, 6144) {
 		t.Fatalf("docker limits were not persisted: %#v", containers.Data)
 	}
 

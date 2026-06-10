@@ -105,10 +105,12 @@ function handleDocumentPointerDown(event: PointerEvent) {
 
 onMounted(() => {
   void monitoringStore.loadMonitoringSnapshot();
+  monitoringStore.startPolling(5000);
   document.addEventListener('pointerdown', handleDocumentPointerDown);
 });
 
 onUnmounted(() => {
+  monitoringStore.stopPolling();
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
 });
 </script>

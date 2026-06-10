@@ -3,9 +3,12 @@ package media
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"higoos/server-go/internal/state"
 )
@@ -40,17 +43,26 @@ type snapshot struct {
 
 func NewService() *Service {
 	return &Service{
-		items:       seedItems(),
-		albums:      seedAlbums(),
-		people:      seedPeople(),
-		nextAlbumID: 7,
+		items:       []MediaItem{},
+		albums:      []Album{},
+		people:      []Person{},
+		nextAlbumID: 1,
 		nextJobSeq:  1,
 	}
 }
 
 func NewServiceWithStateDir(stateDir string) (*Service, error) {
+	return NewServiceWithRootsAndExcludes(stateDir, defaultMediaRoots(), defaultExcludedMediaRoots(stateDir))
+}
+
+func NewServiceWithRoots(stateDir string, roots []string) (*Service, error) {
+	return NewServiceWithRootsAndExcludes(stateDir, roots, nil)
+}
+
+func NewServiceWithRootsAndExcludes(stateDir string, roots []string, excludedRoots []string) (*Service, error) {
 	service := NewService()
 	if stateDir == "" {
+		service.refreshFromRoots(roots, excludedRoots)
 		return service, nil
 	}
 	service.statePath = filepath.Join(stateDir, "media.json")
@@ -58,9 +70,12 @@ func NewServiceWithStateDir(stateDir string) (*Service, error) {
 	if err := state.LoadJSON(service.statePath, &persisted); err != nil {
 		return nil, err
 	}
-	if len(persisted.Items) > 0 {
-		service.items = cloneItems(persisted.Items)
+	if hasPersistedMediaState(persisted) && !containsLegacyDemoItems(persisted.Items) {
+		service.items = filterExcludedItems(cloneItems(persisted.Items), excludedRoots)
 		service.albums = cloneAlbums(persisted.Albums)
+		if len(service.items) != len(persisted.Items) {
+			service.albums = albumsFromItems(service.items)
+		}
 		service.people = clonePeople(persisted.People)
 		service.memoryRuns = cloneMemoryRuns(persisted.MemoryRuns)
 		service.subtitleJobs = append([]SubtitleJob(nil), persisted.SubtitleJobs...)
@@ -75,7 +90,9 @@ func NewServiceWithStateDir(stateDir string) (*Service, error) {
 		if service.nextJobSeq <= 0 {
 			service.nextJobSeq = 1
 		}
+		return service, nil
 	}
+	service.refreshFromRoots(roots, excludedRoots)
 	return service, nil
 }
 
@@ -357,6 +374,14 @@ func (s *Service) saveLocked() error {
 	})
 }
 
+func (s *Service) refreshFromRoots(roots []string, excludedRoots []string) {
+	items := scanMediaRoots(roots, excludedRoots)
+	s.items = items
+	s.albums = albumsFromItems(items)
+	s.people = peopleFromItems(items)
+	s.nextAlbumID = nextAlbumID(s.albums)
+}
+
 func (s *Service) findItemIndexLocked(id int) int {
 	for idx := range s.items {
 		if s.items[idx].ID == id {
@@ -475,15 +500,15 @@ func privacyForAlbumType(albumType AlbumType) string {
 }
 
 func cloneItems(items []MediaItem) []MediaItem {
-	return append([]MediaItem(nil), items...)
+	return append([]MediaItem{}, items...)
 }
 
 func cloneAlbums(albums []Album) []Album {
-	return append([]Album(nil), albums...)
+	return append([]Album{}, albums...)
 }
 
 func clonePeople(people []Person) []Person {
-	return append([]Person(nil), people...)
+	return append([]Person{}, people...)
 }
 
 func cloneMemoryRun(run MemoryRun) MemoryRun {
@@ -509,105 +534,375 @@ func nextAlbumID(albums []Album) int {
 	return next
 }
 
-func seedItems() []MediaItem {
-	return []MediaItem{
-		{
-			ID:       1,
-			Title:    "春节团圆 4K 合影",
-			Kind:     MediaKindPhoto,
-			Timeline: "2026 春节",
-			People:   "爸爸 / 妈妈",
-			Place:    "杭州",
-			Device:   "iPhone 17 Pro",
-			Album:    "家庭年度相册",
-			Meta:     "48MP · HEIC · 18 张连拍",
-			Status:   "已完成人物识别",
-			Accent:   "linear-gradient(135deg, #bfe7ff, #fff1bf)",
-		},
-		{
-			ID:          2,
-			Title:       "海边旅行 vlog",
-			Kind:        MediaKindVideo,
-			Timeline:    "2025 暑假",
-			People:      "小雨 / 爸爸",
-			Place:       "三亚",
-			Device:      "Sony A7C II",
-			Album:       "旅行视频",
-			Meta:        "42:16 · H.265 · 4K",
-			Status:      "海报墙已刮削",
-			Accent:      "linear-gradient(135deg, #bdebd6, #c6d7ff)",
-			HasSubtitle: true,
-		},
-		{
-			ID:       3,
-			Title:    "家庭钢琴练习",
-			Kind:     MediaKindMusic,
-			Timeline: "2026 五月",
-			People:   "小雨",
-			Place:    "客厅",
-			Device:   "HiGo 麦克风",
-			Album:    "孩子成长记录",
-			Meta:     "08:24 · FLAC · 96kHz",
-			Status:   "已生成波形索引",
-			Accent:   "linear-gradient(135deg, #e8d7ff, #c5f6ff)",
-		},
-		{
-			ID:       4,
-			Title:    "露营星空延时",
-			Kind:     MediaKindVideo,
-			Timeline: "2025 秋游",
-			People:   "妈妈 / 小雨",
-			Place:    "安吉",
-			Device:   "DJI Osmo",
-			Album:    "共享露营相册",
-			Meta:     "12:02 · ProRes · 4K",
-			Status:   "等待转码",
-			Accent:   "linear-gradient(135deg, #d1fae5, #fde68a)",
-		},
-		{
-			ID:       5,
-			Title:    "春节年夜饭短片",
-			Kind:     MediaKindVideo,
-			Timeline: "2026 春节",
-			People:   "爸爸 / 妈妈 / 小雨",
-			Place:    "杭州",
-			Device:   "iPhone 17 Pro",
-			Album:    "春节回忆",
-			Meta:     "03:18 · Dolby Vision · 4K",
-			Status:   "智能回忆素材",
-			Accent:   "linear-gradient(135deg, #ffd7bf, #d9f99d)",
-		},
-		{
-			ID:       6,
-			Title:    "五一湖边骑行",
-			Kind:     MediaKindPhoto,
-			Timeline: "2026 五一",
-			People:   "小雨 / 妈妈",
-			Place:    "千岛湖",
-			Device:   "GoPro Hero",
-			Album:    "五一回忆",
-			Meta:     "24MP · JPEG · 126 张",
-			Status:   "地点聚类完成",
-			Accent:   "linear-gradient(135deg, #bbf7d0, #bfdbfe)",
-		},
+func defaultMediaRoots() []string {
+	roots := []string{}
+	if env := strings.TrimSpace(os.Getenv("HIGO_MEDIA_ROOTS")); env != "" {
+		for _, part := range strings.Split(env, string(os.PathListSeparator)) {
+			if root := strings.TrimSpace(part); root != "" {
+				roots = append(roots, root)
+			}
+		}
+	}
+	if root := strings.TrimSpace(os.Getenv("HIGO_NAS_ROOT")); root != "" {
+		roots = append(roots, root)
+	}
+	roots = append(roots, "/srv/higoos/nas", "/volume1/media", "/volume1/photo", "/volume1/music")
+	return roots
+}
+
+func defaultExcludedMediaRoots(stateDir string) []string {
+	roots := []string{}
+	if env := strings.TrimSpace(os.Getenv("HIGO_PHOTO_EXCLUDE_ROOTS")); env != "" {
+		for _, part := range strings.Split(env, string(os.PathListSeparator)) {
+			if root := strings.TrimSpace(part); root != "" {
+				roots = append(roots, root)
+			}
+		}
+	}
+	if stateDir == "" {
+		return roots
+	}
+	roots = append(roots, musicLibraryPathsFromState(filepath.Join(stateDir, "music.json"))...)
+	roots = append(roots, videoLibraryPathsFromState(filepath.Join(stateDir, "video.json"))...)
+	return roots
+}
+
+func scanMediaRoots(roots []string, excludedRoots []string) []MediaItem {
+	type mediaFile struct {
+		path string
+		info os.FileInfo
+	}
+	files := []mediaFile{}
+	seenRoots := map[string]bool{}
+	excludes := normalizeRootSet(excludedRoots)
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		abs, err := filepath.Abs(root)
+		if err != nil || seenRoots[abs] {
+			continue
+		}
+		seenRoots[abs] = true
+		info, err := os.Stat(abs)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if isPathExcluded(abs, excludes) {
+			continue
+		}
+		_ = filepath.WalkDir(abs, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if entry.IsDir() {
+				if isPathExcluded(path, excludes) {
+					return filepath.SkipDir
+				}
+				name := entry.Name()
+				if strings.HasPrefix(name, ".") && path != abs {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !isSupportedMediaFile(path) {
+				return nil
+			}
+			if mediaKindFromPath(path) == MediaKindMusic {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return nil
+			}
+			files = append(files, mediaFile{path: path, info: info})
+			return nil
+		})
+	}
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].info.ModTime().Equal(files[j].info.ModTime()) {
+			return files[i].path < files[j].path
+		}
+		return files[i].info.ModTime().After(files[j].info.ModTime())
+	})
+	items := make([]MediaItem, 0, len(files))
+	for idx, file := range files {
+		items = append(items, mediaItemFromFile(idx+1, file.path, file.info))
+	}
+	return items
+}
+
+func mediaItemFromFile(id int, path string, info os.FileInfo) MediaItem {
+	kind := mediaKindFromPath(path)
+	modTime := info.ModTime()
+	timeline := timelineFromTime(modTime)
+	album := albumNameFromPath(path)
+	meta := mediaMetaFromFile(path, info)
+	return MediaItem{
+		ID:         id,
+		Title:      titleFromPath(path),
+		Kind:       kind,
+		Timeline:   timeline,
+		People:     "待 AI 识别",
+		Place:      "待 AI 识别",
+		Device:     "待 AI 识别",
+		Album:      album,
+		Meta:       meta,
+		Status:     "已索引 · 待 AI 整理",
+		Accent:     accentForKind(kind),
+		SourcePath: path,
 	}
 }
 
-func seedAlbums() []Album {
-	return []Album{
-		{ID: 1, Name: "家庭年度相册", Type: AlbumTypeFamily, Count: 3862, Privacy: "仅家庭成员可见"},
-		{ID: 2, Name: "共享露营相册", Type: AlbumTypeShared, Count: 214, Privacy: "链接关闭"},
-		{ID: 3, Name: "旅行视频", Type: AlbumTypeShared, Count: 87, Privacy: "亲友可见"},
-		{ID: 4, Name: "孩子成长记录", Type: AlbumTypeMemory, Count: 642, Privacy: "AI 自动维护"},
-		{ID: 5, Name: "春节回忆", Type: AlbumTypeMemory, Count: 96, Privacy: "待家庭管理员确认分享"},
-		{ID: 6, Name: "五一回忆", Type: AlbumTypeMemory, Count: 128, Privacy: "待家庭管理员确认分享"},
+func filterExcludedItems(items []MediaItem, excludedRoots []string) []MediaItem {
+	excludes := normalizeRootSet(excludedRoots)
+	if len(excludes) == 0 {
+		return filterNonPhotoMedia(items)
+	}
+	filtered := make([]MediaItem, 0, len(items))
+	for _, item := range items {
+		if item.Kind == MediaKindMusic {
+			continue
+		}
+		if item.SourcePath != "" && isPathExcluded(item.SourcePath, excludes) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func filterNonPhotoMedia(items []MediaItem) []MediaItem {
+	filtered := make([]MediaItem, 0, len(items))
+	for _, item := range items {
+		if item.Kind != MediaKindMusic {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func normalizeRootSet(roots []string) []string {
+	normalized := make([]string, 0, len(roots))
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(abs); err == nil && !info.IsDir() {
+			abs = filepath.Dir(abs)
+		}
+		clean := filepath.Clean(abs)
+		if !containsString(normalized, clean) {
+			normalized = append(normalized, clean)
+		}
+	}
+	sort.Slice(normalized, func(i, j int) bool {
+		return len(normalized[i]) > len(normalized[j])
+	})
+	return normalized
+}
+
+func isPathExcluded(path string, excludedRoots []string) bool {
+	if len(excludedRoots) == 0 {
+		return false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	clean := filepath.Clean(abs)
+	for _, root := range excludedRoots {
+		if clean == root {
+			return true
+		}
+		rel, err := filepath.Rel(root, clean)
+		if err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func musicLibraryPathsFromState(path string) []string {
+	var persisted struct {
+		Settings struct {
+			Paths []string `json:"paths"`
+		} `json:"settings"`
+	}
+	if err := state.LoadJSON(path, &persisted); err != nil {
+		return nil
+	}
+	return append([]string(nil), persisted.Settings.Paths...)
+}
+
+func videoLibraryPathsFromState(path string) []string {
+	var persisted struct {
+		Settings struct {
+			Libraries []struct {
+				Paths []string `json:"paths"`
+			} `json:"libraries"`
+		} `json:"settings"`
+	}
+	if err := state.LoadJSON(path, &persisted); err != nil {
+		return nil
+	}
+	paths := []string{}
+	for _, library := range persisted.Settings.Libraries {
+		paths = append(paths, library.Paths...)
+	}
+	return paths
+}
+
+func albumsFromItems(items []MediaItem) []Album {
+	counts := map[string]int{}
+	for _, item := range items {
+		if item.Album == "" {
+			continue
+		}
+		counts[item.Album]++
+	}
+	names := make([]string, 0, len(counts))
+	for name := range counts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	albums := make([]Album, 0, len(names))
+	for idx, name := range names {
+		albums = append(albums, Album{
+			ID:      idx + 1,
+			Name:    name,
+			Type:    AlbumTypeFamily,
+			Count:   counts[name],
+			Privacy: "仅家庭成员可见",
+		})
+	}
+	return albums
+}
+
+func peopleFromItems(items []MediaItem) []Person {
+	counts := map[string]int{}
+	for _, item := range items {
+		for _, name := range normalizePeopleCluster(item.People) {
+			if name != "" && name != "待 AI 识别" {
+				counts[name]++
+			}
+		}
+	}
+	names := make([]string, 0, len(counts))
+	for name := range counts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	people := make([]Person, 0, len(names))
+	for idx, name := range names {
+		people = append(people, Person{ID: idx + 1, Name: name, Cluster: name, Count: counts[name]})
+	}
+	return people
+}
+
+func isSupportedMediaFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif", ".tif", ".tiff",
+		".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm",
+		".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".ape":
+		return true
+	default:
+		return false
 	}
 }
 
-func seedPeople() []Person {
-	return []Person{
-		{ID: 1, Name: "爸爸", Cluster: "爸爸", Count: 3},
-		{ID: 2, Name: "妈妈", Cluster: "妈妈", Count: 4},
-		{ID: 3, Name: "小雨", Cluster: "小雨", Count: 4},
+func mediaKindFromPath(path string) MediaKind {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif", ".tif", ".tiff":
+		return MediaKindPhoto
+	case ".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".ape":
+		return MediaKindMusic
+	default:
+		return MediaKindVideo
 	}
+}
+
+func titleFromPath(path string) string {
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	return strings.TrimSpace(strings.TrimSuffix(base, ext))
+}
+
+func albumNameFromPath(path string) string {
+	parent := filepath.Base(filepath.Dir(path))
+	if parent == "." || parent == string(filepath.Separator) || parent == "" {
+		return "未归类媒体"
+	}
+	return parent
+}
+
+func timelineFromTime(t time.Time) string {
+	if t.IsZero() {
+		return "未知时间"
+	}
+	return t.Local().Format("2006-01")
+}
+
+func mediaMetaFromFile(path string, info os.FileInfo) string {
+	kind := mediaKindFromPath(path)
+	format := strings.ToUpper(strings.TrimPrefix(filepath.Ext(path), "."))
+	if format == "" {
+		format = "MEDIA"
+	}
+	return fmt.Sprintf("%s · %s · %s", kind, format, humanBytes(info.Size()))
+}
+
+func humanBytes(size int64) string {
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+	units := []string{"KB", "MB", "GB", "TB"}
+	value := float64(size)
+	for _, unit := range units {
+		value = value / 1024
+		if value < 1024 || unit == "TB" {
+			return fmt.Sprintf("%.1f %s", value, unit)
+		}
+	}
+	return fmt.Sprintf("%d B", size)
+}
+
+func accentForKind(kind MediaKind) string {
+	switch kind {
+	case MediaKindPhoto:
+		return "linear-gradient(135deg, #d7f8ff, #e9fbd2)"
+	case MediaKindMusic:
+		return "linear-gradient(135deg, #e7ddff, #d5f3ff)"
+	default:
+		return "linear-gradient(135deg, #d4f7df, #fff0a8)"
+	}
+}
+
+func containsLegacyDemoItems(items []MediaItem) bool {
+	for _, item := range items {
+		switch item.Title {
+		case "春节团圆 4K 合影", "海边旅行 vlog", "露营星空延时", "春节年夜饭短片":
+			return true
+		}
+	}
+	return false
+}
+
+func hasPersistedMediaState(persisted snapshot) bool {
+	return len(persisted.Items) > 0 ||
+		len(persisted.Albums) > 0 ||
+		len(persisted.People) > 0 ||
+		len(persisted.MemoryRuns) > 0 ||
+		len(persisted.SubtitleJobs) > 0 ||
+		len(persisted.TranscodeJobs) > 0 ||
+		len(persisted.Shares) > 0 ||
+		persisted.NextAlbumID > 0 ||
+		persisted.NextJobSeq > 0 ||
+		persisted.MemoryRunCount > 0
 }

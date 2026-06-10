@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -35,10 +36,10 @@ func NewDevService() *DevService {
 		},
 		containers: []Container{
 			{
-				ID: "jellyfin", Name: "jellyfin-media", Image: "jellyfin/jellyfin:10.9", Stack: "media-stack",
+				ID: "media-server", Name: "media-server", Image: "local/media-server:latest", Stack: "media-stack",
 				Status: ContainerStatusRunning, CPU: 18, Memory: 42, MemoryText: "1.7 GB / 4 GB",
 				Ports:  []string{"8096:8096/tcp", "8920:8920/tcp"},
-				Mounts: []string{"/volume1/media:/media:ro", "/volume1/docker/media/jellyfin:/config"},
+				Mounts: []string{"/volume1/media:/media:ro", "/volume1/docker/media/server:/config"},
 				Env:    []string{"TZ=Asia/Shanghai", "PUID=1000", "PGID=1000"},
 				Limit:  ResourceLimit{CPU: 4, MemoryMB: 4096}, Restarts: 1,
 				Isolation: "只读媒体库 · 无系统目录",
@@ -103,6 +104,11 @@ func (s *DevService) Stacks(ctx context.Context) ([]ComposeStack, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if dockerCLIAvailable() {
+		if stacks, err := liveStacks(ctx); err == nil {
+			return stacks, nil
+		}
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return cloneStacks(s.stacks), nil
@@ -112,6 +118,11 @@ func (s *DevService) Containers(ctx context.Context) ([]Container, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if dockerCLIAvailable() {
+		if containers, err := liveContainers(ctx); err == nil {
+			return containers, nil
+		}
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return cloneContainers(s.containers), nil
@@ -120,6 +131,9 @@ func (s *DevService) Containers(ctx context.Context) ([]Container, error) {
 func (s *DevService) Logs(ctx context.Context, containerID string, tail int) ([]ContainerLog, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if dockerCLIAvailable() {
+		return liveLogs(ctx, containerID, tail)
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -136,6 +150,9 @@ func (s *DevService) Logs(ctx context.Context, containerID string, tail int) ([]
 func (s *DevService) Start(ctx context.Context, containerID string) (Container, error) {
 	if err := ctx.Err(); err != nil {
 		return Container{}, err
+	}
+	if dockerCLIAvailable() {
+		return liveContainerAction(ctx, containerID, "start")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -156,6 +173,9 @@ func (s *DevService) Stop(ctx context.Context, containerID string) (Container, e
 	if err := ctx.Err(); err != nil {
 		return Container{}, err
 	}
+	if dockerCLIAvailable() {
+		return liveContainerAction(ctx, containerID, "stop")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	index, ok := s.findContainerLocked(containerID)
@@ -174,6 +194,9 @@ func (s *DevService) Stop(ctx context.Context, containerID string) (Container, e
 func (s *DevService) Restart(ctx context.Context, containerID string) (Container, error) {
 	if err := ctx.Err(); err != nil {
 		return Container{}, err
+	}
+	if dockerCLIAvailable() {
+		return liveContainerAction(ctx, containerID, "restart")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -194,6 +217,9 @@ func (s *DevService) Restart(ctx context.Context, containerID string) (Container
 func (s *DevService) CompleteRestart(ctx context.Context, containerID string) (Container, error) {
 	if err := ctx.Err(); err != nil {
 		return Container{}, err
+	}
+	if dockerCLIAvailable() {
+		return liveFindContainer(ctx, containerID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -217,6 +243,9 @@ func (s *DevService) UpdateLimits(ctx context.Context, containerID string, limit
 	if err := validateLimit(limit); err != nil {
 		return Container{}, err
 	}
+	if dockerCLIAvailable() {
+		return liveUpdateLimits(ctx, containerID, limit)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	index, ok := s.findContainerLocked(containerID)
@@ -228,6 +257,11 @@ func (s *DevService) UpdateLimits(ctx context.Context, containerID string, limit
 	container.MemoryText = runtimeMemoryText(*container)
 	s.prependLogLocked(container.ID, fmt.Sprintf("资源限制调整为 %d CPU / %d MB", limit.CPU, limit.MemoryMB))
 	return cloneContainer(*container), s.saveLocked()
+}
+
+func dockerCLIAvailable() bool {
+	_, err := exec.LookPath("docker")
+	return err == nil
 }
 
 func (s *DevService) saveLocked() error {
@@ -244,7 +278,7 @@ func (s *DevService) saveLocked() error {
 
 func (s *DevService) seedLogs() {
 	seed := map[string][]string{
-		"jellyfin":     {"媒体库扫描完成", "硬件转码队列 2 个任务", "端口 8096 已绑定到局域网"},
+		"media-server": {"媒体库扫描完成", "硬件转码队列 2 个任务", "端口 8096 已绑定到局域网"},
 		"transmission": {"订阅下载队列同步完成", "上传限速 4 MB/s", "DHT 节点已连接"},
 		"ollama":       {"qwen2.5:7b 已加载", "向量任务等待 GPU 调度", "本地推理端口 11434 正常"},
 		"gateway":      {"用户手动停止服务", "证书续期任务暂停", "端口 443 已释放"},

@@ -11,6 +11,7 @@ import {
   Globe2,
   History,
   LockKeyhole,
+  Palette,
   RefreshCw,
   RotateCcw,
   Save,
@@ -22,7 +23,6 @@ import {
 import { apiClient } from '../../api/client';
 import { settingsStore } from '../../stores/settings';
 import type { AccountSummary, AccountUser, SettingsState as ApiSettingsState } from '../../api/types';
-import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type CategoryId =
   | 'accounts'
@@ -33,7 +33,8 @@ type CategoryId =
   | 'updates'
   | 'privacy'
   | 'audit'
-  | 'backup';
+  | 'backup'
+  | 'interface';
 
 type SettingsState = {
   role: string;
@@ -59,6 +60,11 @@ type SettingsState = {
   auditRetention: string;
   systemBackup: boolean;
   backupTarget: string;
+  uiTheme: string;
+  windowRadius: string;
+  dockPosition: string;
+  dockStyle: string;
+  dockIconSize: string;
 };
 
 type Category = {
@@ -78,10 +84,36 @@ const categories: Category[] = [
   { id: 'privacy', label: '隐私', summary: '敏感数据与云端限制', icon: EyeOff },
   { id: 'audit', label: '审计保留', summary: '日志周期与可追溯性', icon: History },
   { id: 'backup', label: '系统备份', summary: '配置快照与恢复目标', icon: ArchiveRestore },
+  { id: 'interface', label: '界面设置', summary: '主题、圆角、Dock 样式', icon: Palette },
 ];
 
 const modelStrategies = ['家庭混合模式', '小团队供应商模式', '企业强制本地', '按数据级别路由'];
 const retentionOptions = ['30 天', '90 天', '180 天', '365 天'];
+const themeOptions = [
+  { value: 'auto', label: '跟随系统' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+];
+const radiusOptions = [
+  { value: 'compact', label: '紧凑' },
+  { value: 'default', label: '默认' },
+  { value: 'rounded', label: '圆润' },
+];
+const dockPositionOptions = [
+  { value: 'bottom', label: '底部' },
+  { value: 'left', label: '左侧' },
+  { value: 'right', label: '右侧' },
+];
+const dockStyleOptions = [
+  { value: 'floating', label: '浮动' },
+  { value: 'side', label: '侧边栏' },
+  { value: 'compact', label: '紧凑' },
+];
+const dockIconSizeOptions = [
+  { value: 'small', label: '小' },
+  { value: 'default', label: '默认' },
+  { value: 'large', label: '大' },
+];
 
 const activeCategoryId = ref<CategoryId>('accounts');
 const updateStatus = ref('上次检查：今天 09:20，当前为最新版本。');
@@ -176,12 +208,18 @@ function createDefaultSettings(): SettingsState {
     auditRetention: '180 天',
     systemBackup: true,
     backupTarget: 'HiGoNAS 内部快照',
+    uiTheme: 'auto',
+    windowRadius: 'default',
+    dockPosition: 'bottom',
+    dockStyle: 'floating',
+    dockIconSize: 'default',
   };
 }
 
 function applyBackendSettings(nextSettings: ApiSettingsState) {
   const model = nextSettings.model ?? {};
   const privacy = nextSettings.privacy ?? {};
+  const ui = nextSettings.ui ?? {};
   if (model.mode === 'enterprise_local') settings.value.modelStrategy = '企业强制本地';
   else if (model.mode === 'provider') settings.value.modelStrategy = '小团队供应商模式';
   else settings.value.modelStrategy = '家庭混合模式';
@@ -193,6 +231,11 @@ function applyBackendSettings(nextSettings: ApiSettingsState) {
   if (settings.value.sensitiveLocalOnly && settings.value.privacyMode === '家庭默认') {
     settings.value.privacyMode = '隐身优先';
   }
+  settings.value.uiTheme = normalizeBackendOption(ui.theme, themeOptions, 'auto');
+  settings.value.windowRadius = normalizeBackendOption(ui.windowRadius, radiusOptions, 'default');
+  settings.value.dockPosition = normalizeBackendOption(ui.dockPosition, dockPositionOptions, 'bottom');
+  settings.value.dockStyle = normalizeBackendOption(ui.dockStyle, dockStyleOptions, 'floating');
+  settings.value.dockIconSize = normalizeBackendOption(ui.dockIconSize, dockIconSizeOptions, 'default');
 }
 
 function toBackendSettings(): ApiSettingsState {
@@ -208,7 +251,18 @@ function toBackendSettings(): ApiSettingsState {
       sensitiveDataLocalOnly: true,
       auditRetentionDays: parseInt(settings.value.auditRetention, 10) || 90,
     },
+    ui: {
+      theme: settings.value.uiTheme,
+      windowRadius: settings.value.windowRadius,
+      dockPosition: settings.value.dockPosition,
+      dockStyle: settings.value.dockStyle,
+      dockIconSize: settings.value.dockIconSize,
+    },
   };
+}
+
+function normalizeBackendOption(value: unknown, options: { value: string }[], fallback: string) {
+  return typeof value === 'string' && options.some((option) => option.value === value) ? value : fallback;
 }
 
 function backendModelMode(strategy: string) {
@@ -249,6 +303,11 @@ function setPrivacyMode(mode: string) {
     settings.value.agentApproval = true;
   }
   lastAudit.value = `隐私模式已切换为${mode}。`;
+}
+
+function setInterfaceOption(key: 'uiTheme' | 'windowRadius' | 'dockPosition' | 'dockStyle' | 'dockIconSize', value: string) {
+  settings.value[key] = value;
+  lastAudit.value = '界面设置已调整，保存后应用到桌面。';
 }
 
 async function saveSettings() {
@@ -443,7 +502,7 @@ onMounted(async () => {
     settingsStore.loadSettings(),
     loadAccounts(),
   ]);
-  if (nextSettings.model || nextSettings.privacy) {
+  if (nextSettings.model || nextSettings.privacy || nextSettings.ui) {
     applyBackendSettings(nextSettings);
     appliedState.value = '设置已从后端加载，等待管理员调整。';
   }
@@ -832,7 +891,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-else class="system-settings__panel">
+        <div v-else-if="activeCategoryId === 'backup'" class="system-settings__panel">
           <button
             class="system-settings__toggle"
             :class="{ 'system-settings__toggle--on': settings.systemBackup }"
@@ -859,6 +918,83 @@ onMounted(async () => {
             立即创建系统备份
           </button>
         </div>
+
+        <div v-else-if="activeCategoryId === 'interface'" class="system-settings__panel system-settings__panel--interface">
+          <section class="system-settings__account-card" aria-label="主题">
+            <h4>主题</h4>
+            <div class="system-settings__segmented system-settings__segmented--three">
+              <button
+                v-for="option in themeOptions"
+                :key="option.value"
+                :class="{ 'system-settings__segmented-button--active': option.value === settings.uiTheme }"
+                type="button"
+                @click="setInterfaceOption('uiTheme', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </section>
+
+          <section class="system-settings__account-card" aria-label="窗口圆角">
+            <h4>窗口圆角</h4>
+            <div class="system-settings__segmented system-settings__segmented--three">
+              <button
+                v-for="option in radiusOptions"
+                :key="option.value"
+                :class="{ 'system-settings__segmented-button--active': option.value === settings.windowRadius }"
+                type="button"
+                @click="setInterfaceOption('windowRadius', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </section>
+
+          <section class="system-settings__account-card" aria-label="Dock 位置">
+            <h4>Dock 位置</h4>
+            <div class="system-settings__segmented system-settings__segmented--three">
+              <button
+                v-for="option in dockPositionOptions"
+                :key="option.value"
+                :class="{ 'system-settings__segmented-button--active': option.value === settings.dockPosition }"
+                type="button"
+                @click="setInterfaceOption('dockPosition', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </section>
+
+          <section class="system-settings__account-card" aria-label="Dock 样式">
+            <h4>Dock 样式</h4>
+            <div class="system-settings__segmented system-settings__segmented--three">
+              <button
+                v-for="option in dockStyleOptions"
+                :key="option.value"
+                :class="{ 'system-settings__segmented-button--active': option.value === settings.dockStyle }"
+                type="button"
+                @click="setInterfaceOption('dockStyle', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </section>
+
+          <section class="system-settings__account-card" aria-label="Dock 图标大小">
+            <h4>Dock 图标大小</h4>
+            <div class="system-settings__segmented system-settings__segmented--three">
+              <button
+                v-for="option in dockIconSizeOptions"
+                :key="option.value"
+                :class="{ 'system-settings__segmented-button--active': option.value === settings.dockIconSize }"
+                type="button"
+                @click="setInterfaceOption('dockIconSize', option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </section>
+        </div>
       </section>
 
       <section class="system-settings__footer" aria-label="保存和审计状态">
@@ -878,7 +1014,6 @@ onMounted(async () => {
         </div>
       </section>
     </main>
-    <NasFeaturePanel class="system-settings__features" :modules="['settings', 'remote', 'ai']" />
   </div>
 </template>
 
@@ -886,14 +1021,9 @@ onMounted(async () => {
 .system-settings {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
   gap: 14px;
   height: 100%;
   min-height: 0;
-}
-
-.system-settings__features {
-  grid-column: 1 / -1;
 }
 
 .system-settings__sidebar,
@@ -1223,6 +1353,10 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
+}
+
+.system-settings__segmented--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .system-settings__segmented button {

@@ -9,25 +9,26 @@ type LibrarySettings struct {
 }
 
 type Track struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	Artist       string `json:"artist"`
-	Album        string `json:"album"`
-	TrackNumber  int    `json:"trackNumber,omitempty"`
-	Year         string `json:"year,omitempty"`
-	Codec        string `json:"codec"`
-	Format       string `json:"format"`
-	SizeBytes    int64  `json:"sizeBytes"`
-	Size         string `json:"size"`
-	ModifiedAt   string `json:"modifiedAt"`
-	DiscoveredAt string `json:"discoveredAt"`
-	FileName     string `json:"fileName"`
-	Path         string `json:"path,omitempty"`
-	StreamURL    string `json:"streamUrl"`
-	CoverURL     string `json:"coverUrl,omitempty"`
-	LyricsURL    string `json:"lyricsUrl,omitempty"`
-	Lyrics       string `json:"lyrics,omitempty"`
-	Status       string `json:"status"`
+	ID              string `json:"id"`
+	Title           string `json:"title"`
+	Artist          string `json:"artist"`
+	Album           string `json:"album"`
+	TrackNumber     int    `json:"trackNumber,omitempty"`
+	Year            string `json:"year,omitempty"`
+	Codec           string `json:"codec"`
+	Format          string `json:"format"`
+	DurationSeconds int    `json:"durationSeconds,omitempty"`
+	SizeBytes       int64  `json:"sizeBytes"`
+	Size            string `json:"size"`
+	ModifiedAt      string `json:"modifiedAt"`
+	DiscoveredAt    string `json:"discoveredAt"`
+	FileName        string `json:"fileName"`
+	Path            string `json:"path,omitempty"`
+	StreamURL       string `json:"streamUrl"`
+	CoverURL        string `json:"coverUrl,omitempty"`
+	LyricsURL       string `json:"lyricsUrl,omitempty"`
+	Lyrics          string `json:"lyrics,omitempty"`
+	Status          string `json:"status"`
 }
 
 type Album struct {

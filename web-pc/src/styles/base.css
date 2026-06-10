@@ -71,6 +71,80 @@ svg {
   background-size: cover;
 }
 
+.desktop--theme-light {
+  color-scheme: light;
+}
+
+.desktop--theme-dark {
+  color-scheme: dark;
+  --text-strong: #f8fbff;
+  --text: #e4edf8;
+  --text-muted: #b4c3d5;
+  --text-soft: #7f91a8;
+  --surface: rgba(8, 13, 22, 0.9);
+  --surface-solid: #070b12;
+  --surface-glass: rgba(10, 15, 24, 0.86);
+  --surface-glass-strong: rgba(12, 18, 29, 0.94);
+  --surface-blue: rgba(18, 76, 132, 0.28);
+  --surface-ink: rgba(2, 5, 10, 0.92);
+  --surface-dark-glass: rgba(5, 9, 15, 0.88);
+  --border: rgba(151, 176, 206, 0.24);
+  --border-strong: rgba(178, 202, 231, 0.34);
+  --shadow-window: 0 34px 96px rgba(0, 0, 0, 0.66), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+  --dark-panel: rgba(7, 11, 18, 0.9);
+  --dark-panel-soft: rgba(10, 16, 26, 0.84);
+  --dark-panel-strong: rgba(4, 8, 14, 0.95);
+  --dark-control: rgba(12, 19, 31, 0.9);
+  --dark-control-hover: rgba(18, 29, 46, 0.94);
+  --dark-active: rgba(19, 136, 255, 0.18);
+  --dark-border: rgba(160, 184, 214, 0.2);
+  --dark-border-strong: rgba(186, 208, 235, 0.3);
+  background-color: #05080d;
+}
+
+.desktop--theme-dark::before {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.58) 44%, rgba(0, 0, 0, 0.72) 100%),
+    radial-gradient(circle at 16% 12%, rgba(42, 91, 150, 0.16), transparent 34%),
+    radial-gradient(circle at 80% 20%, rgba(22, 199, 221, 0.08), transparent 32%) !important;
+}
+
+.desktop--theme-dark::after {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.24), transparent 28%, transparent 74%, rgba(0, 0, 0, 0.22)) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .desktop--theme-auto {
+    color-scheme: dark;
+    --text-strong: #f8fbff;
+    --text: #e4edf8;
+    --text-muted: #b4c3d5;
+    --text-soft: #7f91a8;
+    --surface: rgba(8, 13, 22, 0.9);
+    --surface-solid: #070b12;
+    --surface-glass: rgba(10, 15, 24, 0.86);
+    --surface-glass-strong: rgba(12, 18, 29, 0.94);
+    --surface-blue: rgba(18, 76, 132, 0.28);
+    --surface-ink: rgba(2, 5, 10, 0.92);
+    --surface-dark-glass: rgba(5, 9, 15, 0.88);
+    --border: rgba(151, 176, 206, 0.24);
+    --border-strong: rgba(178, 202, 231, 0.34);
+    --shadow-window: 0 34px 96px rgba(0, 0, 0, 0.66), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+    background-color: #05080d;
+  }
+
+  .desktop--theme-auto::before {
+    background:
+      linear-gradient(180deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.58) 44%, rgba(0, 0, 0, 0.72) 100%),
+      radial-gradient(circle at 16% 12%, rgba(42, 91, 150, 0.16), transparent 34%),
+      radial-gradient(circle at 80% 20%, rgba(22, 199, 221, 0.08), transparent 32%) !important;
+  }
+
+  .desktop--theme-auto::after {
+    background: linear-gradient(90deg, rgba(0, 0, 0, 0.24), transparent 28%, transparent 74%, rgba(0, 0, 0, 0.22)) !important;
+  }
+}
+
 .desktop::before,
 .desktop::after {
   position: absolute;
@@ -98,6 +172,819 @@ svg {
   min-height: 560px;
   padding: var(--stage-pad-y) var(--stage-pad-x);
   overflow: hidden;
+}
+
+.desktop--dock-left .desktop__stage {
+  padding-left: max(var(--stage-pad-x), calc(var(--dock-side-width) + 18px));
+}
+
+.desktop--dock-right .desktop__stage {
+  padding-right: max(var(--stage-pad-x), calc(var(--dock-side-width) + 18px));
+}
+
+.desktop--theme-dark .desktop-window,
+.desktop--theme-dark .window,
+.desktop--theme-dark .desktop-widget,
+.desktop--theme-dark .compact-assistant,
+.desktop--theme-dark .utility-launcher,
+.desktop--theme-dark .desktop-toast {
+  color: var(--text) !important;
+  background:
+    linear-gradient(180deg, rgba(14, 20, 31, 0.94), rgba(8, 12, 20, 0.9)),
+    var(--surface-glass) !important;
+  border-color: rgba(160, 184, 214, 0.22) !important;
+  box-shadow: var(--shadow-window) !important;
+}
+
+.desktop--theme-dark .desktop-window__titlebar,
+.desktop--theme-dark .window__header,
+.desktop--theme-dark .topbar,
+.desktop--theme-dark .desktop-topbar {
+  color: var(--text) !important;
+  background: linear-gradient(180deg, rgba(12, 18, 29, 0.94), rgba(7, 11, 18, 0.86)) !important;
+  border-color: rgba(160, 184, 214, 0.18) !important;
+}
+
+.desktop--theme-dark .dock__surface,
+.desktop--theme-dark .desktop-dock__surface {
+  background:
+    linear-gradient(180deg, rgba(18, 25, 38, 0.86), rgba(6, 10, 16, 0.82)),
+    rgba(7, 11, 18, 0.82) !important;
+  border-color: rgba(182, 204, 232, 0.24) !important;
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.13) !important;
+}
+
+.desktop--theme-dark .dock__surface::before {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0)) !important;
+}
+
+.desktop--theme-dark .dock__tooltip {
+  color: var(--text-strong) !important;
+  background: rgba(10, 15, 24, 0.94) !important;
+  border-color: rgba(160, 184, 214, 0.24) !important;
+}
+
+.desktop--theme-dark input,
+.desktop--theme-dark select,
+.desktop--theme-dark textarea {
+  color: var(--text-strong) !important;
+  background: rgba(6, 10, 17, 0.72) !important;
+  border-color: rgba(160, 184, 214, 0.22) !important;
+}
+
+.desktop--theme-dark .topbar__search,
+.desktop--theme-dark .topbar__metric,
+.desktop--theme-dark .topbar__model,
+.desktop--theme-dark .topbar__icon-button,
+.desktop--theme-dark .topbar__avatar,
+.desktop--theme-dark .topbar__popover,
+.desktop--theme-dark .topbar__search-popover {
+  color: var(--text-muted) !important;
+  background: rgba(8, 13, 22, 0.78) !important;
+  border-color: rgba(160, 184, 214, 0.2) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+.desktop--theme-dark .topbar__search input,
+.desktop--theme-dark .topbar__metric strong,
+.desktop--theme-dark .topbar__model strong,
+.desktop--theme-dark .topbar__brand strong {
+  color: var(--text-strong) !important;
+}
+
+.desktop--theme-dark .topbar__search input::placeholder {
+  color: rgba(180, 195, 213, 0.72) !important;
+}
+
+.desktop--theme-dark .topbar__search kbd,
+.desktop--theme-dark .topbar__popover button,
+.desktop--theme-dark .topbar__search-popover button {
+  color: var(--text) !important;
+  background: rgba(17, 27, 42, 0.8) !important;
+  border-color: rgba(160, 184, 214, 0.18) !important;
+}
+
+.desktop--theme-dark .desktop-window [class*="__sidebar"],
+.desktop--theme-dark .desktop-window [class*="__hero"],
+.desktop--theme-dark .desktop-window [class*="__content"],
+.desktop--theme-dark .desktop-window [class*="__footer"],
+.desktop--theme-dark .desktop-window [class*="__card"],
+.desktop--theme-dark .desktop-window [class*="__field"],
+.desktop--theme-dark .desktop-window [class*="__toggle"],
+.desktop--theme-dark .desktop-window [class*="__metric"],
+.desktop--theme-dark .desktop-window article {
+  color: var(--text) !important;
+  background: rgba(7, 11, 18, 0.82) !important;
+  border-color: rgba(160, 184, 214, 0.18) !important;
+}
+
+.desktop--theme-dark .desktop-window__body :where(
+  [class$="__main"],
+  [class$="__stage"],
+  [class$="__sidebar"],
+  [class$="__control"],
+  [class$="__catalog"],
+  [class$="__detail"],
+  [class$="__details"],
+  [class$="__inspector"],
+  [class$="__panel"],
+  [class$="__card"],
+  [class$="__summary"],
+  [class$="__overview"],
+  [class$="__status"],
+  [class$="__section"],
+  [class$="__content"],
+  [class$="__footer"],
+  [class$="__body"],
+  [class$="__hero"],
+  [class$="__form"],
+  [class$="__field"],
+  [class$="__metric"],
+  [class$="__table"],
+  [class$="__toolbar"],
+  [class$="__tools"],
+  [class$="__topbar"],
+  [class$="__stats"],
+  [class$="__workspace"],
+  [class$="__templates"],
+  [class$="__workflow"],
+  [class$="__logs"],
+  [class$="__risks"],
+  [class$="__permissions"],
+  [class$="__confirm"],
+  [class$="__shares"],
+  [class$="__security"],
+  [class$="__ai"],
+  [class$="__devices"],
+  [class$="__alerts"],
+  [class$="__containers"],
+  [class$="__diagnostic"],
+  [class$="__trend"],
+  [class$="__governance"],
+  [class$="__disk-info-panel"],
+  [class$="__search"],
+  [class$="__pathbar"],
+  [class$="__path-entry"],
+  [class$="__queue"],
+  [class$="__task"],
+  [class$="__item"],
+  [class$="__row"],
+  [class$="__selected"],
+  [class$="__automation"],
+  [class$="__log"],
+  [class$="__limits"],
+  [class$="__speed"],
+  [class$="__sources"],
+  [class$="__categories"],
+  [class$="__actions"],
+  [class$="__tabs"],
+  [class$="__nav"],
+  [class$="__jobs"],
+  [class$="__audit"],
+  [class$="__grid"],
+  [class$="__ports"],
+  [class$="__policy"],
+  [class$="__empty"],
+  [class$="__notice"],
+  [class$="__preview"],
+  [class$="__settings"],
+  [class$="__create"],
+  [class$="__composer"],
+  [class$="__list"],
+  [class$="__mode"],
+  [class$="__wizard"]
+) {
+  color: var(--text) !important;
+  background: var(--dark-panel-soft) !important;
+  border-color: var(--dark-border) !important;
+  box-shadow: none;
+}
+
+.desktop--theme-dark .desktop-window__body :where(
+  input,
+  select,
+  textarea,
+  button:not(.music-player__play):not(.music-library__play):not(.music-mini__play),
+  [class$="__source"],
+  [class$="__facet"],
+  [class$="__tool"],
+  [class$="__tag"],
+  [class$="__badge"],
+  [class$="__pill"],
+  [class$="__tab"],
+  [class$="__chip"],
+  [class$="__switch"],
+  [class$="__toggle"]
+) {
+  color: var(--text-muted) !important;
+  background: var(--dark-control) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .desktop-window__body :where(button:not(:disabled):hover) {
+  background: var(--dark-control-hover) !important;
+  border-color: var(--dark-border-strong) !important;
+}
+
+.desktop--theme-dark .desktop-window__body :where(
+  [class*="--active"],
+  [class*=" active"],
+  [class$="__primary"],
+  [class$="__primary-button"],
+  [aria-selected="true"]
+) {
+  color: #dff0ff !important;
+  background: var(--dark-active) !important;
+  border-color: rgba(69, 168, 255, 0.38) !important;
+}
+
+.desktop--theme-dark .desktop-window__body :where(
+  [class$="__primary"],
+  [class$="__primary-button"],
+  .download-center__primary,
+  .system-settings__primary,
+  .file-manager__search button
+) {
+  color: #fff !important;
+  background: linear-gradient(135deg, #1f8bff, #4f6bff) !important;
+  border-color: transparent !important;
+}
+
+.desktop--theme-dark .desktop-window__body :where(button:disabled, input:disabled, select:disabled, textarea:disabled) {
+  color: rgba(180, 195, 213, 0.44) !important;
+  background: rgba(68, 80, 96, 0.26) !important;
+  border-color: rgba(160, 184, 214, 0.12) !important;
+}
+
+.desktop--theme-dark .desktop-window__body :where(
+  [class$="__progress"],
+  [class$="__meter"],
+  [class$="__bar"],
+  [class$="__track"]
+) {
+  background: rgba(148, 163, 184, 0.18) !important;
+  border-color: rgba(160, 184, 214, 0.12) !important;
+}
+
+.desktop--theme-dark .desktop-window__body :where(
+  [class$="__cover"],
+  [class$="__cover-wrap"],
+  [class$="__thumb"],
+  [class$="__poster"],
+  [class$="__logo"],
+  [class$="__icon"],
+  [class$="__artwork"],
+  [class$="__spectrum"],
+  [class$="__sparkline"]
+) {
+  border-color: rgba(160, 184, 214, 0.18) !important;
+}
+
+.desktop--theme-dark .desktop-window__body :where(
+  p,
+  small,
+  dt,
+  label,
+  [class$="__meta"],
+  [class$="__description"],
+  [class$="__subtitle"]
+) {
+  color: var(--text-muted) !important;
+}
+
+.desktop--theme-dark .desktop-window__body :where(
+  .app-center,
+  .agent-workbench,
+  .ai-steward,
+  .backup-sync,
+  .device-monitor,
+  .docker-window,
+  .download-center,
+  .file-manager,
+  .music-app,
+  .music-library,
+  .music-player,
+  .music-mini,
+  .remote-access,
+  .security-center,
+  .storage-monitor,
+  .system-settings,
+  .video-center,
+  .feature-panel,
+  .feature-module,
+  .nas-feature-panel
+) {
+  color: var(--text) !important;
+  background:
+    linear-gradient(145deg, rgba(9, 14, 23, 0.9), rgba(5, 8, 14, 0.84)),
+    var(--dark-panel) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .music-app {
+  --music-ink: var(--text-strong);
+  --music-muted: var(--text-muted);
+  --music-soft: var(--text-soft);
+  color: var(--text) !important;
+}
+
+.desktop--theme-dark .music-app__sidebar,
+.desktop--theme-dark .music-app__details,
+.desktop--theme-dark .music-library__hero,
+.desktop--theme-dark .music-library__table,
+.desktop--theme-dark .music-library__settings,
+.desktop--theme-dark .music-player,
+.desktop--theme-dark .music-player__main,
+.desktop--theme-dark .music-player__lyrics-panel,
+.desktop--theme-dark .music-player__mobile-now,
+.desktop--theme-dark .music-mini {
+  color: var(--text) !important;
+  background: var(--dark-panel-soft) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .music-app__search,
+.desktop--theme-dark .music-app__storage,
+.desktop--theme-dark .music-app__side-footer button,
+.desktop--theme-dark .music-app__scan,
+.desktop--theme-dark .music-library__tools button,
+.desktop--theme-dark .music-library__table header,
+.desktop--theme-dark .music-library__badges span,
+.desktop--theme-dark .music-player__badges span,
+.desktop--theme-dark .music-player__actions button,
+.desktop--theme-dark .music-player__lyric-settings,
+.desktop--theme-dark .music-app__tags span,
+.desktop--theme-dark .music-mini__inline-meta span,
+.desktop--theme-dark .music-mini__side button {
+  color: var(--text-muted) !important;
+  background: var(--dark-control) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .music-library__table header {
+  background: rgba(12, 19, 31, 0.96) !important;
+  box-shadow: 0 1px 0 rgba(160, 184, 214, 0.16) !important;
+}
+
+.desktop--theme-dark .music-app__tags {
+  align-items: center !important;
+}
+
+.desktop--theme-dark .music-app__tags span,
+.desktop--theme-dark .music-mini__side button small {
+  display: inline-flex !important;
+  min-height: 22px;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  color: var(--text-muted) !important;
+}
+
+.desktop--theme-dark .music-mini__side button small {
+  min-width: 24px;
+  padding: 0 7px;
+  border-radius: 8px;
+  background: rgba(180, 195, 213, 0.14) !important;
+}
+
+.desktop--theme-dark .music-library__table::before {
+  color: var(--text-strong) !important;
+  background: var(--dark-control) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .music-app__nav-item--active,
+.desktop--theme-dark .music-library__row.active,
+.desktop--theme-dark .music-app__details header button.active {
+  color: #7fc3ff !important;
+  background: rgba(19, 136, 255, 0.2) !important;
+  border-color: rgba(69, 168, 255, 0.36) !important;
+}
+
+.desktop--theme-dark .music-library__cover,
+.desktop--theme-dark .music-player__cover,
+.desktop--theme-dark .music-mini__cover {
+  background: linear-gradient(135deg, rgba(20, 31, 48, 0.92), rgba(9, 14, 23, 0.9)) !important;
+}
+
+.desktop--theme-dark .music-library__play,
+.desktop--theme-dark .music-player__play,
+.desktop--theme-dark .music-mini__play {
+  color: #fff !important;
+  background: linear-gradient(135deg, #4f83ff, #6655ff) !important;
+  border-color: transparent !important;
+}
+
+.desktop--theme-dark .download-center__selected {
+  background: linear-gradient(135deg, rgba(12, 26, 42, 0.92), rgba(25, 19, 40, 0.86)) !important;
+}
+
+.desktop--theme-dark .video-center {
+  color: var(--text) !important;
+  background:
+    radial-gradient(circle at 72% 10%, rgba(28, 93, 172, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(4, 8, 14, 0.96), rgba(7, 11, 18, 0.94)) !important;
+}
+
+.desktop--theme-dark .video-sidebar {
+  color: var(--text) !important;
+  background: var(--dark-panel-soft) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .video-center .side-card,
+.desktop--theme-dark .video-center .form-card,
+.desktop--theme-dark .video-center .detail-panel,
+.desktop--theme-dark .video-center .item-grid,
+.desktop--theme-dark .video-center .library-list,
+.desktop--theme-dark .video-center .settings-section {
+  color: var(--text) !important;
+  background: var(--dark-panel-soft) !important;
+  border-color: var(--dark-border) !important;
+  box-shadow: none !important;
+}
+
+.desktop--theme-dark .video-center .nav button {
+  color: var(--text-muted) !important;
+  background: transparent !important;
+}
+
+.desktop--theme-dark .video-center .nav button.active {
+  color: #5fb6ff !important;
+  background: var(--dark-active) !important;
+}
+
+.desktop--theme-dark .video-center .side-card span,
+.desktop--theme-dark .video-center .nav small {
+  color: var(--text-muted) !important;
+}
+
+.desktop--theme-dark .download-center__limits div,
+.desktop--theme-dark .storage-monitor__topbar,
+.desktop--theme-dark .storage-monitor__stats,
+.desktop--theme-dark .storage-monitor__workspace,
+.desktop--theme-dark .storage-monitor__side section,
+.desktop--theme-dark .storage-monitor__disk-info-panel,
+.desktop--theme-dark .agent-workbench__templates,
+.desktop--theme-dark .agent-workbench__workflow,
+.desktop--theme-dark .agent-workbench__permissions,
+.desktop--theme-dark .agent-workbench__confirm,
+.desktop--theme-dark .ai-steward__governance,
+.desktop--theme-dark .ai-steward__risk-card,
+.desktop--theme-dark .docker-window__stacks,
+.desktop--theme-dark .docker-window__containers,
+.desktop--theme-dark .docker-window__summary div,
+.desktop--theme-dark .device-monitor__metrics,
+.desktop--theme-dark .device-monitor__hero,
+.desktop--theme-dark .device-monitor__logs,
+.desktop--theme-dark .device-monitor__alerts,
+.desktop--theme-dark .device-monitor__diagnostic,
+.desktop--theme-dark .device-monitor__trend,
+.desktop--theme-dark .device-monitor__services,
+.desktop--theme-dark .security-center__risks,
+.desktop--theme-dark .security-center__permissions,
+.desktop--theme-dark .security-center__shares,
+.desktop--theme-dark .security-center__ai,
+.desktop--theme-dark .remote-access__security,
+.desktop--theme-dark .remote-access__devices,
+.desktop--theme-dark .remote-access__policy,
+.desktop--theme-dark .feature-module__state,
+.desktop--theme-dark .feature-module__risk,
+.desktop--theme-dark .task-panel {
+  color: var(--text) !important;
+  background: var(--dark-panel-soft) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .file-manager__row--head,
+.desktop--theme-dark .video-center .search,
+.desktop--theme-dark .video-center .message,
+.desktop--theme-dark .docker-window__isolation,
+.desktop--theme-dark .storage-monitor__space-icon,
+.desktop--theme-dark .storage-monitor__space-main header b,
+.desktop--theme-dark .storage-monitor__space-disks span,
+.desktop--theme-dark .storage-monitor__capacity-plan,
+.desktop--theme-dark .storage-monitor__capacity-plan i,
+.desktop--theme-dark .download-center__selected-icon,
+.desktop--theme-dark .security-center__overview div {
+  color: var(--text-muted) !important;
+  background: var(--dark-control) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .agent-workbench__tools span,
+.desktop--theme-dark .app-center__ports span,
+.desktop--theme-dark .backup-sync__jobs header,
+.desktop--theme-dark .backup-sync__summary article,
+.desktop--theme-dark .docker-window__inspector-body li,
+.desktop--theme-dark .docker-window__inspector-body span {
+  color: var(--text-muted) !important;
+  background: var(--dark-control) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .security-center__overview div span {
+  color: var(--text-soft) !important;
+}
+
+.desktop--theme-dark .security-center__overview div strong {
+  color: var(--text-strong) !important;
+}
+
+.desktop--theme-dark .remote-access__share-check div,
+.desktop--theme-dark .remote-access__share-check span {
+  color: var(--text-muted) !important;
+  background: var(--dark-control) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .agent-workbench__confirm button,
+.desktop--theme-dark .app-center__actions button,
+.desktop--theme-dark .backup-sync__actions button,
+.desktop--theme-dark .docker-window__actions button {
+  background: var(--dark-control) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .agent-workbench__confirm button:not(:disabled):hover,
+.desktop--theme-dark .app-center__actions button:not(:disabled):hover,
+.desktop--theme-dark .backup-sync__actions button:not(:disabled):hover,
+.desktop--theme-dark .docker-window__actions button:not(:disabled):hover {
+  background: var(--dark-control-hover) !important;
+}
+
+.desktop--theme-dark .download-center__source--active,
+.desktop--theme-dark .download-center__speed-button--active,
+.desktop--theme-dark .download-center__category--active {
+  color: #fff !important;
+  background: linear-gradient(135deg, #1f8bff, #4f6bff) !important;
+  border-color: transparent !important;
+}
+
+.desktop--theme-dark .system-settings__account-card,
+.desktop--theme-dark .system-settings__account-status,
+.desktop--theme-dark .system-settings__account-list article,
+.desktop--theme-dark .system-settings__field,
+.desktop--theme-dark .system-settings__toggle,
+.desktop--theme-dark .system-settings__segmented button,
+.desktop--theme-dark .system-settings__metric {
+  color: var(--text) !important;
+  background: var(--dark-control) !important;
+  border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .system-settings__toggle--on,
+.desktop--theme-dark .system-settings__segmented .system-settings__segmented-button--active {
+  color: #7fc3ff !important;
+  background: rgba(19, 136, 255, 0.2) !important;
+  border-color: rgba(69, 168, 255, 0.36) !important;
+}
+
+.desktop--theme-dark .desktop-window strong,
+.desktop--theme-dark .desktop-window h1,
+.desktop--theme-dark .desktop-window h2,
+.desktop--theme-dark .desktop-window h3,
+.desktop--theme-dark .desktop-window h4,
+.desktop--theme-dark .desktop-window b {
+  color: var(--text-strong) !important;
+}
+
+.desktop--theme-dark .desktop-window p,
+.desktop--theme-dark .desktop-window span,
+.desktop--theme-dark .desktop-window small {
+  color: inherit;
+}
+
+.desktop--theme-dark .photo-media__sidebar,
+.desktop--theme-dark .photo-media__main,
+.desktop--theme-dark .photo-media__details,
+.desktop--theme-dark .photo-media__album,
+.desktop--theme-dark .photo-media__tile,
+.desktop--theme-dark .photo-media__notice,
+.desktop--theme-dark .photo-media__jobs,
+.desktop--theme-dark .photo-media__selection,
+.desktop--theme-dark .photo-media__create,
+.desktop--theme-dark .photo-media__meta div {
+  color: var(--text) !important;
+  background: rgba(7, 11, 18, 0.86) !important;
+  border-color: rgba(160, 184, 214, 0.2) !important;
+}
+
+.desktop--theme-dark .photo-media__search,
+.desktop--theme-dark .photo-media__stats span,
+.desktop--theme-dark .photo-media__facet,
+.desktop--theme-dark .photo-media__tool,
+.desktop--theme-dark .photo-media__actions button,
+.desktop--theme-dark .photo-media__create input,
+.desktop--theme-dark .photo-media__create select {
+  color: var(--text-muted) !important;
+  background: rgba(12, 18, 29, 0.9) !important;
+  border-color: rgba(160, 184, 214, 0.18) !important;
+}
+
+.desktop--theme-dark .photo-media__dimension--active,
+.desktop--theme-dark .photo-media__facet--active,
+.desktop--theme-dark .photo-media__tile--active,
+.desktop--theme-dark .photo-media__tool--active {
+  color: #65b8ff !important;
+  background: rgba(19, 136, 255, 0.18) !important;
+  border-color: rgba(69, 168, 255, 0.32) !important;
+}
+
+.desktop--theme-dark .photo-media__empty,
+.desktop--theme-dark .photo-media__album span,
+.desktop--theme-dark .photo-media__album small,
+.desktop--theme-dark .photo-media__tile span,
+.desktop--theme-dark .photo-media__tile small,
+.desktop--theme-dark .photo-media__details header p,
+.desktop--theme-dark .photo-media__meta dt,
+.desktop--theme-dark .photo-media__jobs span {
+  color: var(--text-muted) !important;
+}
+
+.desktop--theme-dark .photo-media__album strong,
+.desktop--theme-dark .photo-media__tile strong,
+.desktop--theme-dark .photo-media__poster strong,
+.desktop--theme-dark .photo-media__meta dd,
+.desktop--theme-dark .photo-media__jobs strong {
+  color: var(--text-strong) !important;
+}
+
+.desktop--theme-dark .ai-panel {
+  color: var(--text) !important;
+  background:
+    linear-gradient(155deg, rgba(9, 14, 23, 0.96), rgba(5, 8, 14, 0.92)),
+    rgba(7, 11, 18, 0.9) !important;
+  border-color: rgba(160, 184, 214, 0.22) !important;
+  box-shadow: 0 30px 88px rgba(0, 0, 0, 0.66) !important;
+}
+
+.desktop--theme-dark .assistant-mark,
+.desktop--theme-dark .status-band__switch,
+.desktop--theme-dark .conversation,
+.desktop--theme-dark .capabilities,
+.desktop--theme-dark .policy-card,
+.desktop--theme-dark .agent-card,
+.desktop--theme-dark .capability-card,
+.desktop--theme-dark .action-button,
+.desktop--theme-dark .composer,
+.desktop--theme-dark .message-bubble.is-assistant {
+  color: var(--text) !important;
+  background: rgba(10, 16, 26, 0.86) !important;
+  border-color: rgba(160, 184, 214, 0.18) !important;
+}
+
+.desktop--theme-dark .ai-panel__header p,
+.desktop--theme-dark .status-band__switch span,
+.desktop--theme-dark .capability-card span,
+.desktop--theme-dark .agent-row span,
+.desktop--theme-dark .policy-row span,
+.desktop--theme-dark .policy-row p,
+.desktop--theme-dark .composer input {
+  color: var(--text-muted) !important;
+}
+
+.desktop--theme-dark .ai-panel__header h2,
+.desktop--theme-dark .section-title h3,
+.desktop--theme-dark .capability-card strong,
+.desktop--theme-dark .agent-row strong,
+.desktop--theme-dark .policy-row strong {
+  color: var(--text-strong) !important;
+}
+
+.desktop--theme-dark .desktop-overview {
+  color: var(--text) !important;
+  background:
+    linear-gradient(145deg, rgba(9, 14, 23, 0.95), rgba(5, 8, 14, 0.9)),
+    rgba(7, 11, 18, 0.9) !important;
+  border-color: rgba(160, 184, 214, 0.22) !important;
+  box-shadow: 0 30px 88px rgba(0, 0, 0, 0.64) !important;
+}
+
+.desktop--theme-dark .overview-header {
+  background: linear-gradient(180deg, rgba(9, 14, 23, 0.98), rgba(9, 14, 23, 0.82)) !important;
+  border-color: rgba(160, 184, 214, 0.16) !important;
+}
+
+.desktop--theme-dark .overview-settings,
+.desktop--theme-dark .overview-system,
+.desktop--theme-dark .overview-chart-card,
+.desktop--theme-dark .overview-info-row {
+  color: var(--text) !important;
+  background: rgba(8, 13, 22, 0.88) !important;
+  border-color: rgba(160, 184, 214, 0.18) !important;
+}
+
+.desktop--theme-dark .overview-header__actions button,
+.desktop--theme-dark .overview-settings__head button,
+.desktop--theme-dark .overview-collapsed {
+  color: var(--text-muted) !important;
+  background: rgba(12, 18, 29, 0.9) !important;
+  border-color: rgba(160, 184, 214, 0.18) !important;
+}
+
+.desktop--theme-dark .ring {
+  background:
+    radial-gradient(circle at center, rgba(7, 11, 18, 0.96) 0 58%, transparent 59%),
+    conic-gradient(var(--overview-color, currentColor) var(--value), rgba(75, 91, 112, 0.32) 0) !important;
+}
+
+.desktop--theme-dark .device-monitor__ring {
+  background:
+    radial-gradient(circle at center, rgba(7, 11, 18, 0.96) 0 54%, transparent 55%),
+    conic-gradient(var(--accent) var(--value), rgba(75, 91, 112, 0.32) 0) !important;
+}
+
+.desktop--theme-dark .overview-sparkline {
+  background: rgba(5, 8, 14, 0.42) !important;
+}
+
+.desktop--theme-dark .spark-area {
+  opacity: 0.36;
+}
+
+.desktop--theme-dark .overview-header span,
+.desktop--theme-dark .overview-system span,
+.desktop--theme-dark .overview-system small,
+.desktop--theme-dark .overview-chart-card span,
+.desktop--theme-dark .overview-chart-card small,
+.desktop--theme-dark .overview-info-row span,
+.desktop--theme-dark .overview-rings small {
+  color: var(--text-muted) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .desktop--theme-auto .desktop-window,
+  .desktop--theme-auto .window,
+  .desktop--theme-auto .desktop-widget,
+  .desktop--theme-auto .compact-assistant,
+  .desktop--theme-auto .utility-launcher,
+  .desktop--theme-auto .desktop-toast {
+    color: var(--text) !important;
+    background:
+      linear-gradient(180deg, rgba(14, 20, 31, 0.94), rgba(8, 12, 20, 0.9)),
+      var(--surface-glass) !important;
+    border-color: rgba(160, 184, 214, 0.22) !important;
+    box-shadow: var(--shadow-window) !important;
+  }
+
+  .desktop--theme-auto .desktop-window__titlebar,
+  .desktop--theme-auto .window__header,
+  .desktop--theme-auto .topbar,
+  .desktop--theme-auto .desktop-topbar {
+    color: var(--text) !important;
+    background: linear-gradient(180deg, rgba(12, 18, 29, 0.94), rgba(7, 11, 18, 0.86)) !important;
+    border-color: rgba(160, 184, 214, 0.18) !important;
+  }
+
+  .desktop--theme-auto .dock__surface,
+  .desktop--theme-auto .desktop-dock__surface {
+    background:
+      linear-gradient(180deg, rgba(18, 25, 38, 0.86), rgba(6, 10, 16, 0.82)),
+      rgba(7, 11, 18, 0.82) !important;
+    border-color: rgba(182, 204, 232, 0.24) !important;
+    box-shadow:
+      0 28px 70px rgba(0, 0, 0, 0.58),
+      inset 0 1px 0 rgba(255, 255, 255, 0.13) !important;
+  }
+
+  .desktop--theme-auto .topbar__search,
+  .desktop--theme-auto .topbar__metric,
+  .desktop--theme-auto .topbar__model,
+  .desktop--theme-auto .topbar__icon-button,
+  .desktop--theme-auto .topbar__avatar,
+  .desktop--theme-auto .topbar__popover,
+  .desktop--theme-auto .topbar__search-popover {
+    color: var(--text-muted) !important;
+    background: rgba(8, 13, 22, 0.78) !important;
+    border-color: rgba(160, 184, 214, 0.2) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  }
+
+  .desktop--theme-auto .desktop-window [class*="__sidebar"],
+  .desktop--theme-auto .desktop-window [class*="__hero"],
+  .desktop--theme-auto .desktop-window [class*="__content"],
+  .desktop--theme-auto .desktop-window [class*="__footer"],
+  .desktop--theme-auto .desktop-window [class*="__card"],
+  .desktop--theme-auto .desktop-window [class*="__field"],
+  .desktop--theme-auto .desktop-window [class*="__toggle"],
+  .desktop--theme-auto .desktop-window [class*="__metric"],
+  .desktop--theme-auto .desktop-window article {
+    color: var(--text) !important;
+    background: rgba(12, 18, 29, 0.68) !important;
+    border-color: rgba(160, 184, 214, 0.18) !important;
+  }
+
+  .desktop--theme-auto .desktop-window strong,
+  .desktop--theme-auto .desktop-window h1,
+  .desktop--theme-auto .desktop-window h2,
+  .desktop--theme-auto .desktop-window h3,
+  .desktop--theme-auto .desktop-window h4,
+  .desktop--theme-auto .desktop-window b {
+    color: var(--text-strong) !important;
+  }
 }
 
 .topbar,
@@ -811,6 +1698,11 @@ select:focus-visible {
   backdrop-filter: blur(24px) saturate(150%);
 }
 
+.desktop--dock-left .utility-launcher,
+.desktop--dock-right .utility-launcher {
+  bottom: 26px;
+}
+
 .utility-launcher img {
   width: 48px;
   height: 48px;
@@ -964,6 +1856,11 @@ select:focus-visible {
   backdrop-filter: blur(20px) saturate(1.2);
   font-size: 13px;
   font-weight: 760;
+}
+
+.desktop--dock-left .desktop-toast,
+.desktop--dock-right .desktop-toast {
+  bottom: 24px;
 }
 
 .sr-only {

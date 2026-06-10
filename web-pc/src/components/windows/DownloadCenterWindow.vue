@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   Archive,
   CheckCircle2,
@@ -18,7 +18,6 @@ import {
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { DownloadTask, SpeedProfile } from '../../api/types';
-import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type SourceType = 'BT' | 'HTTP' | '磁力' | '订阅';
 type SpeedMode = '智能限速' | '夜间全速' | '家庭优先';
@@ -37,91 +36,46 @@ const speedProfiles: Record<SpeedMode, { down: string; up: string; note: string 
   家庭优先: { down: '6 MB/s', up: '1 MB/s', note: '视频会议和游戏优先' },
 };
 
-const tasks = ref<DownloadTask[]>([
-  {
-    id: 1,
-    name: '纪录片合集 S02',
-    source: 'BT',
-    category: '影视',
-    size: '86.4 GB',
-    progress: 68,
-    speed: '12.8 MB/s',
-    status: '下载中',
-    handling: '完成后刮削海报并归档到 /Media/TV',
-    archived: false,
-  },
-  {
-    id: 2,
-    name: '家庭音乐精选 FLAC',
-    source: 'HTTP',
-    category: '音乐',
-    size: '12.1 GB',
-    progress: 100,
-    speed: '0 KB/s',
-    status: '已完成',
-    handling: '等待导入音乐库',
-    archived: false,
-  },
-  {
-    id: 3,
-    name: 'Ubuntu Server 镜像',
-    source: '磁力',
-    category: '软件',
-    size: '5.9 GB',
-    progress: 42,
-    speed: '6.4 MB/s',
-    status: '下载中',
-    handling: '完成后校验 SHA256',
-    archived: false,
-  },
-  {
-    id: 4,
-    name: '每周公开课订阅',
-    source: '订阅',
-    category: '订阅',
-    size: '2.8 GB',
-    progress: 0,
-    speed: '等待 RSS',
-    status: '暂停',
-    handling: '新条目自动下载到 /Downloads/Courses',
-    archived: false,
-  },
-]);
+const tasks = ref<DownloadTask[]>([]);
 const backendProfiles = ref<SpeedProfile[]>([]);
 
-const selectedSource = ref<SourceType>('磁力');
+const selectedSource = ref<SourceType>('HTTP');
 const selectedCategory = ref('全部');
-const selectedTaskId = ref<string | number>(1);
+const selectedTaskId = ref<string | number>(0);
 const speedMode = ref<SpeedMode>('智能限速');
-const newTaskLink = ref('magnet:?xt=urn:btih:higo-family-media');
-const actionLog = ref<string[]>(['文件管家联动已启用：完成任务会按分类自动归档。']);
+const newTaskLink = ref('');
+const actionLog = ref<string[]>([]);
 const loading = ref(false);
 const busyAction = ref('');
+const deleteConfirmTask = ref<DownloadTask | null>(null);
+let refreshTimer: number | undefined;
 
 const visibleTasks = computed(() =>
   selectedCategory.value === '全部' ? tasks.value : tasks.value.filter((task) => task.category === selectedCategory.value),
 );
 
-const selectedTask = computed(() => tasks.value.find((task) => task.id === selectedTaskId.value) ?? tasks.value[0]);
+const selectedTask = computed(() => tasks.value.find((task) => task.id === selectedTaskId.value) ?? tasks.value[0] ?? null);
 const activeProfile = computed(() => {
   const backend = backendProfiles.value.find((profile) => profile.name === speedMode.value);
   if (!backend) return speedProfiles[speedMode.value];
   return {
-    down: backend.down ?? speedProfiles[speedMode.value].down,
-    up: backend.up ?? speedProfiles[speedMode.value].up,
+    down: backend.down ?? backend.downloadLimit ?? speedProfiles[speedMode.value].down,
+    up: backend.up ?? backend.uploadLimit ?? speedProfiles[speedMode.value].up,
     note: backend.note ?? speedProfiles[speedMode.value].note,
   };
 });
 const completedCount = computed(() => tasks.value.filter((task) => task.status === '已完成').length);
 
 const statusClass: Record<string, string> = {
+  排队中: 'download-center__status--queued',
   下载中: 'download-center__status--running',
   暂停: 'download-center__status--paused',
   已完成: 'download-center__status--done',
+  失败: 'download-center__status--failed',
 };
 
-async function loadDownloadState() {
-  loading.value = true;
+async function loadDownloadState(silent = false) {
+  if (!silent) loading.value = true;
   try {
     const [nextTasks, profiles] = await Promise.all([
       apiClient.downloads.getTasks(),
@@ -129,17 +83,21 @@ async function loadDownloadState() {
     ]);
     tasks.value = nextTasks;
     backendProfiles.value = profiles;
-    selectedTaskId.value = nextTasks[0]?.id ?? selectedTaskId.value;
-    actionLog.value.unshift('下载队列和限速策略已从后端同步。');
+    if (!nextTasks.some((task) => task.id === selectedTaskId.value)) {
+      selectedTaskId.value = nextTasks[0]?.id ?? 0;
+    }
+    const active = profiles.find((profile) => profile.active)?.name as SpeedMode | undefined;
+    if (active && active in speedProfiles) speedMode.value = active;
+    if (!silent) actionLog.value.unshift('下载队列已同步。');
   } catch (error) {
-    actionLog.value.unshift(`后端暂不可用，继续使用本地下载缓存：${error instanceof Error ? error.message : 'unknown error'}`);
+    if (!silent) actionLog.value.unshift(`下载服务不可用：${error instanceof Error ? error.message : 'unknown error'}`);
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
 async function addDownloadTask() {
-  const nextCategory = selectedSource.value === '订阅' ? '订阅' : selectedCategory.value === '全部' ? '影视' : selectedCategory.value;
+  const nextCategory = selectedSource.value === '订阅' ? '订阅' : selectedCategory.value === '全部' ? '' : selectedCategory.value;
   busyAction.value = 'create';
   try {
     const task = await apiClient.downloads.createTask({
@@ -147,10 +105,11 @@ async function addDownloadTask() {
       source: selectedSource.value,
       category: nextCategory,
     });
-    tasks.value = [task, ...tasks.value];
+    tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
     selectedTaskId.value = task.id;
-    selectedCategory.value = nextCategory;
+    selectedCategory.value = task.category || nextCategory || '全部';
     actionLog.value.unshift(`已添加 ${selectedSource.value} 任务：${task.name}`);
+    void loadDownloadState(true);
   } catch (error) {
     actionLog.value.unshift(`添加任务失败：${error instanceof Error ? error.message : 'unknown error'}`);
   } finally {
@@ -161,15 +120,13 @@ async function addDownloadTask() {
 async function toggleTask(task: DownloadTask) {
   busyAction.value = `toggle-${task.id}`;
   try {
-    const result = task.status === '暂停'
+    const nextTask = task.status === '暂停'
       ? await apiClient.downloads.resumeTask(task.id)
       : await apiClient.downloads.pauseTask(task.id);
-    const nextStatus = task.status === '暂停' ? '下载中' : '暂停';
-    tasks.value = tasks.value.map((item) =>
-      item.id === task.id ? { ...item, status: nextStatus, speed: nextStatus === '下载中' ? activeProfile.value.down : '0 KB/s' } : item,
-    );
+    tasks.value = tasks.value.map((item) => (item.id === task.id ? nextTask : item));
     selectedTaskId.value = task.id;
-    actionLog.value.unshift(result.message ?? `${nextStatus === '下载中' ? '恢复' : '暂停'}任务：${task.name}`);
+    actionLog.value.unshift(`${task.status === '暂停' ? '恢复' : '暂停'}任务：${task.name}`);
+    void loadDownloadState(true);
   } catch (error) {
     actionLog.value.unshift(`切换任务失败：${error instanceof Error ? error.message : 'unknown error'}`);
   } finally {
@@ -190,6 +147,7 @@ async function switchSpeedMode(mode: SpeedMode) {
 
 async function archiveCompleted() {
   const task = selectedTask.value;
+  if (!task) return;
   busyAction.value = `archive-${task.id}`;
   try {
     const result = await apiClient.downloads.archiveTask(task.id);
@@ -206,22 +164,39 @@ async function archiveCompleted() {
   }
 }
 
-async function cleanArchivedRecords() {
-  const archived = tasks.value.filter((task) => task.archived);
-  busyAction.value = 'clean';
+function requestDeleteTask() {
+  if (!selectedTask.value) return;
+  deleteConfirmTask.value = selectedTask.value;
+}
+
+async function deleteSelectedTask(deleteFile: boolean) {
+  const task = deleteConfirmTask.value;
+  if (!task) return;
+  busyAction.value = `delete-${task.id}`;
   try {
-    await Promise.all(archived.map((task) => apiClient.downloads.deleteTask(task.id)));
-    tasks.value = tasks.value.filter((task) => !task.archived);
-    actionLog.value.unshift(`已清理 ${archived.length} 条已归档记录，原文件保留在文件管家。`);
+    const result = await apiClient.downloads.deleteTask(task.id, deleteFile);
+    tasks.value = tasks.value.filter((item) => item.id !== task.id);
+    actionLog.value.unshift(result.message ?? `已删除任务：${task.name}`);
+    deleteConfirmTask.value = null;
+    selectedTaskId.value = visibleTasks.value[0]?.id ?? tasks.value[0]?.id ?? 0;
+    void loadDownloadState(true);
   } catch (error) {
-    actionLog.value.unshift(`清理失败：${error instanceof Error ? error.message : 'unknown error'}`);
+    actionLog.value.unshift(`删除失败：${error instanceof Error ? error.message : 'unknown error'}`);
   } finally {
     busyAction.value = '';
   }
-  selectedTaskId.value = visibleTasks.value[0]?.id ?? tasks.value[0]?.id ?? 0;
 }
 
-onMounted(loadDownloadState);
+onMounted(() => {
+  void loadDownloadState();
+  refreshTimer = window.setInterval(() => {
+    if (!busyAction.value) void loadDownloadState(true);
+  }, 2500);
+});
+
+onBeforeUnmount(() => {
+  if (refreshTimer) window.clearInterval(refreshTimer);
+});
 </script>
 
 <template>
@@ -247,9 +222,9 @@ onMounted(loadDownloadState);
         </div>
         <label class="download-center__input">
           <span>链接 / 订阅地址</span>
-          <input v-model="newTaskLink" />
+          <input v-model="newTaskLink" placeholder="粘贴 HTTP、BT、磁力或订阅链接" />
         </label>
-        <button class="download-center__primary" type="button" :disabled="busyAction === 'create'" @click="addDownloadTask">
+        <button class="download-center__primary" type="button" :disabled="busyAction === 'create' || !newTaskLink.trim()" @click="addDownloadTask">
           <FileDown :size="14" />
           {{ busyAction === 'create' ? '添加中' : '添加到队列' }}
         </button>
@@ -312,7 +287,9 @@ onMounted(loadDownloadState);
               <strong>{{ task.name }}</strong>
               <span>{{ task.source }} · {{ task.category }} · {{ task.size }}</span>
             </div>
-            <small :class="['download-center__status', statusClass[task.status]]">{{ task.status }}</small>
+            <small :class="['download-center__status', statusClass[task.status] ?? 'download-center__status--queued']">
+              {{ task.status }}
+            </small>
           </div>
           <div class="download-center__progress">
             <div :style="{ width: `${task.progress}%` }" />
@@ -324,72 +301,113 @@ onMounted(loadDownloadState);
         </button>
         <div v-if="visibleTasks.length === 0" class="download-center__empty">
           <Download :size="20" />
-          <strong>该分类暂无任务</strong>
-          <span>切换分类或添加新的 BT、HTTP、磁力、订阅任务。</span>
+          <strong>{{ tasks.length === 0 ? '下载队列为空' : '该分类暂无任务' }}</strong>
+          <span>{{ tasks.length === 0 ? '添加 HTTP、BT、磁力或订阅链接后会显示在这里。' : '切换分类查看其它任务。' }}</span>
         </div>
       </section>
     </main>
 
     <aside class="download-center__detail" aria-label="任务详情和完成后处理">
-      <header>
-        <div>
-          <p>下载队列 · {{ completedCount }} 个已完成</p>
-          <h3>{{ selectedTask.name }}</h3>
-        </div>
-        <span>{{ selectedTask.source }}</span>
-      </header>
+      <template v-if="selectedTask">
+        <header>
+          <div>
+            <p>下载队列 · {{ completedCount }} 个已完成</p>
+            <h3>{{ selectedTask.name }}</h3>
+          </div>
+          <span>{{ selectedTask.source }}</span>
+        </header>
 
-      <section class="download-center__selected">
-        <div class="download-center__selected-icon">
-          <Archive v-if="selectedTask.archived" :size="22" />
-          <Download v-else :size="22" />
-        </div>
-        <div>
-          <strong>{{ selectedTask.status }}</strong>
-          <p>{{ selectedTask.handling }}</p>
-        </div>
-      </section>
+        <section class="download-center__selected">
+          <div class="download-center__selected-icon">
+            <Archive v-if="selectedTask.archived" :size="22" />
+            <Download v-else :size="22" />
+          </div>
+          <div>
+            <strong>{{ selectedTask.status }}</strong>
+            <p>{{ selectedTask.handling }}</p>
+            <p v-if="selectedTask.filePath">{{ selectedTask.filePath }}</p>
+            <p v-if="selectedTask.error">{{ selectedTask.error }}</p>
+          </div>
+        </section>
 
-      <div class="download-center__actions" aria-label="下载任务操作">
-        <button type="button" :disabled="selectedTask.status === '已完成' || busyAction === `toggle-${selectedTask.id}`" @click="toggleTask(selectedTask)">
-          <Play v-if="selectedTask.status === '暂停'" :size="14" />
-          <Pause v-else :size="14" />
-          {{ busyAction === `toggle-${selectedTask.id}` ? '处理中' : selectedTask.status === '暂停' ? '恢复任务' : '暂停任务' }}
-        </button>
-        <button type="button" :disabled="busyAction === `archive-${selectedTask.id}`" @click="archiveCompleted">
-          <FolderArchive :size="14" />
-          {{ busyAction === `archive-${selectedTask.id}` ? '归档中' : '完成并归档' }}
-        </button>
-        <button type="button" :disabled="busyAction === 'clean'" @click="cleanArchivedRecords">
-          <Trash2 :size="14" />
-          {{ busyAction === 'clean' ? '清理中' : '清理记录' }}
-        </button>
+        <div class="download-center__actions" aria-label="下载任务操作">
+          <button type="button" :disabled="selectedTask.status === '已完成' || busyAction === `toggle-${selectedTask.id}`" @click="toggleTask(selectedTask)">
+            <Play v-if="selectedTask.status === '暂停'" :size="14" />
+            <Pause v-else :size="14" />
+            {{ busyAction === `toggle-${selectedTask.id}` ? '处理中' : selectedTask.status === '暂停' ? '恢复任务' : '暂停任务' }}
+          </button>
+          <button type="button" :disabled="busyAction === `archive-${selectedTask.id}`" @click="archiveCompleted">
+            <FolderArchive :size="14" />
+            {{ busyAction === `archive-${selectedTask.id}` ? '归档中' : '完成并归档' }}
+          </button>
+          <button type="button" :disabled="busyAction === `delete-${selectedTask.id}`" @click="requestDeleteTask">
+            <Trash2 :size="14" />
+            {{ busyAction === `delete-${selectedTask.id}` ? '删除中' : '删除任务' }}
+          </button>
+        </div>
+
+        <section class="download-center__automation">
+          <h3><SlidersHorizontal :size="15" /> 完成后处理</h3>
+          <div>
+            <CheckCircle2 :size="14" />
+            <span>{{ selectedTask.archiveRule?.targetPath ? `归档目录：${selectedTask.archiveRule.targetPath}` : '归档目录按分类生成' }}</span>
+          </div>
+          <div>
+            <ShieldCheck :size="14" />
+            <span>{{ selectedTask.archiveRule?.verifyChecksum ? '可校验文件完整性' : '保留下载文件名' }}</span>
+          </div>
+          <div>
+            <FolderArchive :size="14" />
+            <span>{{ selectedTask.archived ? '已归档' : '完成后可手动归档' }}</span>
+          </div>
+        </section>
+      </template>
+
+      <div v-else class="download-center__empty download-center__empty--detail">
+        <Download :size="20" />
+        <strong>暂无下载任务</strong>
+        <span>从左侧添加真实下载链接。</span>
       </div>
-
-      <section class="download-center__automation">
-        <h3><SlidersHorizontal :size="15" /> 完成后处理</h3>
-        <div>
-          <CheckCircle2 :size="14" />
-          <span>按分类移动到文件管家目录</span>
-        </div>
-        <div>
-          <ShieldCheck :size="14" />
-          <span>影视自动刮削，文档保留原始文件名</span>
-        </div>
-        <div>
-          <FolderArchive :size="14" />
-          <span>订阅任务写入 /Downloads/Subscriptions</span>
-        </div>
-      </section>
 
       <section class="download-center__log" aria-label="操作记录">
         <h3>任务日志</h3>
         <ul>
           <li v-for="entry in actionLog" :key="entry">{{ entry }}</li>
+          <li v-if="actionLog.length === 0">暂无任务日志。</li>
         </ul>
       </section>
     </aside>
-    <NasFeaturePanel class="download-center__features" :modules="['downloads', 'files']" compact />
+
+    <Teleport to="body">
+      <div v-if="deleteConfirmTask" class="download-center__modal-backdrop" role="presentation">
+        <section class="download-center__modal" role="dialog" aria-modal="true" aria-labelledby="download-delete-title">
+          <header>
+            <div>
+              <p>删除下载任务</p>
+              <h3 id="download-delete-title">{{ deleteConfirmTask.name }}</h3>
+            </div>
+            <button type="button" aria-label="取消删除" @click="deleteConfirmTask = null">取消</button>
+          </header>
+          <p class="download-center__modal-copy">
+            可以只删除队列记录，也可以同时删除已经下载的文件和未完成的断点文件。
+          </p>
+          <p v-if="deleteConfirmTask.filePath" class="download-center__modal-path">{{ deleteConfirmTask.filePath }}</p>
+          <div class="download-center__modal-actions">
+            <button type="button" :disabled="busyAction === `delete-${deleteConfirmTask.id}`" @click="deleteSelectedTask(false)">
+              仅删除任务
+            </button>
+            <button
+              class="download-center__modal-danger"
+              type="button"
+              :disabled="busyAction === `delete-${deleteConfirmTask.id}`"
+              @click="deleteSelectedTask(true)"
+            >
+              删除任务和文件
+            </button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -397,14 +415,9 @@ onMounted(loadDownloadState);
 .download-center {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr) 230px;
-  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
-}
-
-.download-center__features {
-  grid-column: 1 / -1;
 }
 
 .download-center__control,
@@ -630,6 +643,11 @@ onMounted(loadDownloadState);
   background: rgba(19, 136, 255, 0.1);
 }
 
+.download-center__status--queued {
+  color: #6b7f98;
+  background: rgba(148, 163, 184, 0.14);
+}
+
 .download-center__status--paused {
   color: #b36a00;
   background: rgba(245, 158, 11, 0.14);
@@ -638,6 +656,11 @@ onMounted(loadDownloadState);
 .download-center__status--done {
   color: var(--accent-green);
   background: rgba(34, 181, 115, 0.13);
+}
+
+.download-center__status--failed {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.13);
 }
 
 .download-center__progress {
@@ -665,6 +688,10 @@ onMounted(loadDownloadState);
 
 .download-center__empty strong {
   color: var(--text-strong);
+}
+
+.download-center__empty--detail {
+  min-height: 120px;
 }
 
 .download-center__detail {
@@ -745,6 +772,93 @@ onMounted(loadDownloadState);
   margin: 0;
   overflow: auto;
   list-style: none;
+}
+
+.download-center__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(6, 12, 22, 0.36);
+  backdrop-filter: blur(8px);
+}
+
+.download-center__modal {
+  display: grid;
+  gap: 12px;
+  width: min(420px, 100%);
+  padding: 16px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 94%, white 6%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+}
+
+.download-center__modal header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.download-center__modal h3,
+.download-center__modal p {
+  margin: 0;
+}
+
+.download-center__modal h3 {
+  margin-top: 4px;
+  color: var(--text-strong);
+  font-size: 14px;
+  line-height: 1.28;
+}
+
+.download-center__modal header p,
+.download-center__modal-copy,
+.download-center__modal-path {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.download-center__modal-path {
+  padding: 9px 10px;
+  overflow-wrap: anywhere;
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--radius-sm);
+}
+
+.download-center__modal header button,
+.download-center__modal-actions button {
+  min-height: 30px;
+  padding: 0 11px;
+  color: var(--accent);
+  background: rgba(231, 247, 255, 0.72);
+  border: 1px solid rgba(19, 136, 255, 0.18);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.download-center__modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.download-center__modal-actions .download-center__modal-danger {
+  color: #fff;
+  background: #ef4444;
+  border-color: transparent;
+}
+
+.download-center__modal-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 @media (max-width: 860px) {

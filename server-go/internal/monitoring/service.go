@@ -29,7 +29,7 @@ type snapshot struct {
 
 func NewService(collector Collector) *Service {
 	if collector == nil {
-		collector = NewDevCollector()
+		collector = NewDefaultCollector()
 	}
 	return &Service{collector: collector}
 }

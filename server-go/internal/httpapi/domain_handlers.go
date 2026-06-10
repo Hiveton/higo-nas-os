@@ -383,6 +383,18 @@ func (a *API) monitoringCurrentMetrics(w http.ResponseWriter, r *http.Request) {
 	platform.WriteJSON(w, r, http.StatusOK, snapshot.Metrics)
 }
 
+func (a *API) monitoringMetricsSnapshot(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	snapshot, err := a.monitoring.CurrentMetrics(r.Context())
+	if err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "metrics_unavailable", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, snapshot)
+}
+
 func (a *API) monitoringMetricTrend(w http.ResponseWriter, r *http.Request) {
 	if !allowMethod(w, r, http.MethodGet) {
 		return

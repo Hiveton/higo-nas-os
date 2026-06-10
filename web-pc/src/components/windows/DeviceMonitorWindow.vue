@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type Component } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch, type Component } from 'vue';
 import {
   Activity,
   AlertTriangle,
@@ -24,12 +24,12 @@ import {
 } from 'lucide-vue-next';
 import { monitoringStore } from '../../stores/monitoring';
 import type { Alert, Metric, ServiceStatus, SystemLog } from '../../api/types';
-import NasFeaturePanel from '../NasFeaturePanel.vue';
 
 type MetricKey = string;
 type TimeRange = '1H' | '6H' | '24H' | '7D';
 type ViewMetric = Metric & { key: string; icon: Component; tone: string };
 type ViewService = ServiceStatus & { icon: Component; tone: string };
+type ChartPoint = { x: number; y: number; value: number };
 
 const metricIcons: Record<string, Component> = {
   cpu: Cpu,
@@ -41,6 +41,10 @@ const metricIcons: Record<string, Component> = {
 };
 
 const serviceIcons: Record<string, Component> = {
+  collector: Activity,
+  uptime: CheckCircle2,
+  network: Network,
+  rootfs: HardDrive,
   containers: ServerCog,
   apps: Gauge,
   tasks: ListChecks,
@@ -177,6 +181,7 @@ const selectedLogId = ref(fallbackLogs[0].id);
 const selectedAlertId = ref(fallbackAlerts[0].id);
 const activeRange = ref<TimeRange>('1H');
 const diagnosticCount = ref(0);
+let dashboardPollingTimer: number | undefined;
 
 const metrics = computed<ViewMetric[]>(() => {
   const next = monitoringStore.metrics.value.flatMap((metric) => {
@@ -213,6 +218,16 @@ const visibleTrend = computed(() => {
   const scale = selectedMetric.value.key === 'temperature' ? 0.72 : selectedMetric.value.key === 'fan' ? 0.05 : 1;
   return trendSeries[activeRange.value].map((value) => Math.max(14, Math.min(96, Math.round(value * scale))));
 });
+const chartPoints = computed<ChartPoint[]>(() => buildChartPoints(visibleTrend.value));
+const smoothLinePath = computed(() => buildSmoothPath(chartPoints.value));
+const smoothAreaPath = computed(() => {
+  const points = chartPoints.value;
+  const line = smoothLinePath.value;
+  if (!points.length || !line) return '';
+  return `${line} L ${points[points.length - 1].x} 168 L ${points[0].x} 168 Z`;
+});
+const trendMax = computed(() => (visibleTrend.value.length ? Math.max(...visibleTrend.value) : 0));
+const trendMin = computed(() => (visibleTrend.value.length ? Math.min(...visibleTrend.value) : 0));
 const unresolvedAlerts = computed(() => alerts.value.filter((alert) => !alert.muted).length);
 const diagnosticState = computed(() =>
   monitoringStore.diagnostic.value?.message ??
@@ -278,6 +293,42 @@ function normalizeTrendPoint(value: number, metric: string) {
   return Math.max(14, Math.min(96, Math.round(value)));
 }
 
+function buildChartPoints(values: number[]): ChartPoint[] {
+  if (!values.length) return [];
+  const width = 560;
+  const height = 160;
+  const paddingX = 18;
+  const paddingY = 14;
+  const usableWidth = width - paddingX * 2;
+  const usableHeight = height - paddingY * 2;
+  const max = Math.max(...values, 100);
+  const min = Math.min(...values, 0);
+  const span = Math.max(1, max - min);
+  return values.map((value, index) => ({
+    x: paddingX + (values.length === 1 ? usableWidth / 2 : (usableWidth / (values.length - 1)) * index),
+    y: paddingY + usableHeight - ((value - min) / span) * usableHeight,
+    value,
+  }));
+}
+
+function buildSmoothPath(points: ChartPoint[]): string {
+  if (points.length === 0) return '';
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  const segments = [`M ${points[0].x} ${points[0].y}`];
+  for (let idx = 0; idx < points.length - 1; idx += 1) {
+    const current = points[idx];
+    const next = points[idx + 1];
+    const previous = points[idx - 1] ?? current;
+    const after = points[idx + 2] ?? next;
+    const cp1x = current.x + (next.x - previous.x) / 6;
+    const cp1y = current.y + (next.y - previous.y) / 6;
+    const cp2x = next.x - (after.x - current.x) / 6;
+    const cp2y = next.y - (after.y - current.y) / 6;
+    segments.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`);
+  }
+  return segments.join(' ');
+}
+
 watch(activeRange, () => {
   void monitoringStore.loadMetricTrend(selectedMetric.value.key, activeRange.value);
 });
@@ -287,6 +338,16 @@ onMounted(async () => {
   activeMetricKey.value = metrics.value[0]?.key ?? activeMetricKey.value;
   selectedLogId.value = systemLogs.value[0]?.id ?? selectedLogId.value;
   selectedAlertId.value = alerts.value[0]?.id ?? selectedAlertId.value;
+  dashboardPollingTimer = window.setInterval(() => {
+    void monitoringStore.loadMonitoringDashboard(activeMetricKey.value, activeRange.value);
+  }, 5000);
+});
+
+onUnmounted(() => {
+  if (dashboardPollingTimer !== undefined) {
+    window.clearInterval(dashboardPollingTimer);
+    dashboardPollingTimer = undefined;
+  }
 });
 </script>
 
@@ -332,7 +393,10 @@ onMounted(async () => {
 
       <section class="device-monitor__trend" aria-label="性能趋势">
         <header>
-          <h3><LineChart :size="15" /> 性能趋势</h3>
+          <div>
+            <h3><LineChart :size="15" /> 性能趋势</h3>
+            <p>{{ selectedMetric.label }} · {{ activeRange }}</p>
+          </div>
           <div class="device-monitor__range">
             <button
               v-for="range in Object.keys(trendSeries)"
@@ -345,19 +409,42 @@ onMounted(async () => {
             </button>
           </div>
         </header>
-        <div class="device-monitor__bars">
-          <span v-for="(point, index) in visibleTrend" :key="`${activeRange}-${index}`" :style="{ height: `${point}%` }" />
-        </div>
-      </section>
-
-      <section class="device-monitor__services" aria-label="容器、应用、任务、备份和下载状态">
-        <article v-for="service in serviceStates" :key="service.label" :class="`device-monitor__service--${service.tone}`">
-          <component :is="service.icon" :size="16" />
-          <div>
-            <strong>{{ service.label }} · {{ service.value }}</strong>
-            <span>{{ service.detail }}</span>
+        <div class="device-monitor__chart">
+          <svg viewBox="0 0 560 180" role="img" :aria-label="`${selectedMetric.label} ${activeRange} 趋势图`">
+            <defs>
+              <linearGradient id="deviceMonitorLine" x1="0" x2="1" y1="0" y2="0">
+                <stop offset="0%" stop-color="var(--accent)" />
+                <stop offset="55%" stop-color="var(--accent-cyan)" />
+                <stop offset="100%" stop-color="var(--accent-green)" />
+              </linearGradient>
+              <linearGradient id="deviceMonitorArea" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stop-color="var(--accent-cyan)" stop-opacity="0.28" />
+                <stop offset="100%" stop-color="var(--accent-green)" stop-opacity="0.04" />
+              </linearGradient>
+            </defs>
+            <g class="device-monitor__chart-grid">
+              <line x1="18" y1="30" x2="542" y2="30" />
+              <line x1="18" y1="76" x2="542" y2="76" />
+              <line x1="18" y1="122" x2="542" y2="122" />
+              <line x1="18" y1="168" x2="542" y2="168" />
+            </g>
+            <path v-if="smoothAreaPath" class="device-monitor__chart-area" :d="smoothAreaPath" />
+            <path v-if="smoothLinePath" class="device-monitor__chart-line" :d="smoothLinePath" />
+            <circle
+              v-for="(point, index) in chartPoints"
+              :key="`${activeRange}-${index}`"
+              class="device-monitor__chart-point"
+              :cx="point.x"
+              :cy="point.y"
+              r="3.5"
+            />
+          </svg>
+          <div class="device-monitor__chart-meta">
+            <span>低 {{ trendMin }}{{ selectedMetric.unit }}</span>
+            <strong>当前 {{ selectedMetric.value }}{{ selectedMetric.unit }}</strong>
+            <span>高 {{ trendMax }}{{ selectedMetric.unit }}</span>
           </div>
-        </article>
+        </div>
       </section>
 
       <section class="device-monitor__logs" aria-label="系统日志">
@@ -425,23 +512,31 @@ onMounted(async () => {
           </button>
         </div>
       </section>
+
+      <section class="device-monitor__services" aria-label="容器、应用、任务、备份和下载状态">
+        <header>
+          <h3><ServerCog :size="15" /> 服务状态</h3>
+        </header>
+        <article v-for="service in serviceStates" :key="service.label" :class="`device-monitor__service--${service.tone}`">
+          <component :is="service.icon" :size="16" />
+          <div>
+            <strong>{{ service.label }} · {{ service.value }}</strong>
+            <span>{{ service.detail }}</span>
+          </div>
+        </article>
+      </section>
     </aside>
-    <NasFeaturePanel class="device-monitor__features" :modules="['monitoring', 'storage']" compact />
   </div>
 </template>
 
 <style scoped>
 .device-monitor {
   display: grid;
-  grid-template-columns: minmax(230px, 0.9fr) minmax(280px, 1.35fr) minmax(200px, 0.8fr);
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(250px, 290px) minmax(0, 1fr) minmax(280px, 330px);
   gap: 12px;
   height: 100%;
   min-height: 0;
-}
-
-.device-monitor__features {
-  grid-column: 1 / -1;
+  overflow: hidden;
 }
 
 .device-monitor__metrics,
@@ -462,7 +557,8 @@ onMounted(async () => {
 .device-monitor__trend,
 .device-monitor__logs,
 .device-monitor__diagnostic,
-.device-monitor__alerts {
+.device-monitor__alerts,
+.device-monitor__services {
   background: rgba(255, 255, 255, 0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -477,6 +573,13 @@ onMounted(async () => {
   border-bottom: 1px solid rgba(100, 136, 166, 0.14);
 }
 
+.device-monitor header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
 .device-monitor h3 {
   display: inline-flex;
   align-items: center;
@@ -489,6 +592,7 @@ onMounted(async () => {
 .device-monitor header span {
   color: var(--text-soft);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .device-monitor button {
@@ -497,17 +601,25 @@ onMounted(async () => {
 
 .device-monitor__metrics {
   display: grid;
-  grid-template-rows: auto repeat(6, minmax(42px, 1fr));
+  grid-template-rows: auto;
+  align-content: start;
   overflow: auto;
+}
+
+.device-monitor__metrics header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: inherit;
 }
 
 .device-monitor__metric {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) minmax(48px, auto);
-  gap: 10px;
+  grid-template-columns: 24px minmax(0, 1fr) minmax(68px, auto);
+  gap: 8px 10px;
   align-items: center;
-  min-height: 42px;
-  padding: 8px 12px;
+  min-height: 72px;
+  padding: 11px 12px 11px 14px;
   color: var(--accent);
   text-align: left;
   background: transparent;
@@ -548,16 +660,20 @@ onMounted(async () => {
 }
 
 .device-monitor__metric b {
+  grid-column: 3;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 1;
   text-align: right;
   white-space: nowrap;
 }
 
 .device-monitor__main {
   display: grid;
-  grid-template-rows: auto 150px auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) minmax(150px, 0.34fr);
   gap: 12px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .device-monitor__hero {
@@ -565,8 +681,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 96px;
-  padding: 14px 16px;
+  min-height: 102px;
+  padding: 14px 18px;
   background: linear-gradient(135deg, rgba(231, 247, 255, 0.92), rgba(255, 246, 227, 0.78));
 }
 
@@ -586,7 +702,8 @@ onMounted(async () => {
 .device-monitor__hero strong {
   margin-top: 4px;
   color: var(--text-strong);
-  font-size: 28px;
+  font-size: 32px;
+  line-height: 1.02;
 }
 
 .device-monitor__hero span {
@@ -597,9 +714,9 @@ onMounted(async () => {
 
 .device-monitor__ring {
   display: grid;
-  width: 68px;
-  height: 68px;
-  flex: 0 0 68px;
+  width: 76px;
+  height: 76px;
+  flex: 0 0 76px;
   place-items: center;
   color: var(--accent);
   background:
@@ -611,6 +728,7 @@ onMounted(async () => {
 .device-monitor__trend {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -636,36 +754,81 @@ onMounted(async () => {
   border-color: rgba(19, 136, 255, 0.18);
 }
 
-.device-monitor__bars {
-  display: flex;
-  align-items: end;
-  gap: 7px;
-  height: 100%;
-  padding: 13px;
+.device-monitor__chart {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  padding: 10px 14px 10px;
 }
 
-.device-monitor__bars span {
+.device-monitor__chart svg {
+  display: block;
   width: 100%;
-  min-width: 8px;
-  background: linear-gradient(180deg, var(--accent-cyan), var(--accent));
-  border-radius: 999px 999px 3px 3px;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
+}
+
+.device-monitor__chart-grid line {
+  stroke: color-mix(in srgb, var(--border) 78%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.device-monitor__chart-area {
+  fill: url("#deviceMonitorArea");
+}
+
+.device-monitor__chart-line {
+  fill: none;
+  stroke: url("#deviceMonitorLine");
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 8px 14px rgba(19, 136, 255, 0.18));
+}
+
+.device-monitor__chart-point {
+  fill: color-mix(in srgb, var(--surface) 82%, white 18%);
+  stroke: var(--accent-cyan);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.device-monitor__chart-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 2px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.device-monitor__chart-meta strong {
+  color: var(--text-strong);
+  font-size: 12px;
 }
 
 .device-monitor__services {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: 1fr;
+  gap: 0;
+  align-content: start;
+  overflow: auto;
 }
 
 .device-monitor__services article {
   display: flex;
   gap: 8px;
   min-width: 0;
-  padding: 10px;
+  padding: 9px 11px;
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.52);
-  border: 1px solid rgba(100, 136, 166, 0.14);
-  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(100, 136, 166, 0.12);
+  border-radius: 0;
 }
 
 .device-monitor__service--green {
@@ -698,6 +861,7 @@ onMounted(async () => {
 .device-monitor__logs {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -721,19 +885,20 @@ onMounted(async () => {
 
 .device-monitor__log-grid {
   display: grid;
-  gap: 7px;
+  align-content: start;
+  gap: 8px;
   min-height: 0;
-  padding: 10px;
+  padding: 10px 12px 12px;
   overflow: auto;
 }
 
 .device-monitor__log {
   display: grid;
-  grid-template-columns: 42px 82px minmax(0, 1fr);
-  gap: 7px;
+  grid-template-columns: 50px 92px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
-  min-height: 34px;
-  padding: 7px 8px;
+  min-height: 46px;
+  padding: 9px 10px;
   text-align: left;
   background: rgba(255, 255, 255, 0.58);
   border: 1px solid rgba(100, 136, 166, 0.12);
@@ -755,18 +920,27 @@ onMounted(async () => {
 .device-monitor__log small {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .device-monitor__log strong {
   color: var(--text-strong);
   font-size: 11px;
+  white-space: nowrap;
+}
+
+.device-monitor__log small {
+  display: -webkit-box;
+  line-height: 1.32;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .device-monitor__side {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) minmax(150px, auto);
   gap: 12px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .device-monitor__diagnostic {
@@ -869,31 +1043,37 @@ onMounted(async () => {
 
 @media (max-width: 760px) {
   .device-monitor {
-    display: block;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    height: auto;
+    min-height: 100%;
     overflow: auto;
   }
 
   .device-monitor__metrics,
   .device-monitor__main,
   .device-monitor__side {
-    margin-bottom: 12px;
+    margin-bottom: 0;
   }
 
   .device-monitor__metrics {
     grid-template-rows: auto;
+    max-height: none;
   }
 
   .device-monitor__main,
   .device-monitor__side {
     display: grid;
+    overflow: visible;
   }
 
   .device-monitor__main {
-    grid-template-rows: auto 140px auto minmax(220px, auto);
+    grid-template-rows: auto minmax(300px, auto) minmax(220px, auto);
   }
 
   .device-monitor__services {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
   }
 
   .device-monitor__log {

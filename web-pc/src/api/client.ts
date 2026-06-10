@@ -18,8 +18,10 @@ import type {
   DesktopWindowConfig,
   Disk,
   DockerContainer,
+  DownloadTaskActionResult,
   DomainToken,
   DownloadTask,
+  DeleteVideoLibraryResult,
   FileRow,
   FileShare,
   FileTreeNode,
@@ -29,7 +31,15 @@ import type {
   MusicLibrarySettings,
   MusicScanResult,
   MusicTrack,
+  DvrSettings,
+  LiveChannel,
+  LiveGuideSource,
+  LiveProgram,
+  LiveSource,
   Metric,
+  MetricsSnapshot,
+  RecordingItem,
+  RecordingTimer,
   DiagnosticResult,
   RemoteDevice,
   RemoteLoginAlert,
@@ -48,6 +58,11 @@ import type {
   SystemInfo,
   TaskResponse,
   AgentTemplate,
+  VideoItem,
+  VideoLibrary,
+  VideoLibrarySettings,
+  VideoScanResult,
+  VideoTask,
 } from './types';
 
 type Id = string | number;
@@ -227,13 +242,56 @@ export const apiClient = {
     coverUrl: (id: Id) => buildApiUrl(`/api/v1/music/tracks/${pathId(id)}/cover`),
   },
 
+  video: {
+    getLibrary: () => GET<VideoLibrarySettings>('/api/v1/videos/library'),
+    updateLibrary: (payload: { libraries: VideoLibrary[] }) => PUT<VideoLibrarySettings>('/api/v1/videos/library', payload),
+    createLibrary: (payload: {
+      name: string;
+      type: string;
+      paths: string[];
+      metadataLanguage?: string;
+      allowAdultContent?: boolean;
+      autoSubtitles?: boolean;
+      subtitleLanguage?: string;
+    }) => POST<VideoLibrary>('/api/v1/videos/library', payload),
+    deleteLibrary: (id: Id) => DELETE<DeleteVideoLibraryResult>(`/api/v1/videos/library/${pathId(id)}`),
+    scan: () => POST<VideoScanResult>('/api/v1/videos/scan'),
+    getItems: (query?: { q?: string; libraryId?: string; kind?: string }) =>
+      GET<VideoItem[]>('/api/v1/videos/items', { query }),
+    getItem: (id: Id) => GET<VideoItem>(`/api/v1/videos/items/${pathId(id)}`),
+    getTasks: () => GET<VideoTask[]>('/api/v1/videos/tasks'),
+    scrape: (payload: { itemId: string }) => POST<VideoTask>('/api/v1/videos/tasks/scrape', payload),
+    subtitle: (payload: { itemId: string }) => POST<VideoTask>('/api/v1/videos/tasks/subtitle', payload),
+    transcode: (payload: { itemId: string; profile?: string }) => POST<VideoTask>('/api/v1/videos/tasks/transcode', payload),
+    getLiveSources: () => GET<LiveSource[]>('/api/v1/videos/live/sources'),
+    createLiveSource: (payload: { name: string; url: string; userAgent?: string; streamLimit?: number }) =>
+      POST<LiveSource>('/api/v1/videos/live/sources', payload),
+    getLiveChannels: (sourceId?: string) => GET<LiveChannel[]>('/api/v1/videos/live/channels', { query: { sourceId } }),
+    getGuideSources: () => GET<LiveGuideSource[]>('/api/v1/videos/live/guide-sources'),
+    createGuideSource: (payload: { name: string; url: string; userAgent?: string }) =>
+      POST<LiveGuideSource>('/api/v1/videos/live/guide-sources', payload),
+    getPrograms: (query?: { sourceId?: string; channelId?: string; from?: string; to?: string }) =>
+      GET<LiveProgram[]>('/api/v1/videos/live/programs', { query }),
+    getDvrSettings: () => GET<DvrSettings>('/api/v1/videos/live/dvr/settings'),
+    updateDvrSettings: (payload: DvrSettings) => PUT<DvrSettings>('/api/v1/videos/live/dvr/settings', payload),
+    getRecordingTimers: () => GET<RecordingTimer[]>('/api/v1/videos/live/recording-timers'),
+    createRecordingTimer: (payload: { programId?: string; channelId?: string; name?: string; startAt?: string; endAt?: string }) =>
+      POST<RecordingTimer>('/api/v1/videos/live/recording-timers', payload),
+    cancelRecordingTimer: (id: Id) => DELETE<RecordingTimer>(`/api/v1/videos/live/recording-timers/${pathId(id)}`),
+    getRecordings: () => GET<RecordingItem[]>('/api/v1/videos/live/recordings'),
+    streamUrl: (id: Id) => buildApiUrl(`/api/v1/videos/items/${pathId(id)}/stream`),
+    posterUrl: (id: Id) => buildApiUrl(`/api/v1/videos/items/${pathId(id)}/poster`),
+    subtitleUrl: (id: Id) => buildApiUrl(`/api/v1/videos/items/${pathId(id)}/subtitle`),
+  },
+
   downloads: {
     getTasks: () => GET<DownloadTask[]>('/api/v1/downloads/tasks'),
     createTask: (payload: RecordPayload) => POST<DownloadTask>('/api/v1/downloads/tasks', payload),
-    pauseTask: (id: Id) => POST<TaskResponse>(`/api/v1/downloads/tasks/${pathId(id)}/pause`),
-    resumeTask: (id: Id) => POST<TaskResponse>(`/api/v1/downloads/tasks/${pathId(id)}/resume`),
-    archiveTask: (id: Id) => POST<TaskResponse>(`/api/v1/downloads/tasks/${pathId(id)}/archive`),
-    deleteTask: (id: Id) => DELETE<TaskResponse>(`/api/v1/downloads/tasks/${pathId(id)}`),
+    pauseTask: (id: Id) => POST<DownloadTask>(`/api/v1/downloads/tasks/${pathId(id)}/pause`),
+    resumeTask: (id: Id) => POST<DownloadTask>(`/api/v1/downloads/tasks/${pathId(id)}/resume`),
+    archiveTask: (id: Id) => POST<DownloadTaskActionResult>(`/api/v1/downloads/tasks/${pathId(id)}/archive`),
+    deleteTask: (id: Id, deleteFile = false) =>
+      DELETE<DownloadTaskActionResult>(`/api/v1/downloads/tasks/${pathId(id)}`, { query: { deleteFile } }),
     getSpeedProfiles: () => GET<SpeedProfile[]>('/api/v1/downloads/speed-profiles'),
     updateSpeedProfile: (payload: SpeedProfile) => PUT<SpeedProfile>('/api/v1/downloads/speed-profile', payload),
   },
@@ -286,6 +344,7 @@ export const apiClient = {
   },
 
   monitoring: {
+    getMetricsSnapshot: () => GET<MetricsSnapshot>('/api/v1/monitoring/metrics/snapshot'),
     getCurrentMetrics: () => GET<Metric[]>('/api/v1/monitoring/metrics/current'),
     getMetricTrend: (range: string, metric = 'cpu') =>
       GET<TrendPoint[]>('/api/v1/monitoring/metrics/trend', { query: { range, metric } }),

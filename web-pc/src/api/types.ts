@@ -83,6 +83,12 @@ export type ServiceStatus = {
   tone?: StatusTone | string;
 };
 
+export type MetricsSnapshot = {
+  metrics: Metric[];
+  services: ServiceStatus[];
+  collectedAt?: string;
+};
+
 export type TrendPoint = {
   at?: string;
   value: number;
@@ -354,13 +360,30 @@ export type DownloadTask = {
   id: number | string;
   name: string;
   source: 'BT' | 'HTTP' | '磁力' | '订阅' | string;
+  link?: string;
   category: string;
   size: string;
   progress: number;
   speed: string;
-  status: '下载中' | '暂停' | '已完成' | string;
+  status: '排队中' | '下载中' | '暂停' | '已完成' | '失败' | string;
   handling: string;
   archived: boolean;
+  archiveRule?: {
+    category?: string;
+    targetPath?: string;
+    tags?: string[];
+    indexAfterMove?: boolean;
+    scrapeMetadata?: boolean;
+    verifyChecksum?: boolean;
+  };
+  filePath?: string;
+  error?: string;
+};
+
+export type DownloadTaskActionResult = {
+  task: DownloadTask;
+  message?: string;
+  filePath?: string;
 };
 
 export type SpeedProfile = {
@@ -368,6 +391,8 @@ export type SpeedProfile = {
   name?: string;
   down?: string;
   up?: string;
+  downloadLimit?: string;
+  uploadLimit?: string;
   note?: string;
   downloadLimitBytesPerSecond?: number;
   uploadLimitBytesPerSecond?: number;
@@ -479,6 +504,7 @@ export type MusicTrack = {
   year?: string;
   codec: string;
   format: string;
+  durationSeconds?: number;
   sizeBytes: number;
   size: string;
   modifiedAt: string;
@@ -508,6 +534,197 @@ export type MusicScanResult = {
   scannedAt: string;
 };
 
+export type VideoLibrary = {
+  id: string;
+  name: string;
+  type: 'movie' | 'series' | 'mixed' | string;
+  paths: string[];
+  metadataLanguage: string;
+  allowAdultContent: boolean;
+  autoSubtitles: boolean;
+  subtitleLanguage: string;
+  count: number;
+  status: string;
+};
+
+export type VideoLibrarySettings = {
+  libraries: VideoLibrary[];
+  status: string;
+  itemCount: number;
+  lastScan?: string;
+};
+
+export type DeleteVideoLibraryResult = {
+  id: string;
+  removedItems: number;
+  removedTasks: number;
+  settings: VideoLibrarySettings;
+};
+
+export type VideoItem = {
+  id: string;
+  libraryId: string;
+  libraryName: string;
+  title: string;
+  originalTitle?: string;
+  seriesTitle?: string;
+  episodeTitle?: string;
+  kind: 'movie' | 'episode' | string;
+  year?: string;
+  season?: number;
+  episode?: number;
+  container: string;
+  codec: string;
+  resolution: string;
+  durationSeconds?: number;
+  sizeBytes: number;
+  size: string;
+  modifiedAt: string;
+  discoveredAt: string;
+  fileName: string;
+  path?: string;
+  posterUrl: string;
+  posterRemoteUrl?: string;
+  backdropUrl?: string;
+  backdropRemoteUrl?: string;
+  streamUrl: string;
+  subtitleUrl?: string;
+  overview: string;
+  tagline?: string;
+  contentRating?: string;
+  releaseDate?: string;
+  genres: string[];
+  tags?: string[];
+  directors?: string[];
+  writers?: string[];
+  actors?: string[];
+  studios?: string[];
+  countries?: string[];
+  videoTracks?: VideoMediaTrack[];
+  audioTracks?: VideoMediaTrack[];
+  subtitleTracks?: VideoMediaTrack[];
+  rating: string;
+  metadataSource?: string;
+  providerId?: string;
+  scrapedAt?: string;
+  progress: number;
+  status: string;
+};
+
+export type VideoMediaTrack = {
+  id: string;
+  title: string;
+  language?: string;
+  codec?: string;
+  channels?: string;
+  default?: boolean;
+};
+
+export type VideoTask = {
+  id: string;
+  type: string;
+  itemId?: string;
+  title: string;
+  status: 'queued' | 'running' | 'done' | 'failed' | string;
+  message: string;
+  progress: number;
+  profile?: string;
+  createdAt: string;
+};
+
+export type VideoScanResult = {
+  id: string;
+  state: string;
+  message: string;
+  itemCount: number;
+  scannedAt: string;
+};
+
+export type LiveSource = {
+  id: string;
+  name: string;
+  url: string;
+  userAgent?: string;
+  streamLimit?: number;
+  channelCount: number;
+  status: string;
+};
+
+export type LiveChannel = {
+  id: string;
+  sourceId: string;
+  guideId?: string;
+  name: string;
+  group: string;
+  logo?: string;
+  url: string;
+};
+
+export type LiveGuideSource = {
+  id: string;
+  name: string;
+  url: string;
+  userAgent?: string;
+  programCount: number;
+  status: string;
+  lastRefresh?: string;
+};
+
+export type LiveProgram = {
+  id: string;
+  guideId: string;
+  channelId: string;
+  channelName: string;
+  title: string;
+  overview?: string;
+  categories?: string[];
+  startAt: string;
+  endAt: string;
+  durationSeconds: number;
+};
+
+export type DvrSettings = {
+  recordingPath: string;
+  movieRecordingPath?: string;
+  seriesRecordingPath?: string;
+  prePaddingSeconds: number;
+  postPaddingSeconds: number;
+  maxConcurrentRecord: number;
+  saveNfo: boolean;
+  saveImages: boolean;
+  postProcessCommand?: string;
+};
+
+export type RecordingTimer = {
+  id: string;
+  programId?: string;
+  channelId: string;
+  channelName: string;
+  name: string;
+  overview?: string;
+  startAt: string;
+  endAt: string;
+  prePaddingSeconds: number;
+  postPaddingSeconds: number;
+  priority: number;
+  status: string;
+  targetPath?: string;
+  createdAt: string;
+};
+
+export type RecordingItem = {
+  id: string;
+  timerId: string;
+  programId?: string;
+  title: string;
+  channelId: string;
+  status: string;
+  path?: string;
+  startedAt?: string;
+  endedAt?: string;
+  message?: string;
+};
+
 export type SettingsState = {
   model?: {
     mode?: 'family_hybrid' | 'provider' | 'enterprise_local' | string;
@@ -519,6 +736,13 @@ export type SettingsState = {
   privacy?: {
     sensitiveDataLocalOnly?: boolean;
     auditRetentionDays?: number;
+  };
+  ui?: {
+    theme?: 'auto' | 'light' | 'dark' | string;
+    windowRadius?: 'compact' | 'default' | 'rounded' | string;
+    dockPosition?: 'bottom' | 'left' | 'right' | string;
+    dockStyle?: 'floating' | 'side' | 'compact' | string;
+    dockIconSize?: 'small' | 'default' | 'large' | string;
   };
 };
 

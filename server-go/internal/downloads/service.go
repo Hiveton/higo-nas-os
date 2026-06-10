@@ -2,12 +2,22 @@ package downloads
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"higoos/server-go/internal/state"
 )
@@ -19,11 +29,14 @@ var (
 )
 
 type Service struct {
-	mu        sync.RWMutex
-	tasks     []DownloadTask
-	profiles  []SpeedProfile
-	nextID    int
-	statePath string
+	mu          sync.RWMutex
+	tasks       []DownloadTask
+	profiles    []SpeedProfile
+	nextID      int
+	statePath   string
+	downloadDir string
+	active      map[int]context.CancelFunc
+	client      *http.Client
 }
 
 type snapshot struct {
@@ -32,16 +45,52 @@ type snapshot struct {
 	NextID   int            `json:"nextId"`
 }
 
+type feed struct {
+	Channel struct {
+		Items []feedItem `xml:"item"`
+	} `xml:"channel"`
+	Entries []feedEntry `xml:"entry"`
+}
+
+type feedItem struct {
+	Title      string          `xml:"title"`
+	Link       string          `xml:"link"`
+	Enclosures []feedEnclosure `xml:"enclosure"`
+}
+
+type feedEntry struct {
+	Title string     `xml:"title"`
+	Links []atomLink `xml:"link"`
+}
+
+type feedEnclosure struct {
+	URL string `xml:"url,attr"`
+}
+
+type atomLink struct {
+	Href string `xml:"href,attr"`
+	Rel  string `xml:"rel,attr"`
+	Type string `xml:"type,attr"`
+}
+
+type httpProbe struct {
+	StatusCode   int
+	Size         int64
+	Filename     string
+	AcceptRanges bool
+	Body         string
+}
+
 func NewService() *Service {
-	return &Service{
-		tasks:    seedTasks(),
-		profiles: seedSpeedProfiles(),
-		nextID:   5,
-	}
+	return newService("", "")
 }
 
 func NewServiceWithStateDir(stateDir string) (*Service, error) {
-	service := NewService()
+	return NewServiceWithStateDirAndDownloadDir(stateDir, "")
+}
+
+func NewServiceWithStateDirAndDownloadDir(stateDir string, downloadDir string) (*Service, error) {
+	service := newService(stateDir, downloadDir)
 	if stateDir == "" {
 		return service, nil
 	}
@@ -51,17 +100,36 @@ func NewServiceWithStateDir(stateDir string) (*Service, error) {
 		return nil, err
 	}
 	if len(persisted.Tasks) > 0 {
-		service.tasks = cloneTasks(persisted.Tasks)
+		service.tasks = filterPersistedTasks(persisted.Tasks)
 	}
 	if len(persisted.Profiles) > 0 {
 		service.profiles = append([]SpeedProfile(nil), persisted.Profiles...)
 	}
 	if persisted.NextID > 0 {
-		service.nextID = persisted.NextID
+		service.nextID = max(persisted.NextID, nextTaskID(service.tasks))
 	} else {
 		service.nextID = nextTaskID(service.tasks)
 	}
+	_ = service.saveLocked()
 	return service, nil
+}
+
+func newService(stateDir string, downloadDir string) *Service {
+	downloadDir = strings.TrimSpace(downloadDir)
+	if downloadDir == "" {
+		if stateDir != "" {
+			downloadDir = filepath.Join(stateDir, "downloads")
+		} else {
+			downloadDir = filepath.Join(os.TempDir(), "higoos-downloads")
+		}
+	}
+	return &Service{
+		profiles:    seedSpeedProfiles(),
+		nextID:      1,
+		downloadDir: downloadDir,
+		active:      make(map[int]context.CancelFunc),
+		client:      &http.Client{},
+	}
 }
 
 func (s *Service) ListTasks(_ context.Context) []DownloadTask {
@@ -71,7 +139,7 @@ func (s *Service) ListTasks(_ context.Context) []DownloadTask {
 	return cloneTasks(s.tasks)
 }
 
-func (s *Service) CreateTask(_ context.Context, request CreateTaskRequest) (DownloadTask, error) {
+func (s *Service) CreateTask(ctx context.Context, request CreateTaskRequest) (DownloadTask, error) {
 	link := strings.TrimSpace(request.Link)
 	if link == "" {
 		return DownloadTask{}, fmt.Errorf("%w: link is required", ErrInvalidTaskInput)
@@ -90,29 +158,26 @@ func (s *Service) CreateTask(_ context.Context, request CreateTaskRequest) (Down
 		Link:        link,
 		Category:    category,
 		Size:        "解析中",
-		Progress:    3,
+		Progress:    0,
 		Speed:       "排队中",
-		Status:      StatusRunning,
+		Status:      StatusQueued,
 		Handling:    handlingFor(category, source, rule, request.Name, link),
-		Archived:    false,
 		ArchiveRule: rule,
-	}
-	if source == SourceRSS {
-		task.Size = "等待解析"
-		task.Progress = 0
-		task.Speed = "等待订阅"
-		task.Status = StatusPaused
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	task.ID = s.nextID
 	s.nextID++
 	s.tasks = append([]DownloadTask{task}, s.tasks...)
 	if err := s.saveLocked(); err != nil {
+		s.mu.Unlock()
 		return DownloadTask{}, err
 	}
-	return cloneTask(task), nil
+	task = cloneTask(task)
+	s.mu.Unlock()
+
+	s.startTask(ctx, task.ID)
+	return task, nil
 }
 
 func (s *Service) PauseTask(_ context.Context, id int) (DownloadTask, error) {
@@ -123,38 +188,46 @@ func (s *Service) PauseTask(_ context.Context, id int) (DownloadTask, error) {
 	if idx < 0 {
 		return DownloadTask{}, ErrTaskNotFound
 	}
+	if cancel := s.active[id]; cancel != nil {
+		cancel()
+		delete(s.active, id)
+	}
 	if s.tasks[idx].Status == StatusCompleted {
 		return cloneTask(s.tasks[idx]), nil
 	}
 	s.tasks[idx].Status = StatusPaused
 	s.tasks[idx].Speed = "0 KB/s"
+	s.tasks[idx].Handling = "已暂停，可继续或清理任务"
 	if err := s.saveLocked(); err != nil {
 		return DownloadTask{}, err
 	}
 	return cloneTask(s.tasks[idx]), nil
 }
 
-func (s *Service) ResumeTask(_ context.Context, id int) (DownloadTask, error) {
+func (s *Service) ResumeTask(ctx context.Context, id int) (DownloadTask, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	idx := s.findTaskIndex(id)
 	if idx < 0 {
+		s.mu.Unlock()
 		return DownloadTask{}, ErrTaskNotFound
 	}
 	if s.tasks[idx].Status == StatusCompleted {
-		return cloneTask(s.tasks[idx]), nil
+		task := cloneTask(s.tasks[idx])
+		s.mu.Unlock()
+		return task, nil
 	}
-	s.tasks[idx].Status = StatusRunning
-	if s.tasks[idx].Source == SourceRSS && s.tasks[idx].Progress == 0 {
-		s.tasks[idx].Speed = "等待 RSS"
-	} else {
-		s.tasks[idx].Speed = s.activeProfileLocked().DownloadLimit
-	}
+	s.tasks[idx].Status = StatusQueued
+	s.tasks[idx].Speed = "排队中"
+	s.tasks[idx].Error = ""
 	if err := s.saveLocked(); err != nil {
+		s.mu.Unlock()
 		return DownloadTask{}, err
 	}
-	return cloneTask(s.tasks[idx]), nil
+	task := cloneTask(s.tasks[idx])
+	s.mu.Unlock()
+
+	s.startTask(ctx, id)
+	return task, nil
 }
 
 func (s *Service) ArchiveTask(_ context.Context, id int) (TaskActionResult, error) {
@@ -171,22 +244,26 @@ func (s *Service) ArchiveTask(_ context.Context, id int) (TaskActionResult, erro
 	task.Speed = "0 KB/s"
 	task.Status = StatusCompleted
 	task.Archived = true
-	task.Handling = "已归档到文件管家 /" + task.Category
+	task.Handling = "已归档到文件管家 " + task.ArchiveRule.TargetPath
 
 	return TaskActionResult{
 		Task:     cloneTask(*task),
-		Message:  "文件管家已自动归档：" + task.Name,
-		FilePath: task.ArchiveRule.TargetPath,
+		Message:  "已归档：" + task.Name,
+		FilePath: taskFilePath(*task),
 	}, s.saveLocked()
 }
 
-func (s *Service) DeleteTask(_ context.Context, id int) (TaskActionResult, error) {
+func (s *Service) DeleteTask(_ context.Context, id int, options DeleteTaskOptions) (TaskActionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	idx := s.findTaskIndex(id)
 	if idx < 0 {
 		return TaskActionResult{}, ErrTaskNotFound
+	}
+	if cancel := s.active[id]; cancel != nil {
+		cancel()
+		delete(s.active, id)
 	}
 	task := cloneTask(s.tasks[idx])
 	s.tasks = append(s.tasks[:idx], s.tasks[idx+1:]...)
@@ -195,7 +272,18 @@ func (s *Service) DeleteTask(_ context.Context, id int) (TaskActionResult, error
 	if task.Archived {
 		message = "已清理 1 条已归档记录，原文件保留在文件管家。"
 	}
-	return TaskActionResult{Task: task, Message: message, FilePath: task.ArchiveRule.TargetPath}, s.saveLocked()
+	if options.DeleteFile {
+		deleted, err := s.deleteTaskFilesLocked(task)
+		if err != nil {
+			return TaskActionResult{}, err
+		}
+		if deleted > 0 {
+			message = fmt.Sprintf("已删除任务和文件：%s", task.Name)
+		} else {
+			message = fmt.Sprintf("已删除任务记录，未找到可删除文件：%s", task.Name)
+		}
+	}
+	return TaskActionResult{Task: task, Message: message, FilePath: taskFilePath(task)}, s.saveLocked()
 }
 
 func (s *Service) SpeedProfiles(_ context.Context) []SpeedProfile {
@@ -235,6 +323,417 @@ func (s *Service) UpdateActiveSpeedProfile(_ context.Context, name string) (Spee
 	return profile, s.saveLocked()
 }
 
+func (s *Service) startTask(ctx context.Context, id int) {
+	s.mu.Lock()
+	if _, exists := s.active[id]; exists {
+		s.mu.Unlock()
+		return
+	}
+	idx := s.findTaskIndex(id)
+	if idx < 0 || s.tasks[idx].Status == StatusCompleted {
+		s.mu.Unlock()
+		return
+	}
+	task := cloneTask(s.tasks[idx])
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	s.active[id] = cancel
+	s.tasks[idx].Status = StatusRunning
+	s.tasks[idx].Speed = s.activeProfileLocked().DownloadLimit
+	_ = s.saveLocked()
+	s.mu.Unlock()
+
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.active, id)
+			_ = s.saveLocked()
+			s.mu.Unlock()
+		}()
+		switch task.Source {
+		case SourceHTTP:
+			s.runHTTPDownload(runCtx, task)
+		case SourceRSS:
+			s.runRSS(runCtx, task)
+		case SourceBT, SourceMagnet:
+			s.runAria2(runCtx, task)
+		}
+	}()
+}
+
+func (s *Service) runHTTPDownload(ctx context.Context, task DownloadTask) {
+	probe, err := s.probeHTTPDownload(ctx, task.Link)
+	if err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+	if probe.StatusCode < 200 || probe.StatusCode >= 300 {
+		s.failTask(task.ID, fmt.Errorf("http status %d%s", probe.StatusCode, errorDetail(probe.Body)))
+		return
+	}
+
+	dir := filepath.Join(s.downloadDir, safePathPart(task.Category))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+	name := probe.Filename
+	if name == "" {
+		name = safeFilename(task.Name)
+	}
+	finalPath := task.FilePath
+	if finalPath == "" {
+		finalPath = uniquePath(filepath.Join(dir, name))
+	}
+	partPath := finalPath + ".part"
+	startAt := existingFileSize(partPath)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, task.Link, nil)
+	if err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+	prepareHTTPRequest(req)
+	if startAt > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", startAt))
+	} else if probe.AcceptRanges {
+		req.Header.Set("Range", "bytes=0-")
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		s.failTask(task.ID, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable && startAt > 0 && probe.Size > 0 && startAt >= probe.Size {
+		if err := os.Rename(partPath, finalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.failTask(task.ID, err)
+			return
+		}
+		s.completeHTTPTask(task.ID, finalPath, startAt)
+		return
+	}
+	if startAt > 0 && resp.StatusCode == http.StatusOK {
+		startAt = 0
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		s.failTask(task.ID, fmt.Errorf("http status %d%s", resp.StatusCode, errorDetail(string(body))))
+		return
+	}
+	totalSize := probe.Size
+	if total := contentRangeTotal(resp.Header.Get("Content-Range")); total > 0 {
+		totalSize = total
+	} else if totalSize <= 0 && resp.ContentLength > 0 {
+		totalSize = resp.ContentLength + startAt
+	}
+	openFlags := os.O_CREATE | os.O_WRONLY
+	if startAt == 0 {
+		openFlags |= os.O_TRUNC
+	}
+	file, err := os.OpenFile(partPath, openFlags, 0o644)
+	if err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+	defer file.Close()
+	if _, err := file.Seek(startAt, io.SeekStart); err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+
+	s.updateTask(task.ID, func(t *DownloadTask) {
+		t.FilePath = finalPath
+		t.Handling = "正在下载到 " + finalPath
+		t.Error = ""
+		if totalSize > 0 {
+			t.Size = formatBytes(totalSize)
+		}
+	})
+
+	buf := make([]byte, 128*1024)
+	written := startAt
+	lastBytes := startAt
+	lastTick := time.Now()
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, err := file.Write(buf[:n]); err != nil {
+				s.failTask(task.ID, err)
+				return
+			}
+			written += int64(n)
+		}
+		now := time.Now()
+		if n > 0 && now.Sub(lastTick) >= time.Second {
+			s.updateProgress(task.ID, written, totalSize, written-lastBytes, now.Sub(lastTick))
+			lastBytes = written
+			lastTick = now
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			s.failTask(task.ID, readErr)
+			return
+		}
+	}
+	if err := file.Close(); err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+	if err := os.Rename(partPath, finalPath); err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+	s.completeHTTPTask(task.ID, finalPath, written)
+}
+
+func (s *Service) probeHTTPDownload(ctx context.Context, rawURL string) (httpProbe, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
+	if err != nil {
+		return httpProbe{}, err
+	}
+	prepareHTTPRequest(req)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return httpProbe{}, err
+	}
+	defer resp.Body.Close()
+	probe := httpProbe{
+		StatusCode:   resp.StatusCode,
+		Size:         resp.ContentLength,
+		Filename:     downloadFileNameFromHeaders(rawURL, resp.Header),
+		AcceptRanges: strings.EqualFold(resp.Header.Get("Accept-Ranges"), "bytes"),
+	}
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusNotImplemented {
+		return s.probeHTTPWithRange(ctx, rawURL)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		probe.Body = string(body)
+	}
+	return probe, nil
+}
+
+func (s *Service) probeHTTPWithRange(ctx context.Context, rawURL string) (httpProbe, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return httpProbe{}, err
+	}
+	prepareHTTPRequest(req)
+	req.Header.Set("Range", "bytes=0-0")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return httpProbe{}, err
+	}
+	defer resp.Body.Close()
+	probe := httpProbe{
+		StatusCode:   resp.StatusCode,
+		Size:         contentRangeTotal(resp.Header.Get("Content-Range")),
+		Filename:     downloadFileNameFromHeaders(rawURL, resp.Header),
+		AcceptRanges: resp.StatusCode == http.StatusPartialContent,
+	}
+	if probe.Size <= 0 && resp.ContentLength > 0 && resp.StatusCode == http.StatusOK {
+		probe.Size = resp.ContentLength
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		probe.Body = string(body)
+	}
+	return probe, nil
+}
+
+func (s *Service) completeHTTPTask(id int, finalPath string, written int64) {
+	s.updateTask(id, func(t *DownloadTask) {
+		t.Status = StatusCompleted
+		t.Progress = 100
+		t.Speed = "0 KB/s"
+		t.Size = formatBytes(written)
+		t.FilePath = finalPath
+		t.Handling = "已下载到 " + finalPath
+		t.Error = ""
+	})
+}
+
+func (s *Service) runRSS(ctx context.Context, task DownloadTask) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, task.Link, nil)
+	if err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+	prepareHTTPRequest(req)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		s.failTask(task.ID, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		s.failTask(task.ID, fmt.Errorf("rss status %d", resp.StatusCode))
+		return
+	}
+	var parsed feed
+	if err := xml.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+
+	title, link := firstDownloadableFeedEntry(parsed)
+	if link == "" {
+		s.updateTask(task.ID, func(t *DownloadTask) {
+			t.Status = StatusCompleted
+			t.Progress = 100
+			t.Speed = "0 KB/s"
+			t.Size = "0 个可下载条目"
+			t.Handling = "订阅已读取，未发现可直接下载的附件"
+			t.Error = ""
+		})
+		return
+	}
+	s.updateTask(task.ID, func(t *DownloadTask) {
+		t.Status = StatusCompleted
+		t.Progress = 100
+		t.Speed = "0 KB/s"
+		t.Size = "已解析 1 个条目"
+		t.Handling = "已发现订阅条目：" + title
+		t.Error = ""
+	})
+	child, err := s.CreateTask(ctx, CreateTaskRequest{
+		Source:   SourceHTTP,
+		Link:     link,
+		Name:     title,
+		Category: task.Category,
+	})
+	if err != nil {
+		s.updateTask(task.ID, func(t *DownloadTask) {
+			t.Error = err.Error()
+			t.Handling = "订阅条目添加失败：" + err.Error()
+		})
+		return
+	}
+	s.updateTask(task.ID, func(t *DownloadTask) {
+		t.Handling = "已添加订阅下载：" + child.Name
+	})
+}
+
+func (s *Service) runAria2(ctx context.Context, task DownloadTask) {
+	aria2, err := exec.LookPath("aria2c")
+	if err != nil {
+		s.failTask(task.ID, errors.New("aria2c 未安装，无法执行 BT 或磁力下载"))
+		return
+	}
+	dir := s.aria2TaskDir(task)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		s.failTask(task.ID, err)
+		return
+	}
+	s.updateTask(task.ID, func(t *DownloadTask) {
+		t.FilePath = dir
+		t.Handling = "正在下载到 " + dir
+		t.Error = ""
+	})
+	cmd := exec.CommandContext(ctx, aria2,
+		"--dir", dir,
+		"--auto-file-renaming=false",
+		"--allow-overwrite=true",
+		"--summary-interval=0",
+		"--console-log-level=warn",
+		task.Link,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		s.failTask(task.ID, fmt.Errorf("aria2c failed: %s", strings.TrimSpace(string(output))))
+		return
+	}
+	s.updateTask(task.ID, func(t *DownloadTask) {
+		t.Status = StatusCompleted
+		t.Progress = 100
+		t.Speed = "0 KB/s"
+		t.FilePath = dir
+		t.Handling = "已下载到 " + dir
+		t.Error = ""
+	})
+}
+
+func (s *Service) aria2TaskDir(task DownloadTask) string {
+	name := safePathPart(task.Name)
+	if name == "" {
+		name = safePathPart(string(task.Source))
+	}
+	return filepath.Join(s.downloadDir, safePathPart(task.Category), fmt.Sprintf("%03d-%s", task.ID, name))
+}
+
+func (s *Service) updateProgress(id int, written int64, total int64, delta int64, elapsed time.Duration) {
+	s.updateTask(id, func(t *DownloadTask) {
+		if total > 0 {
+			progress := int(float64(written) / float64(total) * 100)
+			if progress > 99 {
+				progress = 99
+			}
+			t.Progress = progress
+			t.Size = formatBytes(total)
+		} else {
+			t.Progress = 1
+			t.Size = formatBytes(written)
+		}
+		if elapsed > 0 {
+			t.Speed = formatBytes(int64(float64(delta)/elapsed.Seconds())) + "/s"
+		}
+	})
+}
+
+func (s *Service) failTask(id int, err error) {
+	s.updateTask(id, func(t *DownloadTask) {
+		t.Status = StatusFailed
+		t.Speed = "0 KB/s"
+		t.Handling = "下载失败：" + err.Error()
+		t.Error = err.Error()
+	})
+}
+
+func (s *Service) updateTask(id int, mutate func(*DownloadTask)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := s.findTaskIndex(id)
+	if idx < 0 {
+		return
+	}
+	mutate(&s.tasks[idx])
+	_ = s.saveLocked()
+}
+
+func (s *Service) deleteTaskFilesLocked(task DownloadTask) (int, error) {
+	targets := taskDeleteTargets(task)
+	deleted := 0
+	for _, target := range targets {
+		if !s.isSafeDownloadPath(target, task.Category) {
+			continue
+		}
+		if _, err := os.Stat(target); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return deleted, err
+		}
+		if err := os.RemoveAll(target); err != nil {
+			return deleted, err
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
 func (s *Service) saveLocked() error {
 	if s.statePath == "" {
 		return nil
@@ -261,89 +760,17 @@ func (s *Service) activeProfileLocked() SpeedProfile {
 			return profile
 		}
 	}
-	return s.profiles[0]
-}
-
-func seedTasks() []DownloadTask {
-	return []DownloadTask{
-		{
-			ID:       1,
-			Name:     "纪录片合集 S02",
-			Source:   SourceBT,
-			Category: "影视",
-			Size:     "86.4 GB",
-			Progress: 68,
-			Speed:    "12.8 MB/s",
-			Status:   StatusRunning,
-			Handling: "完成后刮削海报并归档到 /Media/TV",
-			ArchiveRule: ArchiveRule{
-				Category:       "影视",
-				TargetPath:     "/Media/TV",
-				Tags:           []string{"影视", "纪录片"},
-				IndexAfterMove: true,
-				ScrapeMetadata: true,
-			},
-		},
-		{
-			ID:       2,
-			Name:     "家庭音乐精选 FLAC",
-			Source:   SourceHTTP,
-			Category: "音乐",
-			Size:     "12.1 GB",
-			Progress: 100,
-			Speed:    "0 KB/s",
-			Status:   StatusCompleted,
-			Handling: "等待导入音乐库",
-			ArchiveRule: ArchiveRule{
-				Category:       "音乐",
-				TargetPath:     "/Music",
-				Tags:           []string{"音乐", "FLAC"},
-				IndexAfterMove: true,
-			},
-		},
-		{
-			ID:       3,
-			Name:     "Ubuntu Server 镜像",
-			Source:   SourceMagnet,
-			Category: "软件",
-			Size:     "5.9 GB",
-			Progress: 42,
-			Speed:    "6.4 MB/s",
-			Status:   StatusRunning,
-			Handling: "完成后校验 SHA256",
-			ArchiveRule: ArchiveRule{
-				Category:       "软件",
-				TargetPath:     "/Downloads/Software",
-				Tags:           []string{"软件", "镜像"},
-				IndexAfterMove: true,
-				VerifyChecksum: true,
-			},
-		},
-		{
-			ID:       4,
-			Name:     "每周公开课订阅",
-			Source:   SourceRSS,
-			Category: "订阅",
-			Size:     "2.8 GB",
-			Progress: 0,
-			Speed:    "等待 RSS",
-			Status:   StatusPaused,
-			Handling: "新条目自动下载到 /Downloads/Courses",
-			ArchiveRule: ArchiveRule{
-				Category:       "订阅",
-				TargetPath:     "/Downloads/Subscriptions",
-				Tags:           []string{"订阅", "课程"},
-				IndexAfterMove: true,
-			},
-		},
+	if len(s.profiles) == 0 {
+		return SpeedProfile{DownloadLimit: "不限速", UploadLimit: "不限速"}
 	}
+	return s.profiles[0]
 }
 
 func seedSpeedProfiles() []SpeedProfile {
 	return []SpeedProfile{
-		{Name: "智能限速", DownloadLimit: "18 MB/s", UploadLimit: "2 MB/s", Note: "客厅投屏时自动让路", Active: true},
-		{Name: "夜间全速", DownloadLimit: "不限速", UploadLimit: "8 MB/s", Note: "00:00-07:00 开启满速"},
-		{Name: "家庭优先", DownloadLimit: "6 MB/s", UploadLimit: "1 MB/s", Note: "视频会议和游戏优先"},
+		{Name: "智能限速", DownloadLimit: "18 MB/s", UploadLimit: "2 MB/s", Note: "自动限制后台下载，保留前台播放和访问带宽", Active: true},
+		{Name: "夜间全速", DownloadLimit: "不限速", UploadLimit: "8 MB/s", Note: "夜间任务优先跑满带宽"},
+		{Name: "家庭优先", DownloadLimit: "6 MB/s", UploadLimit: "1 MB/s", Note: "降低下载占用，优先保障播放和远程访问"},
 	}
 }
 
@@ -387,7 +814,7 @@ func normalizeCategory(category string, source SourceType, link string, name str
 		return "音乐"
 	case containsAny(text, ".iso", ".dmg", ".pkg", ".exe", ".appimage", "ubuntu", "server", "软件"):
 		return "软件"
-	case containsAny(text, ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", "文档"):
+	case containsAny(text, ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".md", "文档"):
 		return "文档"
 	default:
 		return "影视"
@@ -399,14 +826,11 @@ func taskName(name string, source SourceType, link string) string {
 	if name != "" {
 		return name
 	}
-	if strings.HasPrefix(strings.ToLower(link), "magnet:") || strings.Contains(link, "://") {
-		return string(source) + " 新任务"
+	base := linkBaseName(link)
+	if base != "" {
+		return base
 	}
-	base := path.Base(link)
-	if base == "." || base == "/" {
-		return string(source) + " 新任务"
-	}
-	return base
+	return string(source) + " 新任务"
 }
 
 func archiveRuleFor(category string, source SourceType, name string, link string) ArchiveRule {
@@ -443,18 +867,210 @@ func archiveRuleFor(category string, source SourceType, name string, link string
 
 func handlingFor(category string, source SourceType, rule ArchiveRule, name string, link string) string {
 	if source == SourceRSS {
-		return "新条目自动下载到 /Downloads/Courses"
+		return "订阅条目会加入下载队列"
 	}
 	if category == "软件" || rule.VerifyChecksum {
-		return "完成后校验 SHA256"
+		return "完成后可校验 SHA256"
 	}
 	if category == "影视" && rule.TargetPath == "/Media/TV" {
-		return "完成后刮削海报并归档到 /Media/TV"
+		return "完成后可归档到 /Media/TV"
 	}
 	if category == "影视" && containsAny(strings.ToLower(name+" "+link), "电影", "movie", "film") {
-		return "完成后自动归档到 /Media/Movies"
+		return "完成后可归档到 /Media/Movies"
 	}
-	return "完成后自动归档到 " + rule.TargetPath
+	return "完成后可归档到 " + rule.TargetPath
+}
+
+func firstDownloadableFeedEntry(parsed feed) (string, string) {
+	for _, item := range parsed.Channel.Items {
+		title := strings.TrimSpace(item.Title)
+		for _, enclosure := range item.Enclosures {
+			if isHTTPURL(enclosure.URL) {
+				return fallbackTitle(title, enclosure.URL), enclosure.URL
+			}
+		}
+		if isDirectDownloadURL(item.Link) {
+			return fallbackTitle(title, item.Link), strings.TrimSpace(item.Link)
+		}
+	}
+	for _, entry := range parsed.Entries {
+		title := strings.TrimSpace(entry.Title)
+		for _, link := range entry.Links {
+			href := strings.TrimSpace(link.Href)
+			if isDirectDownloadURL(href) || strings.Contains(strings.ToLower(link.Type), "audio") || strings.Contains(strings.ToLower(link.Type), "video") {
+				return fallbackTitle(title, href), href
+			}
+		}
+	}
+	return "", ""
+}
+
+func prepareHTTPRequest(req *http.Request) {
+	req.Header.Set("User-Agent", "HiGoOS DownloadCenter/1.0")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Encoding", "identity")
+}
+
+func downloadFileNameFromHeaders(rawURL string, header http.Header) string {
+	if disposition := header.Get("Content-Disposition"); disposition != "" {
+		if _, params, err := mime.ParseMediaType(disposition); err == nil {
+			if filename := strings.TrimSpace(params["filename"]); filename != "" {
+				return safeFilename(filename)
+			}
+		}
+	}
+	if base := linkBaseName(rawURL); base != "" {
+		return safeFilename(base)
+	}
+	return ""
+}
+
+func linkBaseName(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err == nil && parsed.Path != "" {
+		base := path.Base(parsed.Path)
+		if base != "." && base != "/" && base != "" {
+			return base
+		}
+	}
+	base := path.Base(lowerPath(raw))
+	if base != "." && base != "/" && base != "" {
+		return base
+	}
+	return ""
+}
+
+func uniquePath(raw string) string {
+	if _, err := os.Stat(raw); errors.Is(err, os.ErrNotExist) {
+		return raw
+	}
+	ext := filepath.Ext(raw)
+	stem := strings.TrimSuffix(raw, ext)
+	for i := 1; i < 1000; i++ {
+		candidate := stem + "-" + strconv.Itoa(i) + ext
+		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
+			return candidate
+		}
+	}
+	return stem + "-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ext
+}
+
+func taskDeleteTargets(task DownloadTask) []string {
+	filePath := strings.TrimSpace(task.FilePath)
+	if filePath == "" {
+		return nil
+	}
+	targets := []string{filePath}
+	if !strings.HasSuffix(filePath, ".part") {
+		targets = append(targets, filePath+".part")
+	}
+	return targets
+}
+
+func (s *Service) isSafeDownloadPath(raw string, category string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	base, err := filepath.Abs(s.downloadDir)
+	if err != nil {
+		return false
+	}
+	target, err := filepath.Abs(raw)
+	if err != nil {
+		return false
+	}
+	if target == base {
+		return false
+	}
+	if categoryDir, err := filepath.Abs(filepath.Join(s.downloadDir, safePathPart(category))); err == nil && target == categoryDir {
+		return false
+	}
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != "" && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
+}
+
+func existingFileSize(raw string) int64 {
+	info, err := os.Stat(raw)
+	if err != nil || info.IsDir() {
+		return 0
+	}
+	return info.Size()
+}
+
+func contentRangeTotal(raw string) int64 {
+	if raw == "" {
+		return 0
+	}
+	idx := strings.LastIndex(raw, "/")
+	if idx < 0 || idx == len(raw)-1 {
+		return 0
+	}
+	total, err := strconv.ParseInt(strings.TrimSpace(raw[idx+1:]), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return total
+}
+
+func errorDetail(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	body = strings.Join(strings.Fields(body), " ")
+	if len(body) > 160 {
+		body = body[:160] + "..."
+	}
+	return ": " + body
+}
+
+func safeFilename(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "download-" + strconv.FormatInt(time.Now().Unix(), 10)
+	}
+	name = filepath.Base(name)
+	name = invalidFilename.ReplaceAllString(name, "_")
+	if name == "." || name == "/" || name == "" {
+		return "download-" + strconv.FormatInt(time.Now().Unix(), 10)
+	}
+	return name
+}
+
+func safePathPart(name string) string {
+	name = safeFilename(name)
+	if name == "." || name == string(filepath.Separator) {
+		return "Downloads"
+	}
+	return name
+}
+
+func formatBytes(size int64) string {
+	if size < 0 {
+		return "未知"
+	}
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	value := float64(size)
+	unit := units[0]
+	for idx := 0; idx < len(units)-1 && value >= 1024; idx++ {
+		value /= 1024
+		unit = units[idx+1]
+	}
+	if unit == "B" {
+		return fmt.Sprintf("%d B", size)
+	}
+	return fmt.Sprintf("%.1f %s", value, unit)
+}
+
+func taskFilePath(task DownloadTask) string {
+	if task.FilePath != "" {
+		return task.FilePath
+	}
+	return task.ArchiveRule.TargetPath
 }
 
 func lowerPath(raw string) string {
@@ -473,6 +1089,30 @@ func containsAny(text string, needles ...string) bool {
 	return false
 }
 
+func isHTTPURL(raw string) bool {
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+}
+
+func isDirectDownloadURL(raw string) bool {
+	if !isHTTPURL(raw) {
+		return false
+	}
+	lower := strings.ToLower(lowerPath(raw))
+	return containsAny(lower, ".mp3", ".m4a", ".mp4", ".mkv", ".flac", ".zip", ".iso", ".torrent", ".pdf")
+}
+
+func fallbackTitle(title string, raw string) string {
+	title = strings.TrimSpace(title)
+	if title != "" {
+		return title
+	}
+	if base := linkBaseName(raw); base != "" {
+		return base
+	}
+	return "订阅下载"
+}
+
 func cloneTasks(tasks []DownloadTask) []DownloadTask {
 	copied := make([]DownloadTask, len(tasks))
 	for idx, task := range tasks {
@@ -486,6 +1126,34 @@ func cloneTask(task DownloadTask) DownloadTask {
 	return task
 }
 
+func filterPersistedTasks(tasks []DownloadTask) []DownloadTask {
+	filtered := make([]DownloadTask, 0, len(tasks))
+	for _, task := range tasks {
+		if isLegacyDemoTask(task) {
+			continue
+		}
+		if task.Status == StatusRunning || task.Status == StatusQueued {
+			task.Status = StatusPaused
+			task.Speed = "0 KB/s"
+			task.Handling = "服务重启后已暂停，可继续任务"
+		}
+		filtered = append(filtered, task)
+	}
+	return filtered
+}
+
+func isLegacyDemoTask(task DownloadTask) bool {
+	if strings.TrimSpace(task.Link) != "" || strings.TrimSpace(task.FilePath) != "" {
+		return false
+	}
+	switch task.Name {
+	case "纪录片合集 S02", "家庭音乐精选 FLAC", "Ubuntu Server 镜像", "每周公开课订阅":
+		return true
+	default:
+		return false
+	}
+}
+
 func nextTaskID(tasks []DownloadTask) int {
 	next := 1
 	for _, task := range tasks {
@@ -495,3 +1163,5 @@ func nextTaskID(tasks []DownloadTask) int {
 	}
 	return next
 }
+
+var invalidFilename = regexp.MustCompile(`[\\/:*?"<>|]+`)

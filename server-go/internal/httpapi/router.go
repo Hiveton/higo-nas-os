@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"higoos/server-go/internal/accounts"
 	"higoos/server-go/internal/agents"
@@ -23,6 +26,7 @@ import (
 	"higoos/server-go/internal/settings"
 	"higoos/server-go/internal/steward"
 	"higoos/server-go/internal/storage"
+	"higoos/server-go/internal/video"
 )
 
 type Dependencies struct {
@@ -39,6 +43,7 @@ type Dependencies struct {
 	Remote     *remote.Service
 	Media      *media.Service
 	Music      *music.Service
+	Video      *video.Service
 	Assistant  *assistant.Service
 	Agents     *agents.Service
 	Accounts   *accounts.Service
@@ -110,7 +115,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	downloadsService := deps.Downloads
 	if downloadsService == nil {
 		var err error
-		downloadsService, err = downloads.NewServiceWithStateDir(cfg.StateDir)
+		downloadsService, err = downloads.NewServiceWithStateDirAndDownloadDir(cfg.StateDir, downloadRoot(cfg))
 		if err != nil {
 			logger.Warn("downloads state unavailable", slog.Any("error", err))
 			downloadsService = downloads.NewService()
@@ -170,6 +175,16 @@ func NewRouter(deps Dependencies) http.Handler {
 			musicService = music.NewService()
 		}
 	}
+	videoService := deps.Video
+	if videoService == nil {
+		var err error
+		videoService, err = video.NewServiceWithStateDir(cfg.StateDir)
+		if err != nil {
+			logger.Warn("video state unavailable", slog.Any("error", err))
+			videoService = video.NewService()
+		}
+	}
+	videoService.StartDVR(context.Background(), 20*time.Second)
 	assistantService := deps.Assistant
 	if assistantService == nil {
 		var err error
@@ -230,6 +245,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		remote:     remoteService,
 		media:      mediaService,
 		music:      musicService,
+		video:      videoService,
 		assistant:  assistantService,
 		agents:     agentsService,
 		accounts:   accountsService,
@@ -258,6 +274,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/files/batch/delete", api.filesBatchDelete)
 	mux.HandleFunc("/api/v1/files/", api.fileByID)
 	mux.HandleFunc("/api/v1/monitoring/metrics/current", api.monitoringCurrentMetrics)
+	mux.HandleFunc("/api/v1/monitoring/metrics/snapshot", api.monitoringMetricsSnapshot)
 	mux.HandleFunc("/api/v1/monitoring/metrics/trend", api.monitoringMetricTrend)
 	mux.HandleFunc("/api/v1/monitoring/logs", api.monitoringLogs)
 	mux.HandleFunc("/api/v1/monitoring/alerts", api.monitoringAlerts)
@@ -310,6 +327,23 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/music/tracks", api.musicTracks)
 	mux.HandleFunc("/api/v1/music/albums", api.musicAlbums)
 	mux.HandleFunc("/api/v1/music/tracks/", api.musicTrackByID)
+	mux.HandleFunc("/api/v1/videos/library", api.videoLibrary)
+	mux.HandleFunc("/api/v1/videos/library/", api.videoLibraryByID)
+	mux.HandleFunc("/api/v1/videos/scan", api.videoScan)
+	mux.HandleFunc("/api/v1/videos/items", api.videoItems)
+	mux.HandleFunc("/api/v1/videos/items/", api.videoItemByID)
+	mux.HandleFunc("/api/v1/videos/tasks", api.videoTasks)
+	mux.HandleFunc("/api/v1/videos/tasks/scrape", api.videoScrapeTask)
+	mux.HandleFunc("/api/v1/videos/tasks/subtitle", api.videoSubtitleTask)
+	mux.HandleFunc("/api/v1/videos/tasks/transcode", api.videoTranscodeTask)
+	mux.HandleFunc("/api/v1/videos/live/sources", api.videoLiveSources)
+	mux.HandleFunc("/api/v1/videos/live/channels", api.videoLiveChannels)
+	mux.HandleFunc("/api/v1/videos/live/guide-sources", api.videoLiveGuideSources)
+	mux.HandleFunc("/api/v1/videos/live/programs", api.videoLivePrograms)
+	mux.HandleFunc("/api/v1/videos/live/dvr/settings", api.videoLiveDVRSettings)
+	mux.HandleFunc("/api/v1/videos/live/recording-timers", api.videoLiveRecordingTimers)
+	mux.HandleFunc("/api/v1/videos/live/recording-timers/", api.videoLiveRecordingTimerByID)
+	mux.HandleFunc("/api/v1/videos/live/recordings", api.videoLiveRecordings)
 	mux.HandleFunc("/api/v1/search/semantic", api.assistantSemanticSearch)
 	mux.HandleFunc("/api/v1/assistant/threads", api.assistantThreads)
 	mux.HandleFunc("/api/v1/assistant/threads/", api.assistantThreadByID)
@@ -354,6 +388,16 @@ func NewRouter(deps Dependencies) http.Handler {
 	)
 }
 
+func downloadRoot(cfg platform.Config) string {
+	if strings.TrimSpace(cfg.NASRoot) != "" {
+		return filepath.Join(cfg.NASRoot, "downloads")
+	}
+	if strings.TrimSpace(cfg.StateDir) != "" {
+		return filepath.Join(cfg.StateDir, "downloads")
+	}
+	return ""
+}
+
 type API struct {
 	config     platform.Config
 	dev        *devstub.Store
@@ -368,6 +412,7 @@ type API struct {
 	remote     *remote.Service
 	media      *media.Service
 	music      *music.Service
+	video      *video.Service
 	assistant  *assistant.Service
 	agents     *agents.Service
 	accounts   *accounts.Service

@@ -142,6 +142,33 @@ func TestScanLibraryFindsEmbeddedFLACCover(t *testing.T) {
 	}
 }
 
+func TestScanLibraryReadsFLACDuration(t *testing.T) {
+	dir := t.TempDir()
+	audioPath := filepath.Join(dir, "Artist - Duration.flac")
+	if err := os.WriteFile(audioPath, testFLACWithStreamInfo(48000, 48000*125), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService()
+	autoScan := false
+	if _, err := service.UpdateSettings(context.Background(), LibraryUpdateRequest{Paths: []string{dir}, AutoScan: &autoScan}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	tracks, err := service.Tracks(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track, got %d", len(tracks))
+	}
+	if tracks[0].DurationSeconds != 125 {
+		t.Fatalf("expected 125 seconds, got %d", tracks[0].DurationSeconds)
+	}
+}
+
 func testMP3WithAPIC(image []byte) []byte {
 	framePayload := append([]byte{0, 'i', 'm', 'a', 'g', 'e', '/', 'j', 'p', 'e', 'g', 0, 3, 0}, image...)
 	frame := append([]byte{'A', 'P', 'I', 'C'}, uint32Bytes(uint32(len(framePayload)))...)
@@ -150,6 +177,19 @@ func testMP3WithAPIC(image []byte) []byte {
 	header := []byte{'I', 'D', '3', 3, 0, 0}
 	header = append(header, syncsafeBytes(len(frame))...)
 	return append(append(header, frame...), []byte("audio")...)
+}
+
+func testFLACWithStreamInfo(sampleRate int, totalSamples uint64) []byte {
+	block := make([]byte, 34)
+	block[10] = byte(sampleRate >> 12)
+	block[11] = byte(sampleRate >> 4)
+	block[12] = byte((sampleRate & 0x0f) << 4)
+	block[13] = byte(totalSamples>>32) & 0x0f
+	block[14] = byte(totalSamples >> 24)
+	block[15] = byte(totalSamples >> 16)
+	block[16] = byte(totalSamples >> 8)
+	block[17] = byte(totalSamples)
+	return append([]byte{'f', 'L', 'a', 'C', 0x80, 0, 0, byte(len(block))}, block...)
 }
 
 func testFLACWithPicture(image []byte) []byte {

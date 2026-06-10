@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type Component } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch, type Component } from 'vue';
 import {
   Activity,
   ArchiveRestore,
@@ -97,9 +97,9 @@ const fallbackBackupJobs: BackupJob[] = [
 
 const fallbackDockerContainers: DockerContainer[] = [
   {
-    id: 'jellyfin',
-    name: 'jellyfin-media',
-    image: 'jellyfin/jellyfin:10.9',
+    id: 'media-server',
+    name: 'media-server',
+    image: 'local/media-server:latest',
     stack: 'media-stack',
     status: '运行中',
     cpu: 18,
@@ -150,14 +150,24 @@ const widgetNotice = ref('正在同步设备状态。');
 const expanded = ref(true);
 const settingsOpen = ref(false);
 const visibleWidgets = ref<Record<WidgetId, boolean>>(loadVisibility());
+const chartSamples = ref<Record<string, number[]>>({
+  cpu: [],
+  memory: [],
+  network_down: [],
+  network_up: [],
+  disk_read: [],
+  disk_write: [],
+});
+let widgetPollingTimer: number | undefined;
+const chartSampleLimit = 24;
 
 const cpuMetric = computed(() => findMetric('cpu', 'CPU') ?? metrics.value[0]);
 const memoryMetric = computed(() => findMetric('memory', '内存') ?? metrics.value[1]);
 const diskMetric = computed(() => findMetric('disk', '磁盘') ?? findMetric('storage', '存储'));
-const networkDownText = computed(() => formatMetricValue(findDirectionalMetric(['download', 'down', '下载', '下行']), '88.5 KB/s'));
-const networkUpText = computed(() => formatMetricValue(findDirectionalMetric(['upload', 'up', '上传', '上行']), '19.5 KB/s'));
-const diskReadText = computed(() => formatMetricValue(findDirectionalMetric(['read', '读取', '读', 'R']), '23.22 KB/s'));
-const diskWriteText = computed(() => formatMetricValue(findDirectionalMetric(['write', '写入', '写', 'W']), '12 KB/s'));
+const networkDownText = computed(() => formatMetricValue(findDirectionalMetric(['network_down', 'download', 'down', '下载', '下行']), '88.5 KB/s'));
+const networkUpText = computed(() => formatMetricValue(findDirectionalMetric(['network_up', 'upload', 'up', '上传', '上行']), '19.5 KB/s'));
+const diskReadText = computed(() => formatMetricValue(findDirectionalMetric(['disk_read', 'read', '读取']), '23.22 KB/s'));
+const diskWriteText = computed(() => formatMetricValue(findDirectionalMetric(['disk_write', 'write', '写入']), '12 KB/s'));
 
 const activeBackup = computed(() => backupJobs.value.find((job) => job.state === '同步中' || job.state === '校验中') ?? backupJobs.value[0]);
 const primaryPool = computed(() => storagePools.value[0]);
@@ -274,9 +284,9 @@ const hasVisibleContent = computed(() => visibleWidgets.value.system || visibleS
 
 async function loadWidgetState() {
   try {
-    const [nextPools, nextMetrics, nextAlerts] = await Promise.all([
+    const [nextPools, snapshot, nextAlerts] = await Promise.all([
       apiClient.storage.getPools(),
-      apiClient.monitoring.getCurrentMetrics(),
+      apiClient.monitoring.getMetricsSnapshot(),
       apiClient.monitoring.getAlerts(),
       apiClient.backup.getJobs().then((jobs) => {
         backupJobs.value = jobs;
@@ -289,7 +299,8 @@ async function loadWidgetState() {
       }),
     ]);
     storagePools.value = nextPools;
-    metrics.value = nextMetrics;
+    metrics.value = snapshot.metrics;
+    appendChartSamples(snapshot.metrics);
     alerts.value = nextAlerts.map((alert) => ({ ...alert, icon: iconForAlert(alert) }));
     widgetNotice.value = '桌面总览已同步。';
   } catch (error) {
@@ -327,6 +338,8 @@ function findMetric(key: string, label: string) {
 }
 
 function findDirectionalMetric(terms: string[]) {
+  const exact = metrics.value.find((metric) => metric.key && terms.includes(metric.key.toLowerCase()));
+  if (exact) return exact;
   return metrics.value.find((metric) => {
     const text = `${metric.key ?? ''} ${metric.label} ${metric.detail ?? ''}`.toLowerCase();
     return terms.some((term) => text.includes(term.toLowerCase()));
@@ -360,20 +373,62 @@ function clampPercent(value: number | undefined) {
   return Math.min(100, Math.max(0, value ?? 0));
 }
 
-function sparklinePoints(card: OverviewCard, offset = 0) {
-  const base = clampPercent(card.percent ?? 52);
-  return [0, 1, 2, 3, 4, 5, 6, 7]
-    .map((index) => {
-      const x = Math.round((index / 7) * 100);
-      const wave = Math.sin(index * 0.88 + offset) * 10;
-      const y = Math.round(74 - Math.min(58, Math.max(16, base * 0.44 + wave + index * 2)));
+function appendChartSamples(nextMetrics: Metric[]) {
+  const next: Record<string, number[]> = { ...chartSamples.value };
+  for (const key of Object.keys(next)) {
+    const value = metricNumber(nextMetrics.find((metric) => metric.key === key));
+    const history = next[key] ?? [];
+    next[key] = [...history, value].slice(-chartSampleLimit);
+  }
+  chartSamples.value = next;
+}
+
+function metricNumber(metric: Metric | undefined) {
+  if (!metric) return 0;
+  const value = typeof metric.value === 'number' ? metric.value : Number.parseFloat(metric.value);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function sparklinePoints(card: OverviewCard, lane: 'down' | 'up' = 'down') {
+  const values = chartSeries(card, lane);
+  const paired = card.id === 'network' || card.id === 'disk'
+    ? [...chartSeries(card, 'down'), ...chartSeries(card, 'up')]
+    : values;
+  const maxValue = chartMax(card, paired);
+  return values
+    .map((value, index) => {
+      const x = values.length <= 1 ? 0 : Math.round((index / (values.length - 1)) * 100);
+      const ratio = maxValue > 0 ? Math.min(1, value / maxValue) : 0;
+      const y = Math.round(74 - ratio * 58);
       return `${x},${y}`;
     })
     .join(' ');
 }
 
-function sparklineArea(card: OverviewCard, offset = 0) {
-  return `0,80 ${sparklinePoints(card, offset)} 100,80`;
+function sparklineArea(card: OverviewCard, lane: 'down' | 'up' = 'down') {
+  return `0,80 ${sparklinePoints(card, lane)} 100,80`;
+}
+
+function chartSeries(card: OverviewCard, lane: 'down' | 'up') {
+  const key = chartSeriesKey(card, lane);
+  const values = chartSamples.value[key] ?? [];
+  const fallback = card.percent ?? metricNumber(findDirectionalMetric([key]));
+  const series = values.length ? values : [fallback];
+  if (series.length >= 8) return series;
+  const first = series[0] ?? 0;
+  return [...Array.from({ length: 8 - series.length }, () => first), ...series];
+}
+
+function chartSeriesKey(card: OverviewCard, lane: 'down' | 'up') {
+  if (card.id === 'memory') return 'memory';
+  if (card.id === 'network') return lane === 'up' ? 'network_up' : 'network_down';
+  if (card.id === 'disk') return lane === 'up' ? 'disk_write' : 'disk_read';
+  return 'cpu';
+}
+
+function chartMax(card: OverviewCard, values: number[]) {
+  if (card.id === 'cpu' || card.id === 'memory') return 100;
+  return Math.max(...values, 0.01);
 }
 
 function iconForAlert(alert: Alert): Component {
@@ -397,7 +452,19 @@ watch(
   { deep: true },
 );
 
-onMounted(loadWidgetState);
+onMounted(() => {
+  void loadWidgetState();
+  widgetPollingTimer = window.setInterval(() => {
+    void loadWidgetState();
+  }, 5000);
+});
+
+onUnmounted(() => {
+  if (widgetPollingTimer !== undefined) {
+    window.clearInterval(widgetPollingTimer);
+    widgetPollingTimer = undefined;
+  }
+});
 </script>
 
 <template>
@@ -482,11 +549,11 @@ onMounted(loadWidgetState);
           </div>
           <div class="overview-sparkline" aria-hidden="true">
             <svg viewBox="0 0 100 80" preserveAspectRatio="none">
-              <polygon class="spark-area spark-area--down" :points="sparklineArea(card, 0.4)" />
-              <polyline class="spark-line spark-line--down" :points="sparklinePoints(card, 0.4)" />
+              <polygon class="spark-area spark-area--down" :points="sparklineArea(card, 'down')" />
+              <polyline class="spark-line spark-line--down" :points="sparklinePoints(card, 'down')" />
               <template v-if="card.id === 'network' || card.id === 'disk'">
-                <polygon class="spark-area spark-area--up" :points="sparklineArea(card, 1.8)" />
-                <polyline class="spark-line spark-line--up" :points="sparklinePoints(card, 1.8)" />
+                <polygon class="spark-area spark-area--up" :points="sparklineArea(card, 'up')" />
+                <polyline class="spark-line spark-line--up" :points="sparklinePoints(card, 'up')" />
               </template>
             </svg>
           </div>

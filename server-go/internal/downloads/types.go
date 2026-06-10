@@ -13,8 +13,10 @@ type TaskStatus string
 
 const (
 	StatusRunning   TaskStatus = "下载中"
+	StatusQueued    TaskStatus = "排队中"
 	StatusPaused    TaskStatus = "暂停"
 	StatusCompleted TaskStatus = "已完成"
+	StatusFailed    TaskStatus = "失败"
 )
 
 type ArchiveRule struct {
@@ -47,12 +49,18 @@ type DownloadTask struct {
 	Handling    string      `json:"handling"`
 	Archived    bool        `json:"archived"`
 	ArchiveRule ArchiveRule `json:"archiveRule"`
+	FilePath    string      `json:"filePath,omitempty"`
+	Error       string      `json:"error,omitempty"`
 }
 
 type TaskActionResult struct {
 	Task     DownloadTask `json:"task"`
 	Message  string       `json:"message"`
 	FilePath string       `json:"filePath,omitempty"`
+}
+
+type DeleteTaskOptions struct {
+	DeleteFile bool
 }
 
 type CreateTaskRequest struct {

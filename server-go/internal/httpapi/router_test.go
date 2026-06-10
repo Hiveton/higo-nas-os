@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"higoos/server-go/internal/devstub"
 	"higoos/server-go/internal/httpapi"
+	"higoos/server-go/internal/media"
 	"higoos/server-go/internal/platform"
 	"higoos/server-go/internal/storage"
 )
@@ -156,6 +160,25 @@ func TestMonitoringAndSettingsEndpoints(t *testing.T) {
 		t.Fatalf("expected metrics data, got %#v", metricsBody.Data)
 	}
 
+	snapshotRec := httptest.NewRecorder()
+	snapshotReq := httptest.NewRequest(http.MethodGet, "/api/v1/monitoring/metrics/snapshot", nil)
+	router.ServeHTTP(snapshotRec, snapshotReq)
+	if snapshotRec.Code != http.StatusOK {
+		t.Fatalf("expected metrics snapshot HTTP 200, got %d: %s", snapshotRec.Code, snapshotRec.Body.String())
+	}
+	var snapshotBody struct {
+		Data struct {
+			Metrics  []struct{ Key string } `json:"metrics"`
+			Services []struct{ Key string } `json:"services"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(snapshotRec.Body.Bytes(), &snapshotBody); err != nil {
+		t.Fatalf("decode metrics snapshot: %v", err)
+	}
+	if len(snapshotBody.Data.Metrics) == 0 || len(snapshotBody.Data.Services) == 0 {
+		t.Fatalf("expected metrics and services in snapshot, got %#v", snapshotBody.Data)
+	}
+
 	alertRec := httptest.NewRecorder()
 	alertReq := httptest.NewRequest(http.MethodPost, "/api/v1/monitoring/alerts", bytes.NewBufferString(`{"metric":"cpu","range":"1H"}`))
 	router.ServeHTTP(alertRec, alertReq)
@@ -192,6 +215,10 @@ func TestMonitoringAndSettingsEndpoints(t *testing.T) {
 			Model struct {
 				CloudEnabled bool `json:"cloudEnabled"`
 			} `json:"model"`
+			UI struct {
+				DockPosition string `json:"dockPosition"`
+				DockStyle    string `json:"dockStyle"`
+			} `json:"ui"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(settingsRec.Body.Bytes(), &settingsBody); err != nil {
@@ -199,6 +226,9 @@ func TestMonitoringAndSettingsEndpoints(t *testing.T) {
 	}
 	if settingsBody.Data.Model.CloudEnabled {
 		t.Fatal("expected enterprise local mode to disable cloud")
+	}
+	if settingsBody.Data.UI.DockPosition != "bottom" || settingsBody.Data.UI.DockStyle != "floating" {
+		t.Fatalf("expected default ui settings, got %#v", settingsBody.Data.UI)
 	}
 }
 
@@ -248,7 +278,7 @@ func TestStorageDownloadDockerRemoteEndpoints(t *testing.T) {
 	if err := json.Unmarshal(downloadRec.Body.Bytes(), &downloadBody); err != nil {
 		t.Fatalf("decode download: %v", err)
 	}
-	if downloadBody.Data.ID == 0 || downloadBody.Data.Status != "下载中" {
+	if downloadBody.Data.ID == 0 || downloadBody.Data.Status != "排队中" {
 		t.Fatalf("unexpected download task: %#v", downloadBody.Data)
 	}
 
@@ -348,7 +378,7 @@ func TestDockerLimitsLogsAndCompleteRestartEndpoints(t *testing.T) {
 	})
 
 	limitsRec := httptest.NewRecorder()
-	limitsReq := httptest.NewRequest(http.MethodPut, "/api/v1/docker/containers/jellyfin/limits", bytes.NewBufferString(`{"limitCpu":5,"limitMemory":6144}`))
+	limitsReq := httptest.NewRequest(http.MethodPut, "/api/v1/docker/containers/media-server/limits", bytes.NewBufferString(`{"limitCpu":5,"limitMemory":6144}`))
 	router.ServeHTTP(limitsRec, limitsReq)
 	if limitsRec.Code != http.StatusOK {
 		t.Fatalf("expected docker limits HTTP 200, got %d: %s", limitsRec.Code, limitsRec.Body.String())
@@ -368,14 +398,14 @@ func TestDockerLimitsLogsAndCompleteRestartEndpoints(t *testing.T) {
 	}
 
 	restartRec := httptest.NewRecorder()
-	restartReq := httptest.NewRequest(http.MethodPost, "/api/v1/docker/containers/jellyfin/restart", nil)
+	restartReq := httptest.NewRequest(http.MethodPost, "/api/v1/docker/containers/media-server/restart", nil)
 	router.ServeHTTP(restartRec, restartReq)
 	if restartRec.Code != http.StatusOK {
 		t.Fatalf("expected docker restart HTTP 200, got %d: %s", restartRec.Code, restartRec.Body.String())
 	}
 
 	completeRec := httptest.NewRecorder()
-	completeReq := httptest.NewRequest(http.MethodPost, "/api/v1/docker/containers/jellyfin/complete-restart", nil)
+	completeReq := httptest.NewRequest(http.MethodPost, "/api/v1/docker/containers/media-server/complete-restart", nil)
 	router.ServeHTTP(completeRec, completeReq)
 	if completeRec.Code != http.StatusOK {
 		t.Fatalf("expected docker complete restart HTTP 200, got %d: %s", completeRec.Code, completeRec.Body.String())
@@ -394,7 +424,7 @@ func TestDockerLimitsLogsAndCompleteRestartEndpoints(t *testing.T) {
 	}
 
 	logsRec := httptest.NewRecorder()
-	logsReq := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers/jellyfin/logs?tail=3", nil)
+	logsReq := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers/media-server/logs?tail=3", nil)
 	router.ServeHTTP(logsRec, logsReq)
 	if logsRec.Code != http.StatusOK {
 		t.Fatalf("expected docker logs HTTP 200, got %d: %s", logsRec.Code, logsRec.Body.String())
@@ -498,13 +528,19 @@ func TestBackupAndAppCenterEndpoints(t *testing.T) {
 }
 
 func TestMediaAssistantAndAgentEndpoints(t *testing.T) {
+	mediaRoot, mediaTimeline := createHTTPMediaFixture(t)
+	mediaService, err := media.NewServiceWithRoots("", []string{mediaRoot})
+	if err != nil {
+		t.Fatalf("media service: %v", err)
+	}
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Config: platform.Config{Environment: "test", Version: "test"},
 		Dev:    devstub.NewStore(),
+		Media:  mediaService,
 	})
 
 	itemsRec := httptest.NewRecorder()
-	itemsReq := httptest.NewRequest(http.MethodGet, "/api/v1/media/items?dimension=timeline&facet=2026+%E6%98%A5%E8%8A%82", nil)
+	itemsReq := httptest.NewRequest(http.MethodGet, "/api/v1/media/items?dimension=timeline&facet="+mediaTimeline, nil)
 	router.ServeHTTP(itemsRec, itemsReq)
 	if itemsRec.Code != http.StatusOK {
 		t.Fatalf("expected media items HTTP 200, got %d: %s", itemsRec.Code, itemsRec.Body.String())
@@ -523,7 +559,7 @@ func TestMediaAssistantAndAgentEndpoints(t *testing.T) {
 	}
 
 	memoryRec := httptest.NewRecorder()
-	memoryReq := httptest.NewRequest(http.MethodPost, "/api/v1/media/memories", bytes.NewBufferString(`{"dimension":"timeline","facet":"2026 春节"}`))
+	memoryReq := httptest.NewRequest(http.MethodPost, "/api/v1/media/memories", bytes.NewBufferString(`{"dimension":"timeline","facet":"`+mediaTimeline+`"}`))
 	router.ServeHTTP(memoryRec, memoryReq)
 	if memoryRec.Code != http.StatusOK {
 		t.Fatalf("expected media memory HTTP 200, got %d: %s", memoryRec.Code, memoryRec.Body.String())
@@ -865,14 +901,14 @@ func TestDesktopAppsReturnsSeedApps(t *testing.T) {
 	if !body.OK {
 		t.Fatal("expected ok envelope")
 	}
-	if len(body.Data) != 15 {
-		t.Fatalf("expected 15 seed apps, got %d", len(body.Data))
+	if len(body.Data) != 16 {
+		t.Fatalf("expected 16 seed apps, got %d", len(body.Data))
 	}
 	if body.Data[0].ID != "file-manager" || body.Data[0].Name != "文件管理" || body.Data[0].Badge != 2 {
 		t.Fatalf("unexpected first app: %#v", body.Data[0])
 	}
-	if body.Data[14].ID != "remote-access" || body.Data[14].Name != "远程访问" {
-		t.Fatalf("unexpected last app: %#v", body.Data[14])
+	if body.Data[15].ID != "remote-access" || body.Data[15].Name != "远程访问" {
+		t.Fatalf("unexpected last app: %#v", body.Data[15])
 	}
 }
 
@@ -897,8 +933,8 @@ func TestDesktopBootstrapEndpointsReturnSeedState(t *testing.T) {
 	if err := json.Unmarshal(windowsRec.Body.Bytes(), &windowsBody); err != nil {
 		t.Fatalf("decode desktop windows: %v", err)
 	}
-	if !windowsBody.OK || len(windowsBody.Data) != 14 {
-		t.Fatalf("expected 14 ok seed windows, got ok=%v len=%d", windowsBody.OK, len(windowsBody.Data))
+	if !windowsBody.OK || len(windowsBody.Data) != 15 {
+		t.Fatalf("expected 15 ok seed windows, got ok=%v len=%d", windowsBody.OK, len(windowsBody.Data))
 	}
 
 	sessionRec := httptest.NewRecorder()
@@ -918,7 +954,7 @@ func TestDesktopBootstrapEndpointsReturnSeedState(t *testing.T) {
 	if err := json.Unmarshal(sessionRec.Body.Bytes(), &sessionBody); err != nil {
 		t.Fatalf("decode desktop session: %v", err)
 	}
-	if !sessionBody.OK || len(sessionBody.Data.OpenWindowIDs) != 3 || len(sessionBody.Data.DockOrder) != 15 {
+	if !sessionBody.OK || len(sessionBody.Data.OpenWindowIDs) != 3 || len(sessionBody.Data.DockOrder) != 16 {
 		t.Fatalf("unexpected desktop session: %#v", sessionBody.Data)
 	}
 	if len(sessionBody.Data.PinnedDockAppIDs) != 4 {
@@ -1160,4 +1196,22 @@ func TestAccountManagementEndpoints(t *testing.T) {
 	if deleteGrantRec.Code != http.StatusOK {
 		t.Fatalf("expected delete grant HTTP 200, got %d: %s", deleteGrantRec.Code, deleteGrantRec.Body.String())
 	}
+}
+
+func createHTTPMediaFixture(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "实际媒体")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatalf("mkdir media fixture: %v", err)
+	}
+	modTime := time.Date(2026, 6, 5, 10, 0, 0, 0, time.Local)
+	path := filepath.Join(albumDir, "真实照片.jpg")
+	if err := os.WriteFile(path, []byte("fixture image"), 0o644); err != nil {
+		t.Fatalf("write media fixture: %v", err)
+	}
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatalf("chtimes media fixture: %v", err)
+	}
+	return root, modTime.Format("2006-01")
 }

@@ -17,6 +17,8 @@ const diagnostic = ref<DiagnosticResult | null>(null);
 const loading = ref(false);
 const error = ref<Error | null>(null);
 const usingFallback = ref(false);
+let pollingTimer: number | undefined;
+let pollingRefs = 0;
 
 export const monitoringStore = {
   metrics: readonly(metrics),
@@ -34,6 +36,8 @@ export const monitoringStore = {
   createAlert,
   muteAlert,
   runDiagnostics,
+  startPolling,
+  stopPolling,
 };
 
 export async function loadMonitoringSnapshot() {
@@ -41,11 +45,11 @@ export async function loadMonitoringSnapshot() {
   error.value = null;
 
   try {
-    const [nextMetrics, nextAlerts] = await Promise.all([
-      apiClient.monitoring.getCurrentMetrics(),
+    const [snapshot, nextAlerts] = await Promise.all([
+      apiClient.monitoring.getMetricsSnapshot(),
       apiClient.monitoring.getAlerts(),
     ]);
-    metrics.value = nextMetrics;
+    applySnapshot(snapshot);
     alerts.value = nextAlerts;
     usingFallback.value = false;
   } catch (reason) {
@@ -61,13 +65,13 @@ export async function loadMonitoringDashboard(metric = 'cpu', range = '1H') {
   error.value = null;
 
   try {
-    const [nextMetrics, nextLogs, nextAlerts, nextTrend] = await Promise.all([
-      apiClient.monitoring.getCurrentMetrics(),
+    const [snapshot, nextLogs, nextAlerts, nextTrend] = await Promise.all([
+      apiClient.monitoring.getMetricsSnapshot(),
       apiClient.monitoring.getLogs(),
       apiClient.monitoring.getAlerts(),
       apiClient.monitoring.getMetricTrend(range, metric),
     ]);
-    metrics.value = nextMetrics;
+    applySnapshot(snapshot);
     logs.value = nextLogs;
     alerts.value = nextAlerts;
     trendPoints.value = nextTrend;
@@ -109,6 +113,26 @@ export async function runDiagnostics() {
   diagnostic.value = result;
   usingFallback.value = false;
   return result;
+}
+
+export function startPolling(intervalMs = 5000) {
+  pollingRefs += 1;
+  if (pollingTimer !== undefined || typeof window === 'undefined') return;
+  pollingTimer = window.setInterval(() => {
+    void loadMonitoringSnapshot();
+  }, intervalMs);
+}
+
+export function stopPolling() {
+  pollingRefs = Math.max(0, pollingRefs - 1);
+  if (pollingRefs > 0 || pollingTimer === undefined || typeof window === 'undefined') return;
+  window.clearInterval(pollingTimer);
+  pollingTimer = undefined;
+}
+
+function applySnapshot(snapshot: { metrics?: Metric[]; services?: ServiceStatus[] }) {
+  metrics.value = Array.isArray(snapshot.metrics) ? snapshot.metrics : [];
+  services.value = Array.isArray(snapshot.services) ? snapshot.services : services.value;
 }
 
 function normalizeError(reason: unknown) {

@@ -145,7 +145,7 @@ func trendBaselines() map[TimeRange][]float64 {
 
 func knownMetric(metric string) bool {
 	switch metric {
-	case "cpu", "memory", "network", "disk", "temperature", "fan":
+	case "cpu", "memory", "network", "disk", "temperature", "fan", "network_down", "network_up", "disk_read", "disk_write":
 		return true
 	default:
 		return false

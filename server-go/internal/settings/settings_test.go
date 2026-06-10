@@ -26,6 +26,9 @@ func TestStoreRestoresDefaults(t *testing.T) {
 	if restored.Model.Mode != ModelModeFamilyHybrid || !restored.Privacy.SensitiveDataLocalOnly {
 		t.Fatalf("unexpected restored defaults: %#v", restored)
 	}
+	if restored.UI.Theme != "auto" || restored.UI.DockPosition != "bottom" || restored.UI.WindowRadius != "default" {
+		t.Fatalf("unexpected restored ui defaults: %#v", restored.UI)
+	}
 }
 
 func TestStoreDisablesCloudInEnterpriseLocalMode(t *testing.T) {
@@ -43,6 +46,53 @@ func TestStoreDisablesCloudInEnterpriseLocalMode(t *testing.T) {
 	}
 	if updated.Model.CloudEnabled {
 		t.Fatalf("expected enterprise local mode to disable cloud, got %#v", updated.Model)
+	}
+}
+
+func TestStorePersistsUISettings(t *testing.T) {
+	store := NewStore()
+
+	updated, err := store.Update(Settings{
+		Model: ModelPolicy{Mode: ModelModeFamilyHybrid, CloudEnabled: true},
+		Privacy: PrivacyPolicy{
+			SensitiveDataLocalOnly: true,
+			AuditRetentionDays:     90,
+		},
+		UI: UIPolicy{
+			Theme:        "dark",
+			WindowRadius: "rounded",
+			DockPosition: "left",
+			DockStyle:    "side",
+			DockIconSize: "small",
+		},
+	})
+	if err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+	if updated.UI.Theme != "dark" || updated.UI.DockPosition != "left" || updated.UI.DockStyle != "side" {
+		t.Fatalf("unexpected ui settings: %#v", updated.UI)
+	}
+}
+
+func TestStoreRejectsInvalidUISettings(t *testing.T) {
+	store := NewStore()
+
+	_, err := store.Update(Settings{
+		Model: ModelPolicy{Mode: ModelModeFamilyHybrid},
+		Privacy: PrivacyPolicy{
+			SensitiveDataLocalOnly: true,
+			AuditRetentionDays:     90,
+		},
+		UI: UIPolicy{
+			Theme:        "light",
+			WindowRadius: "default",
+			DockPosition: "diagonal",
+			DockStyle:    "floating",
+			DockIconSize: "default",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected invalid ui validation error")
 	}
 }
 

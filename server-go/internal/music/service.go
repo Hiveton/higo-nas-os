@@ -404,21 +404,22 @@ func trackFromFile(root, path, codec string, now time.Time) (Track, error) {
 	title, artist, album, trackNo := inferTrackInfo(root, path)
 	id := stableID(path)
 	track := Track{
-		ID:           id,
-		Title:        title,
-		Artist:       artist,
-		Album:        album,
-		TrackNumber:  trackNo,
-		Codec:        codec,
-		Format:       strings.TrimPrefix(strings.ToUpper(filepath.Ext(path)), "."),
-		SizeBytes:    info.Size(),
-		Size:         formatBytes(info.Size()),
-		ModifiedAt:   info.ModTime().UTC().Format(time.RFC3339),
-		DiscoveredAt: now.Format(time.RFC3339),
-		FileName:     filepath.Base(path),
-		Path:         path,
-		StreamURL:    "/api/v1/music/tracks/" + id + "/stream",
-		Status:       "已索引 · 浏览器原生解码",
+		ID:              id,
+		Title:           title,
+		Artist:          artist,
+		Album:           album,
+		TrackNumber:     trackNo,
+		Codec:           codec,
+		Format:          strings.TrimPrefix(strings.ToUpper(filepath.Ext(path)), "."),
+		DurationSeconds: audioDurationSeconds(path, info.Size()),
+		SizeBytes:       info.Size(),
+		Size:            formatBytes(info.Size()),
+		ModifiedAt:      info.ModTime().UTC().Format(time.RFC3339),
+		DiscoveredAt:    now.Format(time.RFC3339),
+		FileName:        filepath.Base(path),
+		Path:            path,
+		StreamURL:       "/api/v1/music/tracks/" + id + "/stream",
+		Status:          "已索引 · 浏览器原生解码",
 	}
 	if coverPathForTrack(path) != "" || hasEmbeddedCover(path) {
 		track.CoverURL = "/api/v1/music/tracks/" + id + "/cover"
@@ -715,6 +716,167 @@ func formatBytes(size int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 }
 
+func audioDurationSeconds(path string, size int64) int {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".flac":
+		return flacDurationSeconds(path)
+	case ".mp3":
+		return mp3DurationSeconds(path, size)
+	case ".wav":
+		return wavDurationSeconds(path)
+	default:
+		return 0
+	}
+}
+
+func flacDurationSeconds(path string) int {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	header := make([]byte, 4)
+	if _, err := io.ReadFull(file, header); err != nil || string(header) != "fLaC" {
+		return 0
+	}
+	for {
+		blockHeader := make([]byte, 4)
+		if _, err := io.ReadFull(file, blockHeader); err != nil {
+			return 0
+		}
+		isLast := blockHeader[0]&0x80 != 0
+		blockType := blockHeader[0] & 0x7f
+		length := int(blockHeader[1])<<16 | int(blockHeader[2])<<8 | int(blockHeader[3])
+		if blockType == 0 {
+			block := make([]byte, length)
+			if _, err := io.ReadFull(file, block); err != nil || len(block) < 18 {
+				return 0
+			}
+			sampleRate := int(block[10])<<12 | int(block[11])<<4 | int(block[12]>>4)
+			totalSamples := (uint64(block[13]&0x0f) << 32) |
+				(uint64(block[14]) << 24) |
+				(uint64(block[15]) << 16) |
+				(uint64(block[16]) << 8) |
+				uint64(block[17])
+			if sampleRate <= 0 || totalSamples == 0 {
+				return 0
+			}
+			return int((float64(totalSamples) / float64(sampleRate)) + 0.5)
+		}
+		if _, err := file.Seek(int64(length), io.SeekCurrent); err != nil {
+			return 0
+		}
+		if isLast {
+			return 0
+		}
+	}
+}
+
+func wavDurationSeconds(path string) int {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	header := make([]byte, 12)
+	if _, err := io.ReadFull(file, header); err != nil || string(header[:4]) != "RIFF" || string(header[8:12]) != "WAVE" {
+		return 0
+	}
+	var byteRate uint32
+	for {
+		chunkHeader := make([]byte, 8)
+		if _, err := io.ReadFull(file, chunkHeader); err != nil {
+			return 0
+		}
+		chunkID := string(chunkHeader[:4])
+		chunkSize := binary.LittleEndian.Uint32(chunkHeader[4:8])
+		if chunkID == "fmt " {
+			chunk := make([]byte, chunkSize)
+			if _, err := io.ReadFull(file, chunk); err != nil || len(chunk) < 12 {
+				return 0
+			}
+			byteRate = binary.LittleEndian.Uint32(chunk[8:12])
+		} else if chunkID == "data" {
+			if byteRate == 0 {
+				return 0
+			}
+			return int((float64(chunkSize) / float64(byteRate)) + 0.5)
+		} else if _, err := file.Seek(int64(chunkSize), io.SeekCurrent); err != nil {
+			return 0
+		}
+		if chunkSize%2 == 1 {
+			if _, err := file.Seek(1, io.SeekCurrent); err != nil {
+				return 0
+			}
+		}
+	}
+}
+
+func mp3DurationSeconds(path string, size int64) int {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	offset := int64(0)
+	header := make([]byte, 10)
+	if _, err := io.ReadFull(file, header); err == nil && string(header[:3]) == "ID3" {
+		offset = int64(10 + syncsafeInt(header[6:10]))
+	}
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return 0
+	}
+	probe := make([]byte, 256*1024)
+	n, _ := file.Read(probe)
+	probe = probe[:n]
+	for i := 0; i+4 <= len(probe); i += 1 {
+		if probe[i] != 0xff || probe[i+1]&0xe0 != 0xe0 {
+			continue
+		}
+		bitrate := mp3BitrateKbps(probe[i+1], probe[i+2])
+		if bitrate <= 0 {
+			continue
+		}
+		audioBytes := size - offset - int64(i)
+		if audioBytes <= 0 {
+			return 0
+		}
+		return int((float64(audioBytes*8) / float64(bitrate*1000)) + 0.5)
+	}
+	return 0
+}
+
+func mp3BitrateKbps(versionLayer, bitrateSample byte) int {
+	version := (versionLayer >> 3) & 0x03
+	layer := (versionLayer >> 1) & 0x03
+	bitrateIndex := (bitrateSample >> 4) & 0x0f
+	if version == 1 || layer == 0 || bitrateIndex == 0 || bitrateIndex == 15 {
+		return 0
+	}
+	table := map[byte]map[byte][]int{
+		3: {
+			3: {0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448},
+			2: {0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384},
+			1: {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320},
+		},
+		2: {
+			3: {0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256},
+			2: {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160},
+			1: {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160},
+		},
+		0: {
+			3: {0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256},
+			2: {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160},
+			1: {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160},
+		},
+	}
+	rates := table[version][layer]
+	if int(bitrateIndex) >= len(rates) {
+		return 0
+	}
+	return rates[bitrateIndex]
+}
+
 func samePath(left, right string) bool {
 	leftAbs, _ := filepath.Abs(left)
 	rightAbs, _ := filepath.Abs(right)
@@ -730,5 +892,10 @@ func cloneTracks(tracks []Track) []Track {
 }
 
 func cloneTrack(track Track) Track {
+	if track.DurationSeconds == 0 && track.Path != "" {
+		if info, err := os.Stat(track.Path); err == nil {
+			track.DurationSeconds = audioDurationSeconds(track.Path, info.Size())
+		}
+	}
 	return track
 }

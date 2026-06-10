@@ -6,6 +6,9 @@ const props = defineProps<{
   activeId?: string;
   runningIds?: string[];
   pinnedIds?: string[];
+  position?: 'bottom' | 'left' | 'right';
+  dockStyle?: 'floating' | 'side' | 'compact';
+  iconSize?: 'small' | 'default' | 'large';
 }>();
 
 const emit = defineEmits<{
@@ -33,7 +36,15 @@ function isPinned(id: string) {
 </script>
 
 <template>
-  <nav class="dock" aria-label="HiGoOS 应用 Dock">
+  <nav
+    class="dock"
+    :class="[
+      `dock--${props.position ?? 'bottom'}`,
+      `dock--style-${props.dockStyle ?? 'floating'}`,
+      `dock--size-${props.iconSize ?? 'default'}`,
+    ]"
+    aria-label="HiGoOS 应用 Dock"
+  >
     <div class="dock__scroller">
       <div class="dock__surface">
         <template v-for="(app, index) in props.apps" :key="app.id">
@@ -78,7 +89,7 @@ function isPinned(id: string) {
   right: auto;
   left: 50%;
   bottom: max(16px, env(safe-area-inset-bottom));
-  z-index: 110;
+  z-index: 75;
   display: flex;
   width: auto;
   min-height: 0;
@@ -149,6 +160,189 @@ function isPinned(id: string) {
 
 .dock__scroller::-webkit-scrollbar {
   display: none;
+}
+
+.dock--left,
+.dock--right {
+  top: calc(var(--topbar-height) + 34px);
+  bottom: max(10px, env(safe-area-inset-bottom));
+  left: max(10px, env(safe-area-inset-left));
+  width: var(--dock-side-width, 96px);
+  max-width: none;
+  transform: none;
+}
+
+.dock--right {
+  right: max(10px, env(safe-area-inset-right));
+  left: auto;
+}
+
+.dock--left .dock__scroller,
+.dock--right .dock__scroller {
+  width: 100%;
+  height: 100%;
+  padding-top: 0;
+  margin-top: 0;
+  overflow-x: visible;
+  overflow-y: auto;
+  pointer-events: auto;
+  scrollbar-width: none;
+}
+
+.dock--left .dock__surface,
+.dock--right .dock__surface {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 100%;
+  max-width: none;
+  padding: 12px 8px;
+  gap: 8px;
+  border-radius: 28px;
+}
+
+.dock--style-side.dock--left .dock__surface,
+.dock--style-side.dock--right .dock__surface {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(215, 226, 255, 0.18)),
+    rgba(21, 38, 74, 0.18);
+  border-color: rgba(255, 255, 255, 0.46);
+  border-radius: 20px;
+}
+
+.dock--style-compact .dock__surface {
+  min-height: clamp(64px, 7vw, 78px);
+  padding: 8px 10px;
+  border-radius: 20px;
+}
+
+.dock--bottom.dock--size-small .dock__surface {
+  min-height: 70px;
+  padding: 8px 12px 7px;
+}
+
+.dock--bottom.dock--size-large .dock__surface {
+  min-height: 112px;
+  padding: 13px 20px 12px;
+}
+
+.dock--left.dock--size-small .dock__surface,
+.dock--right.dock--size-small .dock__surface {
+  padding: 10px 7px;
+  gap: 6px;
+  border-radius: 22px;
+}
+
+.dock--left.dock--size-large .dock__surface,
+.dock--right.dock--size-large .dock__surface {
+  padding: 16px 12px;
+  gap: 10px;
+  border-radius: 32px;
+}
+
+.dock--left .dock__surface::after,
+.dock--right .dock__surface::after {
+  top: 8%;
+  right: 8px;
+  bottom: 8%;
+  left: 8px;
+  width: auto;
+  height: auto;
+  background: radial-gradient(ellipse at center, rgba(34, 106, 123, 0.14), transparent 68%);
+}
+
+.dock--left .dock__separator,
+.dock--right .dock__separator {
+  width: 46px;
+  height: 1px;
+  margin: 5px 0;
+  background: linear-gradient(90deg, transparent, rgba(71, 98, 125, 0.3), transparent);
+}
+
+.dock--left .dock__item,
+.dock--right .dock__item {
+  width: 62px;
+  height: 68px;
+  place-items: center;
+}
+
+.dock--size-small .dock__item {
+  width: 50px;
+  height: 58px;
+}
+
+.dock--size-small .dock__icon-wrap {
+  width: 46px;
+  height: 46px;
+}
+
+.dock--size-large .dock__item {
+  width: 72px;
+  height: 82px;
+}
+
+.dock--size-large .dock__icon-wrap {
+  width: 68px;
+  height: 68px;
+}
+
+.dock--left .dock__item:hover .dock__icon-wrap,
+.dock--left .dock__item:focus-visible .dock__icon-wrap {
+  transform: translateX(8px) scale(1.08);
+}
+
+.dock--right .dock__item:hover .dock__icon-wrap,
+.dock--right .dock__item:focus-visible .dock__icon-wrap {
+  transform: translateX(-8px) scale(1.08);
+}
+
+.dock--left .dock__active-indicator,
+.dock--right .dock__active-indicator {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin-top: 0;
+  transform: translateY(-50%);
+}
+
+.dock--left .dock__active-indicator {
+  left: 2px;
+}
+
+.dock--right .dock__active-indicator {
+  right: 2px;
+}
+
+.dock--left .dock__item--running .dock__active-indicator,
+.dock--right .dock__item--running .dock__active-indicator,
+.dock--left .dock__item--active .dock__active-indicator,
+.dock--right .dock__item--active .dock__active-indicator {
+  width: 4px;
+  height: 18px;
+}
+
+.dock--left .dock__tooltip {
+  top: 50%;
+  bottom: auto;
+  left: calc(100% + 8px);
+  transform: translate(-4px, -50%);
+}
+
+.dock--right .dock__tooltip {
+  top: 50%;
+  right: calc(100% + 8px);
+  bottom: auto;
+  left: auto;
+  transform: translate(4px, -50%);
+}
+
+.dock--left .dock__item:hover .dock__tooltip,
+.dock--left .dock__item:focus-visible .dock__tooltip,
+.dock--right .dock__item:hover .dock__tooltip,
+.dock--right .dock__item:focus-visible .dock__tooltip {
+  transform: translate(0, -50%);
 }
 
 .dock__separator {
@@ -308,22 +502,24 @@ function isPinned(id: string) {
 }
 
 @media (hover: hover) {
-  .dock__item:hover + .dock__item .dock__icon-wrap,
-  .dock__item:has(+ .dock__item:hover) .dock__icon-wrap {
+  .dock--bottom .dock__item:hover + .dock__item .dock__icon-wrap,
+  .dock--bottom .dock__item:has(+ .dock__item:hover) .dock__icon-wrap {
     transform: translateY(-5px) scale(1.04);
   }
 
-  .dock__item:hover + .dock__item + .dock__item .dock__icon-wrap,
-  .dock__item:has(+ .dock__item + .dock__item:hover) .dock__icon-wrap {
+  .dock--bottom .dock__item:hover + .dock__item + .dock__item .dock__icon-wrap,
+  .dock--bottom .dock__item:has(+ .dock__item + .dock__item:hover) .dock__icon-wrap {
     transform: translateY(-2px) scale(1.02);
   }
 }
 
 @media (max-width: 820px) {
   .dock {
+    top: auto;
     right: 10px;
     bottom: max(10px, env(safe-area-inset-bottom));
     left: 10px;
+    width: auto;
     max-width: none;
     transform: none;
   }
@@ -349,6 +545,7 @@ function isPinned(id: string) {
   }
 
   .dock__surface {
+    flex-direction: row;
     justify-content: flex-start;
     width: max-content;
     min-height: 78px;
@@ -371,6 +568,7 @@ function isPinned(id: string) {
   .dock__item {
     width: 52px;
     height: 62px;
+    place-items: end center;
   }
 
   .dock__icon-wrap {
@@ -380,6 +578,27 @@ function isPinned(id: string) {
 
   .dock__tooltip {
     display: none;
+  }
+
+  .dock--left .dock__active-indicator,
+  .dock--right .dock__active-indicator {
+    position: static;
+    width: 4px;
+    height: 4px;
+    margin-top: 6px;
+    transform: none;
+  }
+
+  .dock--left .dock__item--running .dock__active-indicator,
+  .dock--right .dock__item--running .dock__active-indicator {
+    width: 8px;
+    height: 4px;
+  }
+
+  .dock--left .dock__item--active .dock__active-indicator,
+  .dock--right .dock__item--active .dock__active-indicator {
+    width: 18px;
+    height: 4px;
   }
 }
 </style>

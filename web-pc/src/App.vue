@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch, type Component } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch, type Component, type CSSProperties } from 'vue';
 import {
   ArrowLeft,
   ArrowRight,
@@ -34,6 +34,7 @@ import AgentWorkbenchWindow from './components/windows/AgentWorkbenchWindow.vue'
 import StorageMonitorWindow from './components/windows/StorageMonitorWindow.vue';
 import PhotoMediaWindow from './components/windows/PhotoMediaWindow.vue';
 import MusicCenterWindow from './components/windows/MusicCenterWindow.vue';
+import VideoCenterWindow from './components/windows/VideoCenterWindow.vue';
 import DownloadCenterWindow from './components/windows/DownloadCenterWindow.vue';
 import BackupSyncWindow from './components/windows/BackupSyncWindow.vue';
 import AppCenterWindow from './components/windows/AppCenterWindow.vue';
@@ -44,6 +45,7 @@ import SystemSettingsWindow from './components/windows/SystemSettingsWindow.vue'
 import RemoteAccessWindow from './components/windows/RemoteAccessWindow.vue';
 import FeatureModuleWindow from './components/windows/FeatureModuleWindow.vue';
 import { desktopStore } from './stores/desktop';
+import { settingsStore } from './stores/settings';
 import type { DesktopApp, DesktopSession, DesktopWindowConfig } from './api/types';
 import { desktopWindows as seedDesktopWindows, dockApps as seedDockApps } from './data/higoos';
 import type { NasFeatureKey } from './data/nasFeatures';
@@ -62,6 +64,9 @@ type IconPosition = {
 };
 
 type DesktopIconArrangeMode = 'right' | 'left' | 'name' | 'status';
+type DockPosition = 'bottom' | 'left' | 'right';
+type DockStyle = 'floating' | 'side' | 'compact';
+type DockIconSize = 'small' | 'default' | 'large';
 
 type AppContextMenuItem = {
   id: string;
@@ -83,7 +88,14 @@ type ContextMenuState = {
   items: AppContextMenuItem[];
 };
 
-const defaultPinnedDockAppIds = ['file-manager', 'music-center', 'ai-file-steward', 'ai-assistant', 'system-settings'];
+const defaultPinnedDockAppIds = [
+  'file-manager',
+  'music-center',
+  'video-center',
+  'ai-file-steward',
+  'ai-assistant',
+  'system-settings',
+];
 const desktopIconWidth = 82;
 const desktopIconHeight = 82;
 const desktopIconGapX = 12;
@@ -95,6 +107,37 @@ const windowFrameTop = 78;
 const windowFrameBottom = 118;
 const minWindowWidth = 360;
 const minWindowHeight = 300;
+const uiSettings = computed(() => settingsStore.settings.value.ui ?? {});
+const uiTheme = computed(() => normalizeOption(uiSettings.value.theme, ['auto', 'light', 'dark'] as const, 'auto'));
+const uiWindowRadius = computed(() =>
+  normalizeOption(uiSettings.value.windowRadius, ['compact', 'default', 'rounded'] as const, 'default'),
+);
+const uiDockPosition = computed<DockPosition>(() =>
+  normalizeOption(uiSettings.value.dockPosition, ['bottom', 'left', 'right'] as const, 'bottom'),
+);
+const uiDockStyle = computed<DockStyle>(() =>
+  normalizeOption(uiSettings.value.dockStyle, ['floating', 'side', 'compact'] as const, 'floating'),
+);
+const uiDockIconSize = computed<DockIconSize>(() =>
+  normalizeOption(uiSettings.value.dockIconSize, ['small', 'default', 'large'] as const, 'default'),
+);
+const isSideDock = computed(() => uiDockPosition.value === 'left' || uiDockPosition.value === 'right');
+const desktopUiClasses = computed(() => [
+  `desktop--theme-${uiTheme.value}`,
+  `desktop--radius-${uiWindowRadius.value}`,
+  `desktop--dock-${uiDockPosition.value}`,
+  `desktop--dock-style-${uiDockStyle.value}`,
+  `desktop--dock-size-${uiDockIconSize.value}`,
+]);
+const desktopUiStyle = computed<CSSProperties>(() => ({
+  backgroundImage: `url(${wallpaperUrl})`,
+  '--dock-height': isSideDock.value ? '0px' : dockHeightForIconSize(uiDockIconSize.value),
+  '--dock-side-width': isSideDock.value ? dockSideWidthForIconSize(uiDockIconSize.value) : '0px',
+  '--radius-sm': radiusTokens(uiWindowRadius.value).sm,
+  '--radius-md': radiusTokens(uiWindowRadius.value).md,
+  '--radius-lg': radiusTokens(uiWindowRadius.value).lg,
+  '--radius-xl': radiusTokens(uiWindowRadius.value).xl,
+}));
 const dockApps = reactive<DesktopApp[]>([]);
 const desktopWindows = reactive<DesktopWindowConfig[]>([]);
 const apiDesktopAppIds = ref<Set<string>>(new Set());
@@ -202,6 +245,36 @@ const visibleDockApps = computed(() =>
       return pinnedDockAppIds.value.includes(app.id) || runningDockAppIds.value.includes(app.id);
     }),
 );
+
+function normalizeOption<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === 'string' && allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function radiusTokens(value: string) {
+  if (value === 'compact') {
+    return { sm: '6px', md: '9px', lg: '12px', xl: '16px' };
+  }
+  if (value === 'rounded') {
+    return { sm: '12px', md: '18px', lg: '26px', xl: '34px' };
+  }
+  return { sm: '8px', md: '12px', lg: '18px', xl: '24px' };
+}
+
+function dockHeightForIconSize(value: DockIconSize) {
+  if (value === 'small') return '82px';
+  if (value === 'large') return '112px';
+  return '96px';
+}
+
+function dockSideWidthForIconSize(value: DockIconSize) {
+  if (value === 'small') return '78px';
+  if (value === 'large') return '116px';
+  return '96px';
+}
+
+function dockSideWidthPx() {
+  return isSideDock.value ? parseInt(dockSideWidthForIconSize(uiDockIconSize.value), 10) || 96 : 0;
+}
 
 async function loadDesktopBootstrapFromApi() {
   isHydratingSession = true;
@@ -315,10 +388,10 @@ function filterKnownIds(values: string[] | undefined, allowed: Set<string>) {
 }
 
 function normalizeIconPosition(position: IconPosition) {
-  const stage = getDesktopStageSize();
+  const bounds = getDesktopStageBounds();
   return {
-    x: Math.round(clampNumber(position.x, 8, stage.width - desktopIconWidth - 8)),
-    y: Math.round(clampNumber(position.y, stage.width <= 900 ? 8 : 68, stage.height - desktopIconHeight - 8)),
+    x: Math.round(clampNumber(position.x, bounds.left, bounds.right - desktopIconWidth)),
+    y: Math.round(clampNumber(position.y, bounds.top, bounds.bottom - desktopIconHeight)),
   };
 }
 
@@ -401,12 +474,15 @@ function getWindowFrameBounds() {
   const viewportHeight = typeof window === 'undefined' ? 900 : window.innerHeight;
   const side = viewportWidth <= compactBreakpointWidth ? 14 : windowFrameMargin;
   const top = viewportWidth <= compactBreakpointWidth ? 84 : windowFrameTop;
-  const bottom = 12;
+  const bottom = isSideDock.value && viewportWidth > compactBreakpointWidth ? 12 : windowFrameBottom;
+  const sideDockInset = isSideDock.value && viewportWidth > compactBreakpointWidth ? dockSideWidthPx() + 12 : 0;
+  const left = uiDockPosition.value === 'left' ? side + sideDockInset : side;
+  const right = uiDockPosition.value === 'right' ? viewportWidth - side - sideDockInset : viewportWidth - side;
 
   return {
-    left: side,
+    left,
     top,
-    right: Math.max(side + minWindowWidth, viewportWidth - side),
+    right: Math.max(left + minWindowWidth, right),
     bottom: Math.max(top + minWindowHeight, viewportHeight - bottom),
   };
 }
@@ -442,15 +518,31 @@ function getDesktopStageSize() {
   const viewportHeight = typeof window === 'undefined' ? 900 : window.innerHeight;
   return {
     width: viewportWidth,
-    height: Math.max(420, viewportHeight - 64 - 112),
+    height: Math.max(420, viewportHeight - 64 - (isSideDock.value ? 0 : parseInt(dockHeightForIconSize(uiDockIconSize.value), 10) || 96)),
+  };
+}
+
+function getDesktopStageBounds() {
+  const stage = getDesktopStageSize();
+  const narrow = stage.width <= 900;
+  const sideInset = isSideDock.value && stage.width > compactBreakpointWidth ? dockSideWidthPx() + 24 : 0;
+  const left = (uiDockPosition.value === 'left' ? sideInset : 0) + (narrow ? 8 : 20);
+  const right = stage.width - (uiDockPosition.value === 'right' ? sideInset : 0) - (narrow ? 8 : 20);
+  const top = narrow ? 8 : 68;
+  const bottom = stage.height - 8;
+  return {
+    left,
+    top,
+    right: Math.max(left + desktopIconWidth, right),
+    bottom: Math.max(top + desktopIconHeight, bottom),
   };
 }
 
 function createDesktopIconLayout(apps: typeof dockApps, mode: DesktopIconArrangeMode) {
+  const bounds = getDesktopStageBounds();
   const stage = getDesktopStageSize();
-  const marginX = stage.width <= 900 ? 14 : 24;
-  const marginY = stage.width <= 900 ? 10 : 78;
-  const usableHeight = Math.max(desktopIconHeight, stage.height - marginY * 2);
+  const marginY = bounds.top + (stage.width <= 900 ? 2 : 10);
+  const usableHeight = Math.max(desktopIconHeight, bounds.bottom - marginY);
   const rows = Math.max(1, Math.floor((usableHeight + desktopIconGapY) / (desktopIconHeight + desktopIconGapY)));
   const orderedApps = [...apps].sort((a, b) => {
     if (mode === 'name') return a.name.localeCompare(b.name, 'zh-Hans-CN');
@@ -467,11 +559,11 @@ function createDesktopIconLayout(apps: typeof dockApps, mode: DesktopIconArrange
     const row = index % rows;
     const x =
       mode === 'left'
-        ? marginX + column * (desktopIconWidth + desktopIconGapX)
-        : stage.width - marginX - desktopIconWidth - column * (desktopIconWidth + desktopIconGapX);
+        ? bounds.left + column * (desktopIconWidth + desktopIconGapX)
+        : bounds.right - desktopIconWidth - column * (desktopIconWidth + desktopIconGapX);
 
     positions[app.id] = {
-      x: Math.round(Math.min(Math.max(8, x), Math.max(8, stage.width - desktopIconWidth - 8))),
+      x: Math.round(clampNumber(x, bounds.left, bounds.right - desktopIconWidth)),
       y: Math.round(marginY + row * (desktopIconHeight + desktopIconGapY)),
     };
     return positions;
@@ -979,6 +1071,14 @@ function handleViewportResize() {
   };
 }
 
+watch([uiDockPosition, uiDockIconSize], () => {
+  normalizeOpenWindowGeometries();
+  desktopIconPositions.value = {
+    ...createDesktopIconLayout(dockApps, 'left'),
+    ...filterIconPositions(desktopIconPositions.value, new Set(dockApps.map((app) => app.id))),
+  };
+});
+
 watch(
   [
     openWindowIds,
@@ -999,6 +1099,7 @@ watch(
 
 onMounted(() => {
   handleViewportResize();
+  void settingsStore.loadSettings();
   void loadDesktopBootstrapFromApi();
   window.addEventListener('resize', handleViewportResize);
   window.addEventListener('click', handleGlobalClick);
@@ -1018,7 +1119,8 @@ onUnmounted(() => {
 <template>
   <main
     class="desktop"
-    :style="{ backgroundImage: `url(${wallpaperUrl})` }"
+    :class="desktopUiClasses"
+    :style="desktopUiStyle"
     @contextmenu.prevent="openDesktopContextMenu"
   >
     <TopBar @topbar-action="handleTopbarAction" />
@@ -1057,6 +1159,7 @@ onUnmounted(() => {
         <BackupSyncWindow v-else-if="window.id === 'backup-sync'" />
         <PhotoMediaWindow v-else-if="window.id === 'photo-media'" />
         <MusicCenterWindow v-else-if="window.id === 'music-center'" />
+        <VideoCenterWindow v-else-if="window.id === 'video-center'" />
         <DownloadCenterWindow v-else-if="window.id === 'download-center'" />
         <AppCenterWindow v-else-if="window.id === 'app-center'" />
         <DockerWindow v-else-if="window.id === 'docker'" />
@@ -1119,6 +1222,9 @@ onUnmounted(() => {
       :active-id="activeWindowId"
       :running-ids="runningDockAppIds"
       :pinned-ids="pinnedDockAppIds"
+      :position="uiDockPosition"
+      :dock-style="uiDockStyle"
+      :icon-size="uiDockIconSize"
       @open-app="openApp"
       @contextmenu-app="openDockContextMenu"
     />

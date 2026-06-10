@@ -34,7 +34,7 @@ func TestDevServiceSeedsFrontendAlignedStacksAndContainers(t *testing.T) {
 	if len(containers) != 4 {
 		t.Fatalf("expected 4 containers, got %d", len(containers))
 	}
-	wantContainers := []string{"jellyfin", "transmission", "ollama", "gateway"}
+	wantContainers := []string{"media-server", "transmission", "ollama", "gateway"}
 	for index, want := range wantContainers {
 		if containers[index].ID != want {
 			t.Fatalf("container %d: got %q want %q", index, containers[index].ID, want)
@@ -44,7 +44,7 @@ func TestDevServiceSeedsFrontendAlignedStacksAndContainers(t *testing.T) {
 		}
 	}
 	if containers[0].Status != ContainerStatusRunning {
-		t.Fatalf("expected jellyfin running, got %q", containers[0].Status)
+		t.Fatalf("expected media server running, got %q", containers[0].Status)
 	}
 	if containers[3].Status != ContainerStatusStopped {
 		t.Fatalf("expected gateway stopped, got %q", containers[3].Status)
@@ -96,18 +96,18 @@ func TestContainerActionsUpdateStatusResourcesAndLogs(t *testing.T) {
 func TestUpdateLimitsAndLogsAreBoundedAndCloned(t *testing.T) {
 	service := NewDevService()
 
-	updated, err := service.UpdateLimits(context.Background(), "jellyfin", ResourceLimit{CPU: 5, MemoryMB: 6144})
+	updated, err := service.UpdateLimits(context.Background(), "media-server", ResourceLimit{CPU: 5, MemoryMB: 6144})
 	if err != nil {
-		t.Fatalf("update jellyfin limits: %v", err)
+		t.Fatalf("update media server limits: %v", err)
 	}
 	if updated.Limit.CPU != 5 || updated.Limit.MemoryMB != 6144 {
 		t.Fatalf("unexpected updated limits: %#v", updated.Limit)
 	}
-	if !logContains(t, service, "jellyfin", "资源限制调整") {
+	if !logContains(t, service, "media-server", "资源限制调整") {
 		t.Fatal("expected limit update log")
 	}
 
-	logs, err := service.Logs(context.Background(), "jellyfin", 2)
+	logs, err := service.Logs(context.Background(), "media-server", 2)
 	if err != nil {
 		t.Fatalf("logs: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestUpdateLimitsAndLogsAreBoundedAndCloned(t *testing.T) {
 		t.Fatalf("expected bounded 2 log entries, got %d", len(logs))
 	}
 	logs[0].Message = "mutated by test"
-	nextLogs, err := service.Logs(context.Background(), "jellyfin", 1)
+	nextLogs, err := service.Logs(context.Background(), "media-server", 1)
 	if err != nil {
 		t.Fatalf("logs again: %v", err)
 	}

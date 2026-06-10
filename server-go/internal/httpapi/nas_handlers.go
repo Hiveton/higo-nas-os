@@ -244,7 +244,9 @@ func (a *API) downloadTaskByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(parts) == 1 && r.Method == http.MethodDelete {
-		result, err := a.downloads.DeleteTask(r.Context(), id)
+		result, err := a.downloads.DeleteTask(r.Context(), id, downloads.DeleteTaskOptions{
+			DeleteFile: parseBoolQuery(r, "deleteFile"),
+		})
 		if err != nil {
 			platform.WriteError(w, r, http.StatusNotFound, "download_task_not_found", err.Error())
 			return

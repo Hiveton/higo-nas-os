@@ -48,6 +48,7 @@ type MediaItem struct {
 	Accent      string    `json:"accent"`
 	HasSubtitle bool      `json:"hasSubtitle"`
 	Transcoded  bool      `json:"transcoded"`
+	SourcePath  string    `json:"sourcePath,omitempty"`
 }
 
 type Album struct {
