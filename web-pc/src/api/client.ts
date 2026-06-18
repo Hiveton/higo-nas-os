@@ -245,6 +245,7 @@ export const apiClient = {
     testProvider: (id: Id) => POST<AiProviderTestResult>(`/api/v1/ai/providers/${pathId(id)}/test`, {}),
     indexStatus: () => GET<RecordPayload>('/api/v1/ai/index/status'),
     reindexFiles: (payload?: { space?: string }) => POST<RecordPayload>('/api/v1/ai/index/files', payload ?? {}),
+    reindexMedia: () => POST<RecordPayload>('/api/v1/ai/index/media', {}),
   },
 
   media: {

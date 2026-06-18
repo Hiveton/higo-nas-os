@@ -43,6 +43,13 @@ type SecurityShareRevokeInput struct {
 }
 
 func registerSecurity(r *registry) {
+	addTool(r, "security", "higo.security.inspect",
+		"Run an AI security sweep: scan public shares and identities for risks and queue findings as pending risk actions.",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.SecurityInspect(ctx)
+		})
+
 	addTool(r, "security", "higo.security.identities.list",
 		"List security identities and their effective permissions.",
 		readOnly(),

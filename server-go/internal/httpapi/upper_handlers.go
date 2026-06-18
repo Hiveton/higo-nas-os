@@ -640,6 +640,18 @@ func (a *API) securityAIPolicyByID(w http.ResponseWriter, r *http.Request) {
 	platform.WriteJSON(w, r, http.StatusOK, policy)
 }
 
+func (a *API) securityInspect(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	actions, err := a.security.Inspect(r.Context())
+	if err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "security_inspect_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, mapSecurityRiskActions(actions))
+}
+
 func (a *API) securityRiskActions(w http.ResponseWriter, r *http.Request) {
 	if !allowMethod(w, r, http.MethodGet) {
 		return

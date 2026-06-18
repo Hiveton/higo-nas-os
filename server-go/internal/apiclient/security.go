@@ -33,6 +33,12 @@ func (c *Client) SecurityAIPolicyUpdate(ctx context.Context, id string, body any
 	return c.Do(ctx, http.MethodPut, path, nil, body)
 }
 
+// SecurityInspect runs an AI security sweep and returns risk actions
+// (POST /api/v1/security/inspect).
+func (c *Client) SecurityInspect(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/api/v1/security/inspect", nil, nil)
+}
+
 // SecurityRiskActions lists pending and resolved high-risk actions
 // (GET /api/v1/security/risk-actions).
 func (c *Client) SecurityRiskActions(ctx context.Context) (json.RawMessage, error) {

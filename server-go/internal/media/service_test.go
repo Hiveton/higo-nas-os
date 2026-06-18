@@ -11,6 +11,71 @@ import (
 	"higoos/server-go/internal/tasks"
 )
 
+func TestTranscodeAndSubtitleJobsAreDrivenToReadyByRunner(t *testing.T) {
+	root, _ := createMediaFixture(t)
+	service, err := NewServiceWithRoots("", []string{root})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	mgr, err := tasks.NewManager("", tasks.WithWorkers(2), tasks.WithDispatchInterval(20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("new task manager: %v", err)
+	}
+	service.AttachTaskRunner(mgr)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr.Start(ctx)
+	defer mgr.Stop()
+
+	items, err := service.Items(ctx, ItemFilter{})
+	if err != nil || len(items) == 0 {
+		t.Fatalf("need at least one media item: err=%v len=%d", err, len(items))
+	}
+	itemID := items[0].ID
+
+	transcode, err := service.CreateTranscodeJob(ctx, CreateMediaJobRequest{ItemID: itemID})
+	if err != nil {
+		t.Fatalf("create transcode job: %v", err)
+	}
+	subtitle, err := service.CreateSubtitleJob(ctx, CreateMediaJobRequest{ItemID: itemID})
+	if err != nil {
+		t.Fatalf("create subtitle job: %v", err)
+	}
+
+	transcodeStatus := func() JobStatus {
+		service.mu.RLock()
+		defer service.mu.RUnlock()
+		for _, j := range service.transcodeJobs {
+			if j.ID == transcode.ID {
+				return j.Status
+			}
+		}
+		return ""
+	}
+	subtitleStatus := func() JobStatus {
+		service.mu.RLock()
+		defer service.mu.RUnlock()
+		for _, j := range service.subtitleJobs {
+			if j.ID == subtitle.ID {
+				return j.Status
+			}
+		}
+		return ""
+	}
+	waitReady := func(kind string, status func() JobStatus) {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if status() == JobStatusReady {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		t.Fatalf("%s job did not reach ready, last status=%q", kind, status())
+	}
+	waitReady("transcode", transcodeStatus)
+	waitReady("subtitle", subtitleStatus)
+}
+
 func TestNewServiceWithRootsScansActualMediaFiles(t *testing.T) {
 	root, timeline := createMediaFixture(t)
 	service, err := NewServiceWithRoots("", []string{root})

@@ -335,7 +335,7 @@ func (s *Service) DeleteSpace(ctx context.Context, id string, request DeleteSpac
 		return StorageTask{}, fmt.Errorf("storage space not found: %s", id)
 	}
 	s.spaces = append(s.spaces[:index], s.spaces[index+1:]...)
-	return s.createTaskLocked(TaskKindDeleteSpace, TaskTarget{TargetPool: id}, "存储空间删除已加入任务队列")
+	return s.completedTaskLocked(TaskKindDeleteSpace, TaskTarget{TargetPool: id}, "存储空间已删除")
 }
 
 func (s *Service) RemoveDisk(ctx context.Context, slot string, request RemoveDiskRequest) (StorageTask, error) {
@@ -358,7 +358,7 @@ func (s *Service) RemoveDisk(ctx context.Context, slot string, request RemoveDis
 		return StorageTask{}, fmt.Errorf("managed disk not found: %s", slot)
 	}
 	s.disks = append(s.disks[:index], s.disks[index+1:]...)
-	return s.createTaskLocked(TaskKindRemoveDisk, TaskTarget{TargetSlot: slot}, "硬盘移除已加入任务队列")
+	return s.completedTaskLocked(TaskKindRemoveDisk, TaskTarget{TargetSlot: slot}, "硬盘已移除")
 }
 
 func (s *Service) UpdateDiskSettings(ctx context.Context, slot string, request DiskSettingsRequest) (Disk, error) {
@@ -513,6 +513,20 @@ func (s *Service) updateTaskState(id string, st TaskState, progress int, message
 	}
 	s.tasks[id] = task
 	_ = s.saveLocked()
+}
+
+// completedTaskLocked records a task receipt for work that was already performed
+// synchronously (e.g. space/disk removal), so the receipt reflects "completed"
+// instead of dangling at "queued".
+func (s *Service) completedTaskLocked(kind TaskKind, target TaskTarget, message string) (StorageTask, error) {
+	task, err := s.createTaskLocked(kind, target, message)
+	if err != nil {
+		return StorageTask{}, err
+	}
+	task.State = TaskStateCompleted
+	task.Progress = 100
+	s.tasks[task.ID] = task
+	return task, s.saveLocked()
 }
 
 func (s *Service) createTaskLocked(kind TaskKind, target TaskTarget, message string) (StorageTask, error) {
