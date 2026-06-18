@@ -199,6 +199,7 @@ export const apiClient = {
 
   steward: {
     getSuggestions: () => GET<StewardSuggestion[]>('/api/v1/steward/suggestions'),
+    refresh: () => POST<StewardSuggestion[]>('/api/v1/steward/suggestions', {}),
     previewSuggestion: (id: Id) => POST<RecordPayload>(`/api/v1/steward/suggestions/${pathId(id)}/preview`),
     confirmSuggestion: (id: Id, payload?: RecordPayload) =>
       POST<TaskResponse>(`/api/v1/steward/suggestions/${pathId(id)}/confirm`, payload ?? {}),
@@ -242,6 +243,8 @@ export const apiClient = {
     updateProvider: (id: Id, payload: AiProviderInput) => PUT<AiProvider>(`/api/v1/ai/providers/${pathId(id)}`, payload),
     deleteProvider: (id: Id) => DELETE<{ id: string; deleted: boolean }>(`/api/v1/ai/providers/${pathId(id)}`),
     testProvider: (id: Id) => POST<AiProviderTestResult>(`/api/v1/ai/providers/${pathId(id)}/test`, {}),
+    indexStatus: () => GET<RecordPayload>('/api/v1/ai/index/status'),
+    reindexFiles: (payload?: { space?: string }) => POST<RecordPayload>('/api/v1/ai/index/files', payload ?? {}),
   },
 
   media: {

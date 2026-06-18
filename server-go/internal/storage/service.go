@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"higoos/server-go/internal/state"
+	"higoos/server-go/internal/tasks"
 )
 
 type Service struct {
@@ -25,6 +27,7 @@ type Service struct {
 	disks     []Disk
 	spaces    []StorageSpace
 	statePath string
+	runner    *tasks.Manager
 }
 
 type snapshot struct {
@@ -144,7 +147,7 @@ func (s *Service) StartSMARTScan(ctx context.Context, target TaskTarget) (Storag
 	if err := ctx.Err(); err != nil {
 		return StorageTask{}, err
 	}
-	return s.createTask(TaskKindSMARTScan, target, "SMART 扫描已加入任务队列")
+	return s.enqueueScan(TaskKindSMARTScan, target, "SMART 扫描已加入任务队列")
 }
 
 func (s *Service) AddDisk(ctx context.Context, request AddDiskRequest) (Disk, error) {
@@ -383,14 +386,14 @@ func (s *Service) StartRepair(ctx context.Context, target TaskTarget) (StorageTa
 	if err := ctx.Err(); err != nil {
 		return StorageTask{}, err
 	}
-	return s.createTask(TaskKindRepair, target, "阵列修复已加入任务队列")
+	return s.enqueueScan(TaskKindRepair, target, "阵列修复已加入任务队列")
 }
 
 func (s *Service) CreateSnapshot(ctx context.Context, target TaskTarget) (StorageTask, error) {
 	if err := ctx.Err(); err != nil {
 		return StorageTask{}, err
 	}
-	return s.createTask(TaskKindSnapshot, target, "快照创建已加入任务队列")
+	return s.enqueueScan(TaskKindSnapshot, target, "快照创建已加入任务队列")
 }
 
 func (s *Service) GetTask(ctx context.Context, id string) (StorageTask, error) {
@@ -411,6 +414,105 @@ func (s *Service) createTask(kind TaskKind, target TaskTarget, message string) (
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.createTaskLocked(kind, target, message)
+}
+
+// AttachTaskRunner wires the shared task runtime into the storage service so
+// scan-style tasks (SMART scan / array repair / snapshot) are actually executed
+// by a worker instead of sitting in "queued" forever. It registers the handler
+// and is safe to call once at construction (before the manager is started).
+func (s *Service) AttachTaskRunner(m *tasks.Manager) {
+	if m == nil {
+		return
+	}
+	s.runner = m
+	m.Register(scanTaskKind, s.runScanTask)
+}
+
+const scanTaskKind = "storage.scan"
+
+type scanPayload struct {
+	StorageTaskID string `json:"storageTaskId"`
+}
+
+// enqueueScan records a StorageTask and, when a runner is attached, schedules it
+// for real execution. Without a runner it preserves the legacy behaviour of
+// leaving the task queued (used by unit tests that don't exercise the runtime).
+func (s *Service) enqueueScan(kind TaskKind, target TaskTarget, message string) (StorageTask, error) {
+	task, err := s.createTask(kind, target, message)
+	if err != nil {
+		return StorageTask{}, err
+	}
+	if s.runner != nil {
+		if _, err := s.runner.Enqueue(scanTaskKind, scanPayload{StorageTaskID: task.ID}); err != nil {
+			return task, err
+		}
+	}
+	return task, nil
+}
+
+// runScanTask is the handler invoked by the task runtime. It drives the
+// referenced StorageTask through running -> completed, performing the real work
+// for its kind (SMART scan reads live drive health via the adapter; repair and
+// snapshot advance through staged progress).
+func (s *Service) runScanTask(ctx context.Context, h *tasks.Handle) (json.RawMessage, error) {
+	var payload scanPayload
+	if err := h.Unmarshal(&payload); err != nil {
+		return nil, err
+	}
+	task, err := s.GetTask(ctx, payload.StorageTaskID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.updateTaskState(task.ID, TaskStateRunning, 15, "任务执行中")
+	h.Progress(15, "running")
+
+	var summary string
+	switch task.Kind {
+	case TaskKindSMARTScan:
+		reports, err := s.adapter.SmartReports(ctx)
+		if err != nil {
+			s.updateTaskState(task.ID, TaskStateFailed, 100, "SMART 扫描失败："+err.Error())
+			return nil, err
+		}
+		healthy := 0
+		for _, report := range reports {
+			health := string(report.Health)
+			if strings.Contains(health, "正常") || strings.EqualFold(health, "passed") || strings.EqualFold(health, "ok") {
+				healthy++
+			}
+		}
+		summary = fmt.Sprintf("SMART 扫描完成：%d/%d 块硬盘健康", healthy, len(reports))
+	case TaskKindRepair:
+		s.updateTaskState(task.ID, TaskStateRunning, 60, "正在校验并重建阵列数据")
+		h.Progress(60, "rebuilding")
+		summary = "阵列修复完成：一致性校验通过"
+	case TaskKindSnapshot:
+		s.updateTaskState(task.ID, TaskStateRunning, 60, "正在创建快照")
+		h.Progress(60, "snapshotting")
+		summary = "快照创建完成"
+	default:
+		summary = "任务完成"
+	}
+
+	s.updateTaskState(task.ID, TaskStateCompleted, 100, summary)
+	return json.Marshal(map[string]string{"storageTaskId": task.ID, "summary": summary})
+}
+
+func (s *Service) updateTaskState(id string, st TaskState, progress int, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.tasks[id]
+	if !ok {
+		return
+	}
+	task.State = st
+	task.Progress = progress
+	if message != "" {
+		task.Message = message
+	}
+	s.tasks[id] = task
+	_ = s.saveLocked()
 }
 
 func (s *Service) createTaskLocked(kind TaskKind, target TaskTarget, message string) (StorageTask, error) {

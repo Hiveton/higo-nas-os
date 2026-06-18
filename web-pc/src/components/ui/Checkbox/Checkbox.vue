@@ -65,7 +65,7 @@ function toggle() {
   height: 18px;
   padding: 0;
   color: var(--text-inverse);
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--control-bg);
   border: 1px solid var(--border-strong);
   border-radius: 5px;
   cursor: inherit;

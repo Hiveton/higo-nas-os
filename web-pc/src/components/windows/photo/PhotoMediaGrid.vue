@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { Album, Grid2X2, Image, Music, Plus, Search, Video } from 'lucide-vue-next';
-import { UiEmptyState } from '../../ui';
+import { UiButton, UiEmptyState, UiFormField, UiInput, UiSelect } from '../../ui';
 import type { AlbumItem, MediaItem } from '../../../api/types';
+
+const albumTypeOptions = [
+  { label: '家庭相册', value: '家庭相册' },
+  { label: '共享相册', value: '共享相册' },
+  { label: '智能回忆', value: '智能回忆' },
+];
 
 type ID = string | number;
 
@@ -58,37 +64,28 @@ const emit = defineEmits<{
     </section>
 
     <section v-if="selectionMode || selectedCount > 0" class="photo-media__selection" aria-label="批量操作">
-      <button type="button" @click="emit('select-all-visible')">
+      <UiButton variant="ghost" tone="neutral" size="sm" @click="emit('select-all-visible')">
         {{ allVisibleSelected ? '取消全选' : '全选当前' }}
-      </button>
+      </UiButton>
       <span>已选择 {{ selectedCount }} 项</span>
-      <button type="button" :disabled="selectedCount === 0" @click="createAlbumOpen = !createAlbumOpen">
-        <Plus :size="14" />
+      <UiButton variant="soft" size="sm" :icon-left="Plus" :disabled="selectedCount === 0" @click="createAlbumOpen = !createAlbumOpen">
         新建相册
-      </button>
+      </UiButton>
     </section>
 
     <section v-if="createAlbumOpen" class="photo-media__create" aria-label="创建相册">
-      <label>
-        <span>相册名称</span>
-        <input v-model="albumNameDraft" type="text" placeholder="例如：端午出游精选" />
-      </label>
-      <label>
-        <span>类型</span>
-        <select v-model="albumTypeDraft">
-          <option>家庭相册</option>
-          <option>共享相册</option>
-          <option>智能回忆</option>
-        </select>
-      </label>
-      <label>
-        <span>权限</span>
-        <input v-model="albumPrivacyDraft" type="text" placeholder="留空使用默认策略" />
-      </label>
-      <button type="button" :disabled="busyAction === 'createAlbum'" @click="emit('create-album')">
-        <Plus :size="14" />
+      <UiFormField label="相册名称">
+        <UiInput v-model="albumNameDraft" placeholder="例如：端午出游精选" />
+      </UiFormField>
+      <UiFormField label="类型">
+        <UiSelect v-model="albumTypeDraft" :options="albumTypeOptions" />
+      </UiFormField>
+      <UiFormField label="权限">
+        <UiInput v-model="albumPrivacyDraft" placeholder="留空使用默认策略" />
+      </UiFormField>
+      <UiButton :icon-left="Plus" :loading="busyAction === 'createAlbum'" @click="emit('create-album')">
         {{ busyAction === 'createAlbum' ? '创建中' : '创建' }}
-      </button>
+      </UiButton>
     </section>
 
     <section v-if="albums.length > 0" class="photo-media__albums" aria-label="家庭、共享和智能相册">

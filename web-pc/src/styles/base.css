@@ -99,6 +99,9 @@ svg {
   --dark-active: rgba(19, 136, 255, 0.18);
   --dark-border: rgba(160, 184, 214, 0.2);
   --dark-border-strong: rgba(186, 208, 235, 0.3);
+  --control-bg: rgba(14, 22, 36, 0.6);
+  --control-bg-strong: rgba(18, 28, 44, 0.72);
+  --control-border: rgba(160, 184, 214, 0.2);
   background-color: #05080d;
 }
 
@@ -130,6 +133,9 @@ svg {
     --border: rgba(151, 176, 206, 0.24);
     --border-strong: rgba(178, 202, 231, 0.34);
     --shadow-window: 0 34px 96px rgba(0, 0, 0, 0.66), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+    --control-bg: rgba(14, 22, 36, 0.6);
+    --control-bg-strong: rgba(18, 28, 44, 0.72);
+    --control-border: rgba(160, 184, 214, 0.2);
     background-color: #05080d;
   }
 
@@ -389,13 +395,13 @@ svg {
   [class$="__chip"],
   [class$="__switch"],
   [class$="__toggle"]
-) {
+):not([class^="ui-"]) {
   color: var(--text-muted) !important;
   background: var(--dark-control) !important;
   border-color: var(--dark-border) !important;
 }
 
-.desktop--theme-dark .desktop-window__body :where(button:not(:disabled):hover) {
+.desktop--theme-dark .desktop-window__body :where(button:not(:disabled):hover):not([class^="ui-"]) {
   background: var(--dark-control-hover) !important;
   border-color: var(--dark-border-strong) !important;
 }
@@ -406,7 +412,7 @@ svg {
   [class$="__primary"],
   [class$="__primary-button"],
   [aria-selected="true"]
-) {
+):not([class^="ui-"]) {
   color: #dff0ff !important;
   background: var(--dark-active) !important;
   border-color: rgba(69, 168, 255, 0.38) !important;
@@ -415,16 +421,15 @@ svg {
 .desktop--theme-dark .desktop-window__body :where(
   [class$="__primary"],
   [class$="__primary-button"],
-  .download-center__primary,
   .system-settings__primary,
   .file-manager__search button
-) {
+):not([class^="ui-"]) {
   color: #fff !important;
   background: linear-gradient(135deg, #1f8bff, #4f6bff) !important;
   border-color: transparent !important;
 }
 
-.desktop--theme-dark .desktop-window__body :where(button:disabled, input:disabled, select:disabled, textarea:disabled) {
+.desktop--theme-dark .desktop-window__body :where(button:disabled, input:disabled, select:disabled, textarea:disabled):not([class^="ui-"]) {
   color: rgba(180, 195, 213, 0.44) !important;
   background: rgba(68, 80, 96, 0.26) !important;
   border-color: rgba(160, 184, 214, 0.12) !important;
@@ -435,7 +440,7 @@ svg {
   [class$="__meter"],
   [class$="__bar"],
   [class$="__track"]
-) {
+):not([class^="ui-"]) {
   background: rgba(148, 163, 184, 0.18) !important;
   border-color: rgba(160, 184, 214, 0.12) !important;
 }
@@ -462,7 +467,7 @@ svg {
   [class$="__meta"],
   [class$="__description"],
   [class$="__subtitle"]
-) {
+):not([class^="ui-"]) {
   color: var(--text-muted) !important;
 }
 
@@ -520,8 +525,6 @@ svg {
 .desktop--theme-dark .music-app__search,
 .desktop--theme-dark .music-app__storage,
 .desktop--theme-dark .music-app__side-footer button,
-.desktop--theme-dark .music-app__scan,
-.desktop--theme-dark .music-library__tools button,
 .desktop--theme-dark .music-library__table header,
 .desktop--theme-dark .music-library__badges span,
 .desktop--theme-dark .music-player__badges span,
@@ -746,18 +749,18 @@ svg {
   border-color: var(--dark-border) !important;
 }
 
-.desktop--theme-dark .agent-workbench__confirm button,
-.desktop--theme-dark .app-center__actions button,
-.desktop--theme-dark .backup-sync__actions button,
-.desktop--theme-dark .docker-window__actions button {
+.desktop--theme-dark .agent-workbench__confirm button:not([class^="ui-"]),
+.desktop--theme-dark .app-center__actions button:not([class^="ui-"]),
+.desktop--theme-dark .backup-sync__actions button:not([class^="ui-"]),
+.desktop--theme-dark .docker-window__actions button:not([class^="ui-"]) {
   background: var(--dark-control) !important;
   border-color: var(--dark-border) !important;
 }
 
-.desktop--theme-dark .agent-workbench__confirm button:not(:disabled):hover,
-.desktop--theme-dark .app-center__actions button:not(:disabled):hover,
-.desktop--theme-dark .backup-sync__actions button:not(:disabled):hover,
-.desktop--theme-dark .docker-window__actions button:not(:disabled):hover {
+.desktop--theme-dark .agent-workbench__confirm button:not([class^="ui-"]):not(:disabled):hover,
+.desktop--theme-dark .app-center__actions button:not([class^="ui-"]):not(:disabled):hover,
+.desktop--theme-dark .backup-sync__actions button:not([class^="ui-"]):not(:disabled):hover,
+.desktop--theme-dark .docker-window__actions button:not([class^="ui-"]):not(:disabled):hover {
   background: var(--dark-control-hover) !important;
 }
 
@@ -821,10 +824,7 @@ svg {
 .desktop--theme-dark .photo-media__search,
 .desktop--theme-dark .photo-media__stats span,
 .desktop--theme-dark .photo-media__facet,
-.desktop--theme-dark .photo-media__tool,
-.desktop--theme-dark .photo-media__actions button,
-.desktop--theme-dark .photo-media__create input,
-.desktop--theme-dark .photo-media__create select {
+.desktop--theme-dark .photo-media__tool {
   color: var(--text-muted) !important;
   background: rgba(12, 18, 29, 0.9) !important;
   border-color: rgba(160, 184, 214, 0.18) !important;
@@ -874,7 +874,6 @@ svg {
 .desktop--theme-dark .policy-card,
 .desktop--theme-dark .agent-card,
 .desktop--theme-dark .capability-card,
-.desktop--theme-dark .action-button,
 .desktop--theme-dark .composer,
 .desktop--theme-dark .message-bubble.is-assistant {
   color: var(--text) !important;

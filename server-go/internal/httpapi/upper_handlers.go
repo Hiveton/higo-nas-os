@@ -1,13 +1,16 @@
 package httpapi
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"higoos/server-go/internal/agents"
 	"higoos/server-go/internal/assistant"
+	"higoos/server-go/internal/files"
 	"higoos/server-go/internal/media"
 	"higoos/server-go/internal/platform"
 	"higoos/server-go/internal/security"
@@ -156,6 +159,11 @@ func (a *API) assistantSemanticSearch(w http.ResponseWriter, r *http.Request) {
 	var body assistant.SemanticSearchRequest
 	if err := decodeJSON(r, &body); err != nil {
 		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	// Prefer the real pgvector index when a database is configured; otherwise
+	// fall back to the assistant's built-in keyword search over seed data.
+	if a.runSemanticSearch(w, r, body.Query, body.Scopes, body.Limit) {
 		return
 	}
 	result, err := a.assistant.SemanticSearch(r.Context(), body)
@@ -437,10 +445,47 @@ func (a *API) workflowRunByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) stewardSuggestions(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodGet) {
-		return
+	switch r.Method {
+	case http.MethodGet:
+		platform.WriteJSON(w, r, http.StatusOK, mapStewardSuggestions(a.steward.ListSuggestions(r.Context())))
+	case http.MethodPost:
+		// Re-analyze the file tree and replace pending suggestions with real ones.
+		suggestions, err := a.refreshSteward(r.Context())
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "steward_refresh_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, mapStewardSuggestions(suggestions))
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPost)
 	}
-	platform.WriteJSON(w, r, http.StatusOK, mapStewardSuggestions(a.steward.ListSuggestions(r.Context())))
+}
+
+// refreshSteward walks the file tree and replaces pending steward suggestions
+// with freshly analyzed ones (duplicates, archive candidates).
+func (a *API) refreshSteward(ctx context.Context) ([]steward.Suggestion, error) {
+	if a.files == nil {
+		return a.steward.ListSuggestions(ctx), nil
+	}
+	tree, err := a.files.Tree(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	var infos []steward.FileInfo
+	collectFileInfos(tree, &infos)
+	return a.steward.ReplaceSuggestions(ctx, steward.Analyze(infos, time.Now()))
+}
+
+func collectFileInfos(node files.FileNode, out *[]steward.FileInfo) {
+	if !node.IsDir {
+		*out = append(*out, steward.FileInfo{
+			Name: node.Name, Path: node.Path, Type: node.Type,
+			Space: node.Space, SizeBytes: node.SizeBytes, Modified: node.Modified,
+		})
+	}
+	for _, child := range node.Children {
+		collectFileInfos(child, out)
+	}
 }
 
 func (a *API) stewardSuggestionByID(w http.ResponseWriter, r *http.Request) {

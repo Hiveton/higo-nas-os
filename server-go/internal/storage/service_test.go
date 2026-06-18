@@ -5,6 +5,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"higoos/server-go/internal/tasks"
 )
 
 type staticAdapter struct {
@@ -152,6 +155,54 @@ func TestStorageTasksAreCreatedAndCanBeFetched(t *testing.T) {
 		if fetched.ID != tt.got.ID || fetched.Kind != tt.wantKind {
 			t.Fatalf("fetched task mismatch: got %#v want %#v", fetched, tt.got)
 		}
+	}
+}
+
+func TestScanTasksAreExecutedToCompletionByRunner(t *testing.T) {
+	service := NewService(NewDevAdapter())
+	mgr, err := tasks.NewManager("", tasks.WithWorkers(2), tasks.WithDispatchInterval(20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("new task manager: %v", err)
+	}
+	service.AttachTaskRunner(mgr)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr.Start(ctx)
+	defer mgr.Stop()
+
+	cases := []struct {
+		name  string
+		start func() (StorageTask, error)
+	}{
+		{"smart", func() (StorageTask, error) { return service.StartSMARTScan(ctx, TaskTarget{TargetSlot: "1"}) }},
+		{"repair", func() (StorageTask, error) { return service.StartRepair(ctx, TaskTarget{TargetPool: "pool-raid5"}) }},
+		{"snapshot", func() (StorageTask, error) { return service.CreateSnapshot(ctx, TaskTarget{TargetPool: "pool-backup"}) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			task, err := tc.start()
+			if err != nil {
+				t.Fatalf("start: %v", err)
+			}
+			deadline := time.Now().Add(2 * time.Second)
+			var final StorageTask
+			for time.Now().Before(deadline) {
+				final, err = service.GetTask(ctx, task.ID)
+				if err != nil {
+					t.Fatalf("get task: %v", err)
+				}
+				if final.State == TaskStateCompleted || final.State == TaskStateFailed {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			if final.State != TaskStateCompleted {
+				t.Fatalf("expected task completed, got state=%q message=%q", final.State, final.Message)
+			}
+			if final.Progress != 100 {
+				t.Fatalf("expected progress 100, got %d", final.Progress)
+			}
+		})
 	}
 }
 

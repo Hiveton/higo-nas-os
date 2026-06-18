@@ -12,6 +12,7 @@ import (
 
 	"higoos/server-go/internal/accounts"
 	"higoos/server-go/internal/agents"
+	"higoos/server-go/internal/db"
 	"higoos/server-go/internal/apiclient"
 	"higoos/server-go/internal/appcenter"
 	"higoos/server-go/internal/assistant"
@@ -20,6 +21,7 @@ import (
 	hdocker "higoos/server-go/internal/docker"
 	"higoos/server-go/internal/downloads"
 	"higoos/server-go/internal/files"
+	"higoos/server-go/internal/index"
 	"higoos/server-go/internal/llm"
 	higomcp "higoos/server-go/internal/mcp"
 	"higoos/server-go/internal/mcpclient"
@@ -28,15 +30,18 @@ import (
 	"higoos/server-go/internal/music"
 	"higoos/server-go/internal/platform"
 	"higoos/server-go/internal/remote"
+	"higoos/server-go/internal/search"
 	"higoos/server-go/internal/security"
 	"higoos/server-go/internal/settings"
 	"higoos/server-go/internal/steward"
 	"higoos/server-go/internal/storage"
+	"higoos/server-go/internal/tasks"
 	"higoos/server-go/internal/video"
 )
 
 type Dependencies struct {
 	Config     platform.Config
+	DB         *db.Pool
 	Dev        *devstub.Store
 	Files      *files.Service
 	Monitoring *monitoring.Service
@@ -56,6 +61,7 @@ type Dependencies struct {
 	Accounts   *accounts.Service
 	Steward    *steward.Service
 	Security   *security.Service
+	Tasks      *tasks.Manager
 	Logger     *slog.Logger
 }
 
@@ -249,6 +255,20 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 	}
 
+	taskManager := deps.Tasks
+	if taskManager == nil {
+		var err error
+		taskManager, err = tasks.NewManager(taskStatePath(cfg.StateDir), tasks.WithLogger(logger))
+		if err != nil {
+			logger.Warn("task runtime state unavailable", slog.Any("error", err))
+			taskManager, _ = tasks.NewManager("", tasks.WithLogger(logger))
+		}
+	}
+	// Register domain task handlers before the pool starts.
+	storageService.AttachTaskRunner(taskManager)
+	mediaService.AttachTaskRunner(taskManager)
+	taskManager.Start(context.Background())
+
 	api := &API{
 		config:     cfg,
 		dev:        dev,
@@ -270,6 +290,9 @@ func NewRouter(deps Dependencies) http.Handler {
 		accounts:   accountsService,
 		steward:    stewardService,
 		security:   securityService,
+		tasks:      taskManager,
+		index:      index.New(deps.DB, llmStore),
+		search:     search.New(deps.DB, llmStore),
 		staticDir:  strings.TrimSpace(cfg.StaticDir),
 	}
 
@@ -311,6 +334,8 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/storage/tasks/repair", api.storageRepair)
 	mux.HandleFunc("/api/v1/storage/tasks/snapshot", api.storageSnapshot)
 	mux.HandleFunc("/api/v1/storage/tasks/", api.storageTaskByID)
+	mux.HandleFunc("/api/v1/tasks", api.tasksList)
+	mux.HandleFunc("/api/v1/tasks/", api.taskByID)
 	mux.HandleFunc("/api/v1/downloads/tasks", api.downloadTasks)
 	mux.HandleFunc("/api/v1/downloads/tasks/", api.downloadTaskByID)
 	mux.HandleFunc("/api/v1/downloads/speed-profiles", api.downloadSpeedProfiles)
@@ -375,6 +400,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/videos/live/recording-timers/", api.videoLiveRecordingTimerByID)
 	mux.HandleFunc("/api/v1/videos/live/recordings", api.videoLiveRecordings)
 	mux.HandleFunc("/api/v1/search/semantic", api.assistantSemanticSearch)
+	mux.HandleFunc("/api/v1/ai/index", api.aiIndexDocument)
+	mux.HandleFunc("/api/v1/ai/index/files", api.aiIndexFiles)
+	mux.HandleFunc("/api/v1/ai/index/status", api.aiIndexStatus)
 	mux.HandleFunc("/api/v1/assistant/threads", api.assistantThreads)
 	mux.HandleFunc("/api/v1/assistant/threads/", api.assistantThreadByID)
 	mux.HandleFunc("/api/v1/assistant/actions/", api.assistantActionByID)
@@ -483,7 +511,17 @@ type API struct {
 	accounts   *accounts.Service
 	steward    *steward.Service
 	security   *security.Service
+	tasks      *tasks.Manager
+	index      *index.Service
+	search     *search.Service
 	staticDir  string
+}
+
+func taskStatePath(stateDir string) string {
+	if strings.TrimSpace(stateDir) == "" {
+		return ""
+	}
+	return filepath.Join(stateDir, "tasks.json")
 }
 
 func (a *API) healthz(w http.ResponseWriter, r *http.Request) {

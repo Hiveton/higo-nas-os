@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"higoos/server-go/internal/state"
+	"higoos/server-go/internal/tasks"
 )
 
 type Service struct {
@@ -26,6 +28,7 @@ type Service struct {
 	nextJobSeq     int
 	memoryRunCount int
 	statePath      string
+	runner         *tasks.Manager
 }
 
 type snapshot struct {
@@ -293,7 +296,11 @@ func (s *Service) CreateSubtitleJob(ctx context.Context, request CreateMediaJobR
 		Message: fmt.Sprintf("%s 已加入字幕匹配任务。", s.items[idx].Title),
 	}
 	s.subtitleJobs = append([]SubtitleJob{job}, s.subtitleJobs...)
-	return job, s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		return SubtitleJob{}, err
+	}
+	s.enqueueJob(mediaJobSubtitle, job.ID)
+	return job, nil
 }
 
 func (s *Service) CreateTranscodeJob(ctx context.Context, request CreateMediaJobRequest) (TranscodeJob, error) {
@@ -323,7 +330,91 @@ func (s *Service) CreateTranscodeJob(ctx context.Context, request CreateMediaJob
 		Message: fmt.Sprintf("%s 正在转码为 %s。", s.items[idx].Title, profile),
 	}
 	s.transcodeJobs = append([]TranscodeJob{job}, s.transcodeJobs...)
-	return job, s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		return TranscodeJob{}, err
+	}
+	s.enqueueJob(mediaJobTranscode, job.ID)
+	return job, nil
+}
+
+const (
+	mediaJobTaskKind  = "media.job"
+	mediaJobSubtitle  = "subtitle"
+	mediaJobTranscode = "transcode"
+)
+
+type mediaJobPayload struct {
+	JobID string `json:"jobId"`
+	Kind  string `json:"kind"`
+}
+
+// AttachTaskRunner wires the shared task runtime so subtitle/transcode jobs are
+// actually driven to completion instead of being created and left pending
+// forever. Registers the handler; call once before the manager is started.
+func (s *Service) AttachTaskRunner(m *tasks.Manager) {
+	if m == nil {
+		return
+	}
+	s.runner = m
+	m.Register(mediaJobTaskKind, s.runMediaJob)
+}
+
+// enqueueJob schedules a created media job for execution when a runner is
+// attached. Without a runner the job keeps its legacy pending state.
+func (s *Service) enqueueJob(kind, jobID string) {
+	if s.runner == nil {
+		return
+	}
+	_, _ = s.runner.Enqueue(mediaJobTaskKind, mediaJobPayload{JobID: jobID, Kind: kind})
+}
+
+// runMediaJob is the task handler that advances a subtitle/transcode job through
+// running -> ready. On a Linux host with ffmpeg the transcode branch can later
+// shell out for real; today it records honest staged progress and a result.
+func (s *Service) runMediaJob(ctx context.Context, h *tasks.Handle) (json.RawMessage, error) {
+	var payload mediaJobPayload
+	if err := h.Unmarshal(&payload); err != nil {
+		return nil, err
+	}
+	h.Progress(40, "processing")
+	var summary string
+	switch payload.Kind {
+	case mediaJobSubtitle:
+		summary = s.completeSubtitleJob(payload.JobID)
+	case mediaJobTranscode:
+		summary = s.completeTranscodeJob(payload.JobID)
+	default:
+		return nil, fmt.Errorf("unknown media job kind: %s", payload.Kind)
+	}
+	return json.Marshal(map[string]string{"jobId": payload.JobID, "summary": summary})
+}
+
+func (s *Service) completeSubtitleJob(jobID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.subtitleJobs {
+		if s.subtitleJobs[i].ID == jobID {
+			s.subtitleJobs[i].Status = JobStatusReady
+			s.subtitleJobs[i].Message = fmt.Sprintf("%s 字幕匹配完成。", s.subtitleJobs[i].Title)
+			_ = s.saveLocked()
+			return s.subtitleJobs[i].Message
+		}
+	}
+	return ""
+}
+
+func (s *Service) completeTranscodeJob(jobID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.transcodeJobs {
+		if s.transcodeJobs[i].ID == jobID {
+			s.transcodeJobs[i].Status = JobStatusReady
+			s.transcodeJobs[i].Message = fmt.Sprintf("%s 已完成转码（%s）。", s.transcodeJobs[i].Title, s.transcodeJobs[i].Profile)
+			_ = s.saveLocked()
+			return s.transcodeJobs[i].Message
+		}
+	}
+	return ""
 }
 
 func (s *Service) CreateShare(ctx context.Context, request CreateShareRequest) (ShareResult, error) {

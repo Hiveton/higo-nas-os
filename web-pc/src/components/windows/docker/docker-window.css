@@ -1,4 +1,8 @@
-.docker-window {
+/* The create-container dialog renders via UiModal, which teleports its content
+   to <body>, outside .docker-window. Re-declare the docker design tokens on
+   .docker-wizard so the teleported wizard keeps the same look. */
+.docker-window,
+.docker-wizard {
   --docker-text: var(--text);
   --docker-text-strong: var(--text-strong);
   --docker-text-muted: var(--text-muted);
@@ -11,7 +15,9 @@
   --docker-button-border: rgba(19, 136, 255, 0.26);
   --docker-danger: #ef4444;
   --docker-danger-soft: rgba(239, 68, 68, 0.12);
-  --docker-modal-overlay: rgba(12, 24, 38, 0.32);
+}
+
+.docker-window {
   display: grid;
   grid-template-columns: minmax(230px, 280px) minmax(0, 1fr) minmax(240px, 300px);
   gap: 12px;
@@ -27,7 +33,10 @@
 .desktop--theme-dark .docker-window,
 [data-theme='dark'] .docker-window,
 .theme-dark .docker-window,
-body.theme-dark .docker-window {
+body.theme-dark .docker-window,
+[data-theme='dark'] .docker-wizard,
+.theme-dark .docker-wizard,
+body.theme-dark .docker-wizard {
   --docker-text: #dce7f5;
   --docker-text-strong: #f8fbff;
   --docker-text-muted: #9eb0c5;
@@ -39,7 +48,6 @@ body.theme-dark .docker-window {
   --docker-button-bg: rgba(17, 31, 49, 0.94);
   --docker-button-border: rgba(99, 170, 255, 0.34);
   --docker-danger-soft: rgba(239, 68, 68, 0.16);
-  --docker-modal-overlay: rgba(0, 0, 0, 0.72);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -55,7 +63,6 @@ body.theme-dark .docker-window {
     --docker-button-bg: rgba(17, 31, 49, 0.94);
     --docker-button-border: rgba(99, 170, 255, 0.34);
     --docker-danger-soft: rgba(239, 68, 68, 0.16);
-    --docker-modal-overlay: rgba(0, 0, 0, 0.72);
   }
 }
 
@@ -64,74 +71,46 @@ body.theme-dark .docker-window {
 .docker-window.docker-window--dark .docker-inspector,
 .docker-window.docker-window--dark .docker-card,
 .docker-window.docker-window--dark .docker-detail,
-.docker-window.docker-window--dark .docker-modal,
 .docker-window.docker-window--dark .docker-wizard-section,
 .docker-window.docker-window--dark .docker-review-card,
 .docker-window.docker-window--dark .docker-summary article,
 .docker-window.docker-window--dark .docker-choice-grid button,
-.docker-window.docker-window--dark .docker-check-row--card {
+.docker-window.docker-window--dark .docker-check-row--card,
+[data-theme='dark'] .docker-wizard .docker-wizard-section,
+[data-theme='dark'] .docker-wizard .docker-review-card,
+[data-theme='dark'] .docker-wizard .docker-choice-grid button,
+[data-theme='dark'] .docker-wizard .docker-check-row--card,
+.theme-dark .docker-wizard .docker-wizard-section,
+.theme-dark .docker-wizard .docker-review-card,
+.theme-dark .docker-wizard .docker-choice-grid button,
+.theme-dark .docker-wizard .docker-check-row--card {
   color: var(--docker-text) !important;
   background: var(--docker-panel) !important;
   border-color: var(--docker-border) !important;
   box-shadow: none;
 }
 
-.docker-window.docker-window--dark .docker-modal {
-  background: var(--docker-panel-strong) !important;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.56);
-}
-
-.docker-window.docker-window--dark .docker-modal__header,
-.docker-window.docker-window--dark .docker-modal__footer {
-  background: rgba(8, 15, 27, 0.98) !important;
-  border-color: var(--docker-border) !important;
-}
-
-.docker-window.docker-window--dark input,
-.docker-window.docker-window--dark select,
-.docker-window.docker-window--dark textarea {
-  color: var(--docker-text-strong) !important;
-  background: var(--docker-control) !important;
-  border-color: var(--docker-border) !important;
-}
-
-.docker-window.docker-window--dark input::placeholder,
-.docker-window.docker-window--dark textarea::placeholder {
-  color: rgba(180, 195, 213, 0.54) !important;
-}
-
-.docker-window.docker-window--dark .docker-button,
-.docker-window.docker-window--dark .docker-sidebar__header button,
-.docker-window.docker-window--dark .docker-actions button,
-.docker-window.docker-window--dark .docker-modal__close,
-.docker-window.docker-window--dark .docker-console__bar button,
-.docker-window.docker-window--dark .docker-card header button,
-.docker-window.docker-window--dark .docker-command__input button,
-.docker-window.docker-window--dark .docker-list-item button,
 .docker-window.docker-window--dark .docker-pills button,
-.docker-window.docker-window--dark .docker-detail-tabs button,
 .docker-window.docker-window--dark .docker-wizard-steps button,
-.docker-window.docker-window--dark .docker-inline-add,
-.docker-window.docker-window--dark .docker-dynamic-row button {
+[data-theme='dark'] .docker-wizard .docker-wizard-steps button,
+.theme-dark .docker-wizard .docker-wizard-steps button {
   color: var(--docker-text) !important;
   background: var(--docker-button-bg) !important;
   border-color: var(--docker-button-border) !important;
 }
 
-.docker-window.docker-window--dark .docker-button--primary,
-.docker-window.docker-window--dark .docker-primary {
-  color: #fff !important;
-  background: linear-gradient(135deg, #1f8cff, #4868ff) !important;
-  border-color: transparent !important;
-}
-
 .docker-window.docker-window--dark .docker-resource-tabs button.is-active,
 .docker-window.docker-window--dark .docker-stack-list button.is-active,
 .docker-window.docker-window--dark .docker-pills button.is-active,
-.docker-window.docker-window--dark .docker-detail-tabs button.is-active,
 .docker-window.docker-window--dark .docker-wizard-steps button.is-active,
 .docker-window.docker-window--dark .docker-wizard-steps button.is-done,
-.docker-window.docker-window--dark .docker-choice-grid button.is-active {
+.docker-window.docker-window--dark .docker-choice-grid button.is-active,
+[data-theme='dark'] .docker-wizard .docker-wizard-steps button.is-active,
+[data-theme='dark'] .docker-wizard .docker-wizard-steps button.is-done,
+[data-theme='dark'] .docker-wizard .docker-choice-grid button.is-active,
+.theme-dark .docker-wizard .docker-wizard-steps button.is-active,
+.theme-dark .docker-wizard .docker-wizard-steps button.is-done,
+.theme-dark .docker-wizard .docker-choice-grid button.is-active {
   color: #78c0ff !important;
   background: var(--docker-soft) !important;
   border-color: rgba(99, 170, 255, 0.42) !important;

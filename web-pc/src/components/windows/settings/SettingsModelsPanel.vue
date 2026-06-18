@@ -2,7 +2,7 @@
 import { BrainCircuit } from 'lucide-vue-next';
 import { UiBadge, UiButton, UiEmptyState, UiFormField, UiInput, UiSegmented, UiSelect, UiSwitch } from '../../ui';
 import { computed } from 'vue';
-import type { AiProvider, AiProviderInput, AiProviderKind } from '../../../api/types';
+import type { AiProvider, AiProviderInput, AiProviderKind, AiProviderPurpose } from '../../../api/types';
 
 const props = defineProps<{
   settings: { modelStrategy: string; modelProvider: string; taskRouting: boolean };
@@ -28,6 +28,15 @@ const emit = defineEmits<{
 
 const strategyOptions = computed(() => props.modelStrategies.map((s) => ({ value: s, label: s })));
 const kindOptions = computed(() => props.providerKinds.map((k) => ({ value: k.value, label: k.label })));
+
+const purposeOptions: { value: AiProviderPurpose; label: string }[] = [
+  { value: 'chat', label: '对话 (chat)' },
+  { value: 'embedding', label: '嵌入 (embedding)' },
+  { value: 'vision', label: '视觉 (vision)' },
+  { value: 'asr', label: '语音转写 (asr)' },
+];
+const purposeLabel = (purpose?: AiProviderPurpose) =>
+  purposeOptions.find((p) => p.value === (purpose ?? 'chat'))?.label ?? purpose ?? 'chat';
 </script>
 
 <template>
@@ -63,7 +72,7 @@ const kindOptions = computed(() => props.providerKinds.map((k) => ({ value: k.va
               <UiBadge v-if="provider.isDefault" tone="success" size="sm">默认</UiBadge>
             </strong>
             <small>
-              {{ providerKindLabel(provider.kind) }} · {{ provider.model }}
+              {{ purposeLabel(provider.purpose) }} · {{ providerKindLabel(provider.kind) }} · {{ provider.model }}
               <template v-if="provider.hasKey"> · 密钥 {{ provider.keyHint }}</template>
             </small>
           </div>
@@ -87,6 +96,9 @@ const kindOptions = computed(() => props.providerKinds.map((k) => ({ value: k.va
         </UiFormField>
         <UiFormField label="类型">
           <UiSelect v-model="providerForm.kind" :options="kindOptions" />
+        </UiFormField>
+        <UiFormField label="用途">
+          <UiSelect v-model="providerForm.purpose" :options="purposeOptions" />
         </UiFormField>
         <UiFormField label="Base URL（可选）">
           <UiInput v-model="providerForm.baseUrl" type="text" placeholder="如：http://localhost:11434/v1" />

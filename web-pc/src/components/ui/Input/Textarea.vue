@@ -44,7 +44,7 @@ function onInput(event: Event) {
   font-family: var(--font-ui);
   font-size: var(--fs-sm);
   line-height: var(--lh-normal);
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--control-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   resize: vertical;

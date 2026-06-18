@@ -24,12 +24,33 @@ const (
 	KindGemini ProviderKind = "gemini"
 )
 
+// Purpose is the role a provider plays in the AI pipeline. A single endpoint can
+// only serve one role; configure separate providers for chat vs embedding vs
+// vision vs speech. Empty is treated as chat for backward compatibility.
+type Purpose string
+
+const (
+	PurposeChat      Purpose = "chat"
+	PurposeEmbedding Purpose = "embedding"
+	PurposeVision    Purpose = "vision"
+	PurposeASR       Purpose = "asr"
+)
+
+// normalizePurpose maps empty to chat.
+func normalizePurpose(p Purpose) Purpose {
+	if p == "" {
+		return PurposeChat
+	}
+	return p
+}
+
 // Provider is a configured, bindable model endpoint. APIKey is stored verbatim on
 // disk but never serialized to clients (see ProviderView).
 type Provider struct {
 	ID        string       `json:"id"`
 	Name      string       `json:"name"`
 	Kind      ProviderKind `json:"kind"`
+	Purpose   Purpose      `json:"purpose,omitempty"`
 	BaseURL   string       `json:"baseUrl"`
 	APIKey    string       `json:"apiKey,omitempty"`
 	Model     string       `json:"model"`
@@ -44,6 +65,7 @@ type ProviderView struct {
 	ID        string       `json:"id"`
 	Name      string       `json:"name"`
 	Kind      ProviderKind `json:"kind"`
+	Purpose   Purpose      `json:"purpose"`
 	BaseURL   string       `json:"baseUrl"`
 	Model     string       `json:"model"`
 	Enabled   bool         `json:"enabled"`
@@ -59,6 +81,7 @@ type ProviderView struct {
 type ProviderInput struct {
 	Name      *string       `json:"name,omitempty"`
 	Kind      *ProviderKind `json:"kind,omitempty"`
+	Purpose   *Purpose      `json:"purpose,omitempty"`
 	BaseURL   *string       `json:"baseUrl,omitempty"`
 	APIKey    *string       `json:"apiKey,omitempty"`
 	Model     *string       `json:"model,omitempty"`
@@ -114,6 +137,7 @@ func (p Provider) toView() ProviderView {
 		ID:        p.ID,
 		Name:      p.Name,
 		Kind:      p.Kind,
+		Purpose:   normalizePurpose(p.Purpose),
 		BaseURL:   p.BaseURL,
 		Model:     p.Model,
 		Enabled:   p.Enabled,

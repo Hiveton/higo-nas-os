@@ -42,6 +42,13 @@ func registerSteward(r *registry) {
 			return c.StewardSuggestions(ctx)
 		})
 
+	addTool(r, "steward", "higo.steward.suggestions.refresh",
+		"Re-analyze the file tree (duplicates, large/stale files) and regenerate maintenance suggestions.",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.StewardRefresh(ctx)
+		})
+
 	addTool(r, "steward", "higo.steward.suggestions.preview",
 		"Preview the impact of a steward suggestion before confirming it.",
 		mutating(),

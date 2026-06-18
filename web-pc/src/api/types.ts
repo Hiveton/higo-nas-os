@@ -378,11 +378,13 @@ export type AiPolicy = {
 };
 
 export type AiProviderKind = 'openai' | 'anthropic' | 'gemini';
+export type AiProviderPurpose = 'chat' | 'embedding' | 'vision' | 'asr';
 
 export type AiProvider = {
   id: string;
   name: string;
   kind: AiProviderKind;
+  purpose: AiProviderPurpose;
   baseUrl: string;
   model: string;
   enabled: boolean;
@@ -395,6 +397,7 @@ export type AiProvider = {
 export type AiProviderInput = {
   name?: string;
   kind?: AiProviderKind;
+  purpose?: AiProviderPurpose;
   baseUrl?: string;
   apiKey?: string;
   model?: string;

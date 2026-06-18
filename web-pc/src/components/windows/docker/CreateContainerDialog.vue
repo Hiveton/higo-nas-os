@@ -197,7 +197,7 @@ const modeSelectOptions = [
             <div v-for="(port, index) in createForm.ports" :key="`port-${index}`" class="docker-dynamic-row docker-dynamic-row--ports">
               <UiInput v-model="port.host" placeholder="本地端口，可选" />
               <UiInput v-model="port.container" placeholder="容器端口，例如 80" />
-              <UiSelect v-model="port.protocol" :options="protocolSelectOptions" />
+              <UiSelect :model-value="port.protocol" :options="protocolSelectOptions" @update:model-value="(value) => (port.protocol = value as PortProtocol)" />
               <UiIconButton :icon="X" label="移除端口" size="sm" variant="soft" @click="emit('remove-port', index)" />
             </div>
           </div>
@@ -212,7 +212,7 @@ const modeSelectOptions = [
             <div v-for="(mount, index) in createForm.mounts" :key="`mount-${index}`" class="docker-dynamic-row docker-dynamic-row--mounts">
               <UiInput v-model="mount.host" placeholder="宿主机路径，例如 /srv/data" />
               <UiInput v-model="mount.container" placeholder="容器路径，例如 /data" />
-              <UiSelect v-model="mount.mode" :options="modeSelectOptions" />
+              <UiSelect :model-value="mount.mode" :options="modeSelectOptions" @update:model-value="(value) => (mount.mode = value as 'rw' | 'ro')" />
               <UiIconButton :icon="X" label="移除挂载" size="sm" variant="soft" @click="emit('remove-mount', index)" />
             </div>
           </div>

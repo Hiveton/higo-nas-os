@@ -93,6 +93,11 @@
   --z-toast: 1400;
   --z-context-menu: 1500;
 
+  /* Form-control surface tokens (theme-aware; used by Ui form components) */
+  --control-bg: rgba(255, 255, 255, 0.62);
+  --control-bg-strong: rgba(255, 255, 255, 0.72);
+  --control-border: rgba(100, 136, 166, 0.2);
+
   /* Glass surface semantic tokens (shared by .u-glass and Card/Panel) */
   --glass-bg: linear-gradient(180deg, var(--surface-glass-strong), rgba(246, 251, 255, 0.52));
   --glass-border: rgba(255, 255, 255, 0.44);

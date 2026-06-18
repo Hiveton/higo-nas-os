@@ -18,7 +18,7 @@ const report = process.argv.includes('--report');
 
 // Baseline ceilings — LOWER these as debt is paid down; never raise them.
 const BASELINE = {
-  scopedHex: 23,
+  scopedHex: 19,
   bareZIndex: 16,
   strayBackdrop: 16,
 };

@@ -533,7 +533,7 @@ const providerKinds: Array<{ value: AiProviderKind; label: string }> = [
 ];
 
 function emptyProviderForm(): AiProviderInput {
-  return { name: '', kind: 'openai', baseUrl: '', apiKey: '', model: '', isDefault: false };
+  return { name: '', kind: 'openai', purpose: 'chat', baseUrl: '', apiKey: '', model: '', isDefault: false };
 }
 
 const providers = ref<AiProvider[]>([]);

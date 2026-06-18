@@ -66,7 +66,7 @@ function onChange(event: Event) {
   align-items: center;
   width: 100%;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--control-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);

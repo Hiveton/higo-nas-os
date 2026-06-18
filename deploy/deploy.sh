@@ -55,8 +55,22 @@ SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
   -o ConnectTimeout=10 -o LogLevel=ERROR)
 
 rsh() { sshpass -e ssh "${SSH_OPTS[@]}" "$SSH_USER@$HOST" "$@"; }
-# run a command on the remote as root via sudo -S (password on stdin)
-rsudo() { sshpass -e ssh "${SSH_OPTS[@]}" "$SSH_USER@$HOST" "echo '$SSH_PASS' | sudo -S -p '' bash -c \"$1\""; }
+# Run a (possibly multi-line) script on the remote as root.
+# The script is shipped as a file and executed with `sudo bash <file>` instead
+# of being wrapped in `sudo bash -c "$1"`. The old form re-parsed the script
+# through an extra shell layer, which broke on embedded single quotes /
+# redirections (e.g. the HIGO_DATABASE_URL injection). The remote temp file is
+# always removed afterwards (it may contain config such as the DB DSN).
+rsudo() {
+  local local_script remote_script
+  local_script="$(mktemp "${TMPDIR:-/tmp}/higo-rsudo.XXXXXX")"
+  remote_script="/tmp/higo-rsudo.$$.sh"
+  printf '%s\n' "$1" > "$local_script"
+  sshpass -e scp "${SSH_OPTS[@]}" "$local_script" "$SSH_USER@$HOST:$remote_script" >/dev/null
+  rm -f "$local_script"
+  sshpass -e ssh "${SSH_OPTS[@]}" "$SSH_USER@$HOST" \
+    "echo '$SSH_PASS' | sudo -S -p '' bash '$remote_script'; rc=\$?; rm -f '$remote_script'; exit \$rc"
+}
 
 log() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 
@@ -117,6 +131,10 @@ rsudo "set -e
   install -m 0755 $REMOTE_STAGE/bin/higo-mcp     $INSTALL_BIN/higo-mcp
   $WEB_INSTALL
   [ -f /etc/higoos/server.env ] || install -m 0644 $REMOTE_STAGE/server.env /etc/higoos/server.env
+  # AI index/search backbone: pgvector container (idempotent) + inject DSN.
+  docker inspect higo-postgres >/dev/null 2>&1 || docker run -d --name higo-postgres --restart unless-stopped -e POSTGRES_USER=higo -e POSTGRES_PASSWORD=higo -e POSTGRES_DB=higo -v higo-pgdata:/var/lib/postgresql/data -p 127.0.0.1:5433:5432 pgvector/pgvector:pg16
+  for i in \$(seq 1 30); do docker exec higo-postgres pg_isready -U higo >/dev/null 2>&1 && break; sleep 1; done
+  grep -q '^HIGO_DATABASE_URL=' /etc/higoos/server.env || echo 'HIGO_DATABASE_URL=postgres://higo:higo@127.0.0.1:5433/higo?sslmode=disable' >> /etc/higoos/server.env
   install -m 0644 $REMOTE_STAGE/higo-api.service    /etc/systemd/system/higo-api.service
   install -m 0644 $REMOTE_STAGE/higo-worker.service /etc/systemd/system/higo-worker.service
   systemctl daemon-reload

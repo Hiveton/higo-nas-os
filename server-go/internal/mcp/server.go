@@ -50,6 +50,7 @@ func BuildServer(cfg platform.Config, client *apiclient.Client) *mcp.Server {
 	reg := &registry{server: srv, client: client, domains: parseDomains(cfg.MCPDomains)}
 
 	registerSystem(reg)
+	registerSearch(reg)
 	registerDesktop(reg)
 	registerFiles(reg)
 	registerMonitoring(reg)
@@ -69,6 +70,7 @@ func BuildServer(cfg platform.Config, client *apiclient.Client) *mcp.Server {
 	registerAccounts(reg)
 	registerBackups(reg)
 	registerAppCenter(reg)
+	registerTasks(reg)
 
 	return srv
 }

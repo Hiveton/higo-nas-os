@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"higoos/server-go/internal/tasks"
 )
 
 func TestNewServiceWithRootsScansActualMediaFiles(t *testing.T) {

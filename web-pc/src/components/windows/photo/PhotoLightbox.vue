@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Captions, Film, Image, Music, Video, Wand2 } from 'lucide-vue-next';
+import { UiButton } from '../../ui';
 import type { MediaItem } from '../../../api/types';
 
 defineProps<{
@@ -52,18 +53,15 @@ const emit = defineEmits<{
           </div>
         </dl>
         <div class="photo-media__actions photo-media__actions--dialog">
-          <button type="button" :disabled="!hasMedia || busyAction === 'subtitle'" @click="emit('add-subtitle')">
-            <Captions :size="14" />
+          <UiButton variant="soft" size="sm" :icon-left="Captions" :disabled="!hasMedia" :loading="busyAction === 'subtitle'" @click="emit('add-subtitle')">
             字幕任务
-          </button>
-          <button type="button" :disabled="!hasMedia || busyAction === 'transcode'" @click="emit('add-transcode')">
-            <Film :size="14" />
+          </UiButton>
+          <UiButton variant="soft" size="sm" :icon-left="Film" :disabled="!hasMedia" :loading="busyAction === 'transcode'" @click="emit('add-transcode')">
             转码任务
-          </button>
-          <button type="button" :disabled="!hasMedia || busyAction === 'memory'" @click="emit('generate-memory')">
-            <Wand2 :size="14" />
+          </UiButton>
+          <UiButton variant="soft" size="sm" :icon-left="Wand2" :disabled="!hasMedia" :loading="busyAction === 'memory'" @click="emit('generate-memory')">
             生成回忆
-          </button>
+          </UiButton>
         </div>
       </div>
     </div>

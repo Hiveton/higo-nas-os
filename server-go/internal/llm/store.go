@@ -71,14 +71,21 @@ func (s *Store) Get(id string) (Provider, error) {
 	return Provider{}, fmt.Errorf("llm provider not found: %s", id)
 }
 
-// Default returns the provider marked default, or the single enabled provider
-// when exactly one exists. It is the provider the assistant binds to.
+// Default returns the chat provider the assistant binds to.
 func (s *Store) Default() (Provider, error) {
+	return s.DefaultFor(PurposeChat)
+}
+
+// DefaultFor returns the default enabled provider for a given purpose, or the
+// single enabled provider of that purpose when exactly one exists. Providers
+// with an empty purpose count as chat.
+func (s *Store) DefaultFor(purpose Purpose) (Provider, error) {
+	purpose = normalizePurpose(purpose)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var enabled []Provider
 	for _, p := range s.providers {
-		if !p.Enabled {
+		if !p.Enabled || normalizePurpose(p.Purpose) != purpose {
 			continue
 		}
 		if p.IsDefault {
@@ -89,7 +96,7 @@ func (s *Store) Default() (Provider, error) {
 	if len(enabled) == 1 {
 		return enabled[0], nil
 	}
-	return Provider{}, fmt.Errorf("no default llm provider configured")
+	return Provider{}, fmt.Errorf("no default %s provider configured", purpose)
 }
 
 // Create adds a new provider from the given input and returns its masked view.
@@ -158,14 +165,24 @@ func (s *Store) Delete(id string) error {
 	return fmt.Errorf("llm provider not found: %s", id)
 }
 
-// enforceSingleDefaultLocked clears IsDefault on every provider except keepID
-// when makeDefault is true. Callers hold s.mu.
+// enforceSingleDefaultLocked clears IsDefault on every other provider of the
+// SAME purpose when keepID is being made default. Defaults are per-purpose, so
+// a chat default and an embedding default can coexist. Callers hold s.mu.
 func (s *Store) enforceSingleDefaultLocked(keepID string, makeDefault bool) {
 	if !makeDefault {
 		return
 	}
+	var purpose Purpose
+	for _, p := range s.providers {
+		if p.ID == keepID {
+			purpose = normalizePurpose(p.Purpose)
+			break
+		}
+	}
 	for i := range s.providers {
-		s.providers[i].IsDefault = s.providers[i].ID == keepID
+		if normalizePurpose(s.providers[i].Purpose) == purpose {
+			s.providers[i].IsDefault = s.providers[i].ID == keepID
+		}
 	}
 }
 
@@ -193,6 +210,9 @@ func applyInput(p *Provider, in ProviderInput) {
 	}
 	if in.Kind != nil {
 		p.Kind = *in.Kind
+	}
+	if in.Purpose != nil {
+		p.Purpose = *in.Purpose
 	}
 	if in.BaseURL != nil {
 		p.BaseURL = strings.TrimRight(strings.TrimSpace(*in.BaseURL), "/")
@@ -222,6 +242,11 @@ func validate(p Provider) error {
 	}
 	if p.Model == "" {
 		return fmt.Errorf("llm provider model is required")
+	}
+	switch normalizePurpose(p.Purpose) {
+	case PurposeChat, PurposeEmbedding, PurposeVision, PurposeASR:
+	default:
+		return fmt.Errorf("llm provider purpose must be one of chat, embedding, vision, asr")
 	}
 	return nil
 }

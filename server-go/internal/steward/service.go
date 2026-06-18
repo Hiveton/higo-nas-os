@@ -76,6 +76,48 @@ func (s *Service) ListSuggestions(ctx context.Context) []Suggestion {
 	return out
 }
 
+// ReplaceSuggestions swaps the set of PENDING suggestions with freshly analyzed
+// ones, preserving already confirmed/dismissed suggestions so audit history and
+// in-flight previews stay valid. Returns the resulting suggestion list.
+func (s *Service) ReplaceSuggestions(ctx context.Context, generated []Suggestion) ([]Suggestion, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Keep non-pending (resolved) suggestions in their original order.
+	kept := make([]string, 0, len(s.order))
+	keptSet := map[string]bool{}
+	for _, id := range s.order {
+		if sug, ok := s.suggestions[id]; ok && sug.Status != SuggestionPending {
+			kept = append(kept, id)
+			keptSet[id] = true
+		} else {
+			delete(s.suggestions, id)
+		}
+	}
+
+	now := s.now().UTC()
+	order := kept
+	for _, sug := range generated {
+		if sug.ID == "" || keptSet[sug.ID] {
+			continue // don't resurrect a resolved suggestion this run
+		}
+		sug.Status = SuggestionPending
+		sug.UpdateAt = now
+		s.suggestions[sug.ID] = sug
+		order = append(order, sug.ID)
+	}
+	s.order = order
+
+	out := make([]Suggestion, 0, len(s.order))
+	for _, id := range s.order {
+		out = append(out, s.suggestions[id])
+	}
+	return out, s.saveLocked()
+}
+
 func (s *Service) Preview(ctx context.Context, id string, request PreviewRequest) (SuggestionPreview, error) {
 	if err := ctx.Err(); err != nil {
 		return SuggestionPreview{}, err

@@ -41,7 +41,7 @@ import DockerRegistryPanel from './docker/DockerRegistryPanel.vue';
 import DockerNetworksPanel from './docker/DockerNetworksPanel.vue';
 import DockerVolumesPanel from './docker/DockerVolumesPanel.vue';
 import CreateContainerDialog from './docker/CreateContainerDialog.vue';
-import { UiBadge, UiButton, UiCheckbox, UiEmptyState, UiIconButton, UiInput, UiModal, UiSelect, UiSlider, UiTabs, useConfirm } from '../ui';
+import { UiBadge, UiButton, UiCheckbox, UiEmptyState, UiInput, UiModal, UiSlider, UiTabs, useConfirm } from '../ui';
 import type { UiTone } from '../ui';
 import './docker/docker-window.css';
 
@@ -1416,7 +1416,7 @@ onUnmounted(() => {
       size="sm"
       @close="closeDeleteContainerDialog"
     >
-      <template v-if="selectedContainer">
+      <div v-if="selectedContainer" class="docker-wizard">
         <p class="docker-delete-hint">删除后容器配置和运行状态将不可恢复。</p>
         <div class="docker-delete-summary">
           <strong>{{ selectedContainer.name }}</strong>
@@ -1425,7 +1425,7 @@ onUnmounted(() => {
         <div class="docker-check-row">
           <UiCheckbox v-model="deleteContainerRemoveVolumes" label="同时删除匿名卷" />
         </div>
-      </template>
+      </div>
       <template #footer>
         <UiButton variant="ghost" tone="neutral" @click="closeDeleteContainerDialog">取消</UiButton>
         <UiButton

@@ -215,6 +215,53 @@ func (a *API) storageTaskByID(w http.ResponseWriter, r *http.Request) {
 	platform.WriteJSON(w, r, http.StatusOK, task)
 }
 
+// tasksList returns the background task ledger from the shared task runtime,
+// optionally filtered by ?kind=.
+func (a *API) tasksList(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
+	platform.WriteJSON(w, r, http.StatusOK, map[string]any{"tasks": a.tasks.List(kind)})
+}
+
+// taskByID returns a single task (GET /api/v1/tasks/{id}) or cancels a queued
+// one (POST /api/v1/tasks/{id}/cancel).
+func (a *API) taskByID(w http.ResponseWriter, r *http.Request) {
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/tasks/"), "/")
+	if rest == "" {
+		platform.WriteError(w, r, http.StatusNotFound, "task_not_found", "task id is required")
+		return
+	}
+	parts := strings.Split(rest, "/")
+	id := parts[0]
+	if len(parts) == 2 && parts[1] == "cancel" {
+		if !allowMethod(w, r, http.MethodPost) {
+			return
+		}
+		task, err := a.tasks.Cancel(id)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "task_cancel_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, task)
+		return
+	}
+	if len(parts) != 1 {
+		platform.WriteError(w, r, http.StatusNotFound, "task_not_found", "unknown task route")
+		return
+	}
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	task, err := a.tasks.Get(id)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusNotFound, "task_not_found", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, task)
+}
+
 func (a *API) downloadTasks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:

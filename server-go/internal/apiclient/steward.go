@@ -12,6 +12,12 @@ func (c *Client) StewardSuggestions(ctx context.Context) (json.RawMessage, error
 	return c.Do(ctx, http.MethodGet, "/api/v1/steward/suggestions", nil, nil)
 }
 
+// StewardRefresh re-analyzes the file tree and returns fresh suggestions
+// (POST /api/v1/steward/suggestions).
+func (c *Client) StewardRefresh(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/api/v1/steward/suggestions", nil, nil)
+}
+
 // StewardPreviewSuggestion previews a steward suggestion
 // (POST /api/v1/steward/suggestions/{id}/preview).
 func (c *Client) StewardPreviewSuggestion(ctx context.Context, id string, body any) (json.RawMessage, error) {

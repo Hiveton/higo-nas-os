@@ -16,6 +16,11 @@ type Config struct {
 	StaticDir    string
 	Ready        bool
 
+	// DatabaseURL is the Postgres (pgvector) DSN powering the AI index/search
+	// backbone. Empty disables DB-backed AI features (the app degrades to the
+	// JSON-state stubs), so Mac dev keeps working without a database.
+	DatabaseURL string
+
 	// MCPEnabled controls whether the embedded Model Context Protocol endpoint
 	// (/mcp) is mounted on the API server. Defaults to true in dev/test.
 	MCPEnabled bool
@@ -34,6 +39,7 @@ func LoadConfig() Config {
 		StateDir:     getenv("HIGO_STATE_DIR", defaultStateDir()),
 		NASRoot:      getenv("HIGO_NAS_ROOT", ""),
 		StaticDir:    getenv("HIGO_STATIC_DIR", ""),
+		DatabaseURL:  getenv("HIGO_DATABASE_URL", ""),
 		Ready:        true,
 		MCPEnabled:   getenvBool("HIGO_MCP_ENABLED", true),
 		MCPDomains:   getenv("HIGO_MCP_DOMAINS", ""),

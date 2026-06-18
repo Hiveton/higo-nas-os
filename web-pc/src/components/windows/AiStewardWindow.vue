@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { AlertTriangle, ArchiveRestore, CheckCircle2, History, ShieldAlert } from 'lucide-vue-next';
+import { AlertTriangle, ArchiveRestore, CheckCircle2, History, RefreshCw, ShieldAlert } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { AuditEntry, StewardSuggestion } from '../../api/types';
 import { auditEntries as seedAuditEntries, stewardSuggestions as seedStewardSuggestions } from '../../data/higoos';
@@ -48,6 +48,20 @@ async function loadStewardState() {
     backendNotice.value = 'AI 文件管家已连接后端，建议、确认与审计会实时写回。';
   } catch (error) {
     backendNotice.value = `后端暂不可用，继续使用本地缓存：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function refreshSuggestions() {
+  loading.value = true;
+  try {
+    const suggestions = await apiClient.steward.refresh();
+    stewardSuggestions.value = suggestions;
+    activeSuggestion.value = visibleSuggestions.value[0]?.title ?? '';
+    backendNotice.value = `已重新分析文件，生成 ${suggestions.length} 条建议。`;
+  } catch (error) {
+    backendNotice.value = `重新分析失败：${error instanceof Error ? error.message : 'unknown error'}`;
   } finally {
     loading.value = false;
   }
@@ -117,7 +131,9 @@ onMounted(loadStewardState);
           <p>{{ loading ? '正在同步后端' : '智能整理队列' }}</p>
           <strong>{{ visibleSuggestions.length }} 条建议等待处理</strong>
         </div>
-      <CheckCircle2 :size="30" />
+      <UiButton size="sm" variant="soft" :icon-left="RefreshCw" :loading="loading" @click="refreshSuggestions">
+        重新分析
+      </UiButton>
     </section>
 
     <section class="ai-steward__suggestions" aria-label="智能整理建议">
