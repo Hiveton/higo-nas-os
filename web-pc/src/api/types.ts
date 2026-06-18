@@ -356,6 +356,38 @@ export type AiPolicy = {
   sensitive: string;
 };
 
+export type AiProviderKind = 'openai' | 'anthropic' | 'gemini';
+
+export type AiProvider = {
+  id: string;
+  name: string;
+  kind: AiProviderKind;
+  baseUrl: string;
+  model: string;
+  enabled: boolean;
+  isDefault: boolean;
+  hasKey: boolean;
+  keyHint?: string;
+  createdAt?: string;
+};
+
+export type AiProviderInput = {
+  name?: string;
+  kind?: AiProviderKind;
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+  enabled?: boolean;
+  isDefault?: boolean;
+};
+
+export type AiProviderTestResult = {
+  ok: boolean;
+  model: string;
+  reply: string;
+  latencyMs: number;
+};
+
 export type DownloadTask = {
   id: number | string;
   name: string;

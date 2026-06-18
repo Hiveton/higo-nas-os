@@ -80,26 +80,47 @@ async function loadAssistantState() {
 async function sendMessage(text = draft.value) {
   const trimmed = text.trim();
   if (!trimmed) return;
-  const userMessage: AssistantMessage = { id: `draft-${Date.now()}`, role: 'user', text: trimmed };
-  messages.value.push(userMessage);
+  messages.value.push({ id: `draft-${Date.now()}`, role: 'user', text: trimmed });
   draft.value = '';
   sending.value = true;
+
+  // Push an empty assistant bubble and stream tokens into it. Grab the reactive
+  // proxy from the array so mutations are tracked by Vue.
+  messages.value.push({ id: `stream-${Date.now()}`, role: 'assistant', text: '' });
+  const reply = messages.value[messages.value.length - 1];
+
   try {
     const threadId = thread.value?.id ?? 'thread-current';
-    const assistantMessage = await apiClient.assistant.sendMessage(threadId, {
-      role: 'user',
-      text: trimmed,
-    });
-    messages.value.push(assistantMessage);
-    assistantNotice.value = assistantMessage.pendingActionId
-      ? '已生成待确认动作，确认前不会执行高风险操作。'
-      : '助手回复已同步。';
+    await apiClient.assistant.streamMessage(
+      threadId,
+      { role: 'user', text: trimmed },
+      {
+        onDelta: (chunk) => {
+          reply.text += chunk;
+        },
+        onDone: ({ message, error }) => {
+          if (error) {
+            assistantNotice.value = `生成失败：${error}`;
+            if (!reply.text) reply.text = `生成失败：${error}`;
+            return;
+          }
+          const final = message as AssistantMessage | undefined;
+          if (final) {
+            if (final.id) reply.id = final.id;
+            if (final.text) reply.text = final.text;
+            reply.pendingActionId = final.pendingActionId;
+            reply.citations = final.citations;
+          }
+          assistantNotice.value = reply.pendingActionId
+            ? '已生成待确认动作，确认前不会执行高风险操作。'
+            : '助手回复已同步。';
+        },
+      },
+    );
   } catch (error) {
-    messages.value.push({
-      id: `fallback-${Date.now()}`,
-      role: 'assistant',
-      text: `已根据当前权限生成「${trimmed}」的执行草案，高风险动作会等待你确认。`,
-    });
+    if (!reply.text) {
+      reply.text = `已根据当前权限生成「${trimmed}」的执行草案，高风险动作会等待你确认。`;
+    }
     assistantNotice.value = `发送失败，已保留本地回复：${error instanceof Error ? error.message : 'unknown error'}`;
   } finally {
     sending.value = false;

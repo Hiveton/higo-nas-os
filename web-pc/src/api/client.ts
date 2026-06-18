@@ -1,6 +1,10 @@
-import { DELETE, GET, POST, PUT, buildApiUrl, createEventStream } from './runtime';
+import { DELETE, GET, POST, PUT, buildApiUrl, createEventStream, streamSSE } from './runtime';
+import type { ChatStreamHandlers } from './runtime';
 import type {
   AiPolicy,
+  AiProvider,
+  AiProviderInput,
+  AiProviderTestResult,
   Alert,
   AlbumItem,
   AccountGroup,
@@ -221,8 +225,18 @@ export const apiClient = {
     getThread: (id: Id) => GET<AssistantThread>(`/api/v1/assistant/threads/${pathId(id)}`),
     sendMessage: (threadId: Id, message: Pick<AssistantMessage, 'role' | 'text'>) =>
       POST<AssistantMessage>(`/api/v1/assistant/threads/${pathId(threadId)}/messages`, message),
+    streamMessage: (threadId: Id, message: Pick<AssistantMessage, 'role' | 'text'>, handlers: ChatStreamHandlers) =>
+      streamSSE(`/api/v1/assistant/threads/${pathId(threadId)}/messages`, message, handlers),
     confirmAction: (id: Id, payload?: RecordPayload) =>
       POST<TaskResponse>(`/api/v1/assistant/actions/${pathId(id)}/confirm`, payload ?? {}),
+  },
+
+  ai: {
+    listProviders: () => GET<AiProvider[]>('/api/v1/ai/providers'),
+    createProvider: (payload: AiProviderInput) => POST<AiProvider>('/api/v1/ai/providers', payload),
+    updateProvider: (id: Id, payload: AiProviderInput) => PUT<AiProvider>(`/api/v1/ai/providers/${pathId(id)}`, payload),
+    deleteProvider: (id: Id) => DELETE<{ id: string; deleted: boolean }>(`/api/v1/ai/providers/${pathId(id)}`),
+    testProvider: (id: Id) => POST<AiProviderTestResult>(`/api/v1/ai/providers/${pathId(id)}/test`, {}),
   },
 
   media: {

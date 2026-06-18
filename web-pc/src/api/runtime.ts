@@ -123,6 +123,77 @@ export function createEventStream(path = '/api/v1/events/stream', options: Event
   });
 }
 
+export type ChatStreamHandlers = {
+  onDelta?: (text: string) => void;
+  onDone?: (payload: { message?: unknown; error?: string }) => void;
+  signal?: AbortSignal;
+};
+
+/**
+ * streamSSE POSTs a request and consumes a text/event-stream response. Unlike
+ * createEventStream (EventSource, GET-only) this allows a request body, which the
+ * assistant message endpoint needs. It parses `data: {json}` frames, forwarding
+ * `delta` text to onDelta and the terminal `done` frame to onDone.
+ */
+export async function streamSSE(path: string, body: unknown, handlers: ChatStreamHandlers = {}): Promise<void> {
+  const requestId = createRequestId();
+  const url = buildApiUrl(path);
+  const response = await fetch(url, {
+    method: 'POST',
+    credentials: API_CREDENTIALS,
+    signal: handlers.signal,
+    headers: {
+      Accept: 'text/event-stream',
+      'Content-Type': 'application/json',
+      'X-Request-Id': requestId,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok || !response.body) {
+    throw new ApiError(`Stream request failed with status ${response.status}`, {
+      status: response.status,
+      statusText: response.statusText,
+      requestId,
+      url,
+      method: 'POST',
+    });
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const dispatch = (raw: string) => {
+    const dataLines = raw
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice('data:'.length).trim());
+    if (dataLines.length === 0) return;
+    const payload = dataLines.join('\n');
+    try {
+      const parsed = JSON.parse(payload) as { delta?: string; done?: boolean; error?: string; message?: unknown };
+      if (typeof parsed.delta === 'string' && parsed.delta) handlers.onDelta?.(parsed.delta);
+      if (parsed.done) handlers.onDone?.({ message: parsed.message, error: parsed.error });
+    } catch {
+      // Ignore frames that are not valid JSON.
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary !== -1) {
+      dispatch(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+  if (buffer.trim()) dispatch(buffer);
+}
+
 export function buildApiUrl(path: string, query?: ApiQuery) {
   const url = path.startsWith('http://') || path.startsWith('https://')
     ? path

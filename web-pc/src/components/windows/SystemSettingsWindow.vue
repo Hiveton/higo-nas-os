@@ -22,7 +22,14 @@ import {
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import { settingsStore } from '../../stores/settings';
-import type { AccountSummary, AccountUser, SettingsState as ApiSettingsState } from '../../api/types';
+import type {
+  AccountSummary,
+  AccountUser,
+  AiProvider,
+  AiProviderInput,
+  AiProviderKind,
+  SettingsState as ApiSettingsState,
+} from '../../api/types';
 
 type CategoryId =
   | 'accounts'
@@ -497,10 +504,91 @@ async function grantAccountSpace() {
   }
 }
 
+// --- LLM provider binding ---------------------------------------------------
+
+const providerKinds: Array<{ value: AiProviderKind; label: string }> = [
+  { value: 'openai', label: 'OpenAI 兼容' },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'gemini', label: 'Google Gemini' },
+];
+
+function emptyProviderForm(): AiProviderInput {
+  return { name: '', kind: 'openai', baseUrl: '', apiKey: '', model: '', isDefault: false };
+}
+
+const providers = ref<AiProvider[]>([]);
+const providerForm = ref<AiProviderInput>(emptyProviderForm());
+const providerBusy = ref(false);
+const providerNotice = ref('绑定 OpenAI、Anthropic、Gemini 或任意 OpenAI 兼容端点后，助手将给出真实回答。');
+
+const providerKindLabel = (kind: AiProviderKind) =>
+  providerKinds.find((item) => item.value === kind)?.label ?? kind;
+
+async function loadProviders() {
+  try {
+    providers.value = await apiClient.ai.listProviders();
+  } catch (error) {
+    providerNotice.value = `无法加载模型供应商：${error instanceof Error ? error.message : 'unknown error'}`;
+  }
+}
+
+async function submitProvider() {
+  const form = providerForm.value;
+  if (!form.name?.trim() || !form.model?.trim()) {
+    providerNotice.value = '请填写名称和模型 ID。';
+    return;
+  }
+  providerBusy.value = true;
+  try {
+    await apiClient.ai.createProvider(form);
+    providerForm.value = emptyProviderForm();
+    providerNotice.value = '已添加模型供应商。';
+    await loadProviders();
+  } catch (error) {
+    providerNotice.value = `添加失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    providerBusy.value = false;
+  }
+}
+
+async function setDefaultProvider(provider: AiProvider) {
+  try {
+    await apiClient.ai.updateProvider(provider.id, { isDefault: true });
+    await loadProviders();
+    providerNotice.value = `已将「${provider.name}」设为默认模型。`;
+  } catch (error) {
+    providerNotice.value = `设置默认失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  }
+}
+
+async function removeProvider(provider: AiProvider) {
+  try {
+    await apiClient.ai.deleteProvider(provider.id);
+    await loadProviders();
+    providerNotice.value = `已删除「${provider.name}」。`;
+  } catch (error) {
+    providerNotice.value = `删除失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  }
+}
+
+async function testProvider(provider: AiProvider) {
+  providerBusy.value = true;
+  providerNotice.value = `正在测试「${provider.name}」…`;
+  try {
+    const result = await apiClient.ai.testProvider(provider.id);
+    providerNotice.value = `「${provider.name}」连接成功 · ${result.latencyMs}ms · 回复：${result.reply || '(空)'}`;
+  } catch (error) {
+    providerNotice.value = `「${provider.name}」连接失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    providerBusy.value = false;
+  }
+}
+
 onMounted(async () => {
   const [nextSettings] = await Promise.all([
     settingsStore.loadSettings(),
     loadAccounts(),
+    loadProviders(),
   ]);
   if (nextSettings.model || nextSettings.privacy || nextSettings.ui) {
     applyBackendSettings(nextSettings);
@@ -741,6 +829,60 @@ onMounted(async () => {
           <div class="system-settings__metric">
             <BrainCircuit :size="17" />
             <p>{{ modelSummary }}</p>
+          </div>
+
+          <div class="provider-binding">
+            <div class="provider-binding__head">
+              <strong>模型供应商绑定</strong>
+              <span>{{ providerNotice }}</span>
+            </div>
+
+            <ul v-if="providers.length" class="provider-list">
+              <li v-for="provider in providers" :key="provider.id" class="provider-list__item">
+                <div class="provider-list__info">
+                  <strong>
+                    {{ provider.name }}
+                    <em v-if="provider.isDefault" class="provider-list__badge">默认</em>
+                  </strong>
+                  <small>
+                    {{ providerKindLabel(provider.kind) }} · {{ provider.model }}
+                    <template v-if="provider.hasKey"> · 密钥 {{ provider.keyHint }}</template>
+                  </small>
+                </div>
+                <div class="provider-list__actions">
+                  <button type="button" :disabled="providerBusy" @click="testProvider(provider)">测试</button>
+                  <button v-if="!provider.isDefault" type="button" @click="setDefaultProvider(provider)">设为默认</button>
+                  <button type="button" class="provider-list__danger" @click="removeProvider(provider)">删除</button>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="provider-list__empty">尚未绑定任何模型。添加一个 OpenAI / Anthropic / Gemini 端点即可启用真实问答。</p>
+
+            <form class="provider-form" @submit.prevent="submitProvider">
+              <label class="system-settings__field">
+                <span>名称</span>
+                <input v-model="providerForm.name" type="text" placeholder="如：公司 GPT-4o" />
+              </label>
+              <label class="system-settings__field">
+                <span>类型</span>
+                <select v-model="providerForm.kind">
+                  <option v-for="kind in providerKinds" :key="kind.value" :value="kind.value">{{ kind.label }}</option>
+                </select>
+              </label>
+              <label class="system-settings__field">
+                <span>Base URL（可选）</span>
+                <input v-model="providerForm.baseUrl" type="text" placeholder="如：http://localhost:11434/v1" />
+              </label>
+              <label class="system-settings__field">
+                <span>模型 ID</span>
+                <input v-model="providerForm.model" type="text" placeholder="如：gpt-4o-mini / claude-3-5-sonnet / gemini-1.5-pro" />
+              </label>
+              <label class="system-settings__field">
+                <span>API Key</span>
+                <input v-model="providerForm.apiKey" type="password" placeholder="本地模型可留空" autocomplete="off" />
+              </label>
+              <button type="submit" class="provider-form__submit" :disabled="providerBusy">添加供应商</button>
+            </form>
           </div>
         </div>
 
@@ -1524,6 +1666,141 @@ onMounted(async () => {
 
   .system-settings__footer-actions button {
     flex: 1 1 0;
+  }
+}
+
+.provider-binding {
+  display: grid;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 12px;
+  border: 1px solid rgba(90, 128, 160, 0.16);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.provider-binding__head {
+  display: grid;
+  gap: 4px;
+}
+
+.provider-binding__head strong {
+  font-size: 13px;
+  color: var(--text-strong);
+}
+
+.provider-binding__head span {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.provider-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.provider-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(90, 128, 160, 0.14);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.provider-list__info strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-strong);
+}
+
+.provider-list__info small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.provider-list__badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--accent-green);
+  background: rgba(34, 197, 94, 0.14);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.provider-list__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.provider-list__actions button {
+  padding: 5px 9px;
+  border: 1px solid rgba(19, 136, 255, 0.2);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  background: rgba(231, 247, 255, 0.7);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.provider-list__actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.provider-list__danger {
+  color: var(--accent-red, #e5484d) !important;
+  border-color: rgba(229, 72, 77, 0.24) !important;
+  background: rgba(229, 72, 77, 0.1) !important;
+}
+
+.provider-list__empty {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.provider-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.provider-form__submit {
+  grid-column: 1 / -1;
+  padding: 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
+  font-size: 12px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.provider-form__submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 720px) {
+  .provider-form {
+    grid-template-columns: 1fr;
   }
 }
 </style>
