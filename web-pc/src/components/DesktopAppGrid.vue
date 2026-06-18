@@ -213,7 +213,7 @@ onUnmounted(() => {
 .desktop-app:hover,
 .desktop-app:focus-visible,
 .desktop-app--active {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(var(--surface-rgb),  0.16);
   border-color: rgba(255, 255, 255, 0.22);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
   outline: 0;

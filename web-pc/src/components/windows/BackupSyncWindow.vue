@@ -227,7 +227,7 @@ onMounted(loadBackupJobs);
   justify-items: center;
   padding: 12px 8px;
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.56);
+  background: rgba(var(--surface-rgb),  0.56);
 }
 
 .backup-sync__summary span,
@@ -255,7 +255,7 @@ onMounted(loadBackupJobs);
 .backup-sync__detail,
 .backup-sync__audit {
   min-width: 0;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(var(--surface-rgb),  0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -354,7 +354,7 @@ onMounted(loadBackupJobs);
   gap: 5px;
   min-width: 0;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(var(--surface-rgb),  0.58);
   border: 1px solid rgba(100, 136, 166, 0.12);
   border-radius: var(--radius-sm);
 }

@@ -19,7 +19,7 @@
   gap: 14px;
   padding: 18px 14px;
   border-right: 1px solid rgba(139, 164, 190, 0.18);
-  background: rgba(255, 255, 255, 0.45);
+  background: rgba(var(--surface-rgb),  0.45);
 }
 
 .brand {
@@ -106,7 +106,7 @@
 .message {
   border: 1px solid rgba(148, 170, 194, 0.2);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(var(--surface-rgb),  0.7);
   box-shadow: 0 14px 38px rgba(53, 76, 105, 0.08);
 }
 
@@ -151,14 +151,14 @@
   padding: 0 12px;
   border: 1px solid rgba(148, 170, 194, 0.22);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(var(--surface-rgb),  0.82);
 }
 
 .video-center input {
   min-width: 0;
   border: 1px solid rgba(148, 170, 194, 0.24);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(var(--surface-rgb),  0.76);
   color: #142033;
   font-size: 12px;
   outline: none;
@@ -266,7 +266,7 @@
   padding: 14px;
   border: 1px solid rgba(148, 170, 194, 0.2);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(var(--surface-rgb),  0.7);
   cursor: pointer;
 }
 
@@ -377,7 +377,7 @@
   color: var(--video-blue);
   border: 1px solid rgba(47, 124, 255, 0.22);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(var(--surface-rgb),  0.72);
   font-size: 12px;
 }
 
@@ -702,7 +702,7 @@
   border: 1px solid rgba(47, 124, 255, 0.18);
   border-radius: 999px;
   color: #60728a;
-  background: rgba(255, 255, 255, 0.68);
+  background: rgba(var(--surface-rgb),  0.68);
   font-size: 12px;
 }
 
@@ -718,7 +718,7 @@
   padding: 12px;
   border: 1px solid rgba(148, 170, 194, 0.22);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(var(--surface-rgb),  0.72);
   cursor: pointer;
 }
 
@@ -747,7 +747,7 @@
   padding: 10px 12px;
   border: 1px solid rgba(148, 170, 194, 0.18);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.68);
+  background: rgba(var(--surface-rgb),  0.68);
 }
 
 .guide-row.muted {
@@ -815,7 +815,7 @@
   cursor: grab;
   border: 1px solid rgba(148, 170, 194, 0.2);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.64);
+  background: rgba(var(--surface-rgb),  0.64);
   touch-action: pan-y;
   user-select: none;
 }
@@ -930,7 +930,7 @@
   border: 1px solid rgba(148, 170, 194, 0.2);
   border-radius: 9px;
   color: #18253a;
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(var(--surface-rgb),  0.78);
 }
 
 .epg-program:hover {
@@ -1083,7 +1083,7 @@
   align-items: center;
   min-width: 0;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(var(--surface-rgb),  0.62);
 }
 
 .task-copy,
@@ -1182,7 +1182,7 @@
   width: 34px;
   height: 34px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(var(--surface-rgb),  0.12);
 }
 
 .player-top span {

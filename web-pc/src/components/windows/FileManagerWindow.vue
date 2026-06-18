@@ -732,7 +732,7 @@ onMounted(() => {
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(var(--surface-rgb),  0.62);
 }
 
 .file-manager__sidebar {
@@ -839,7 +839,7 @@ onMounted(() => {
   min-width: 0;
   padding: 0 12px;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(var(--surface-rgb),  0.72);
   border: 1px solid rgba(100, 136, 166, 0.2);
   border-radius: 999px;
   outline: 0;
@@ -1023,7 +1023,7 @@ onMounted(() => {
   gap: 4px;
   padding: 5px 8px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(var(--surface-rgb),  0.78);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 11px;

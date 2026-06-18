@@ -244,7 +244,7 @@ onMounted(loadAgentWorkbench);
 .agent-workbench__permissions,
 .agent-workbench__confirm {
   min-height: 0;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(var(--surface-rgb),  0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -332,7 +332,7 @@ onMounted(loadAgentWorkbench);
   gap: 10px;
   min-height: 78px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(var(--surface-rgb),  0.58);
   border: 1px solid rgba(100, 136, 166, 0.14);
   border-radius: var(--radius-sm);
 }
@@ -394,7 +394,7 @@ onMounted(loadAgentWorkbench);
   height: 28px;
   padding: 0 8px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(var(--surface-rgb),  0.7);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 11px;

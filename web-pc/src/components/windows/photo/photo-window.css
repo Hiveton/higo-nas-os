@@ -15,7 +15,7 @@
 .photo-media__notice,
 .photo-media__jobs {
   min-width: 0;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(var(--surface-rgb),  0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -70,7 +70,7 @@
 
 .photo-media__facet {
   padding: 8px 9px;
-  background: rgba(255, 255, 255, 0.54);
+  background: rgba(var(--surface-rgb),  0.54);
   border: 1px solid rgba(100, 136, 166, 0.12);
 }
 
@@ -104,7 +104,7 @@
   height: 32px;
   padding: 0 9px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.68);
+  background: rgba(var(--surface-rgb),  0.68);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
@@ -137,7 +137,7 @@
   height: 28px;
   padding: 0 8px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(var(--surface-rgb),  0.58);
   border: 1px solid rgba(100, 136, 166, 0.14);
   border-radius: 999px;
   font-size: 11px;
@@ -177,7 +177,7 @@
   min-width: 0;
   padding: 8px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(var(--surface-rgb),  0.5);
   border: 1px solid rgba(100, 136, 166, 0.14);
   border-radius: var(--radius-md);
   font-size: 11px;
@@ -194,7 +194,7 @@
   grid-template-columns: minmax(150px, 1.1fr) minmax(120px, 0.7fr) minmax(150px, 1fr) auto;
   gap: 8px;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.54);
+  background: rgba(var(--surface-rgb),  0.54);
   border: 1px solid rgba(100, 136, 166, 0.14);
   border-radius: var(--radius-md);
 }
@@ -381,7 +381,7 @@
 .photo-media__meta div {
   min-width: 0;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(var(--surface-rgb),  0.58);
   border-radius: var(--radius-sm);
 }
 
@@ -461,7 +461,7 @@
   height: 30px;
   place-items: center;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(var(--surface-rgb),  0.72);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 20px;
@@ -526,7 +526,7 @@
 
 .photo-media__lightbox-meta div {
   padding: 10px;
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(var(--surface-rgb),  0.62);
   border: 1px solid rgba(100, 136, 166, 0.1);
   border-radius: var(--radius-sm);
 }

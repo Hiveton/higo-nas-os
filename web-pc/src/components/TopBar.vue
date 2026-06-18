@@ -226,8 +226,8 @@ onUnmounted(() => {
   padding: 10px 12px 10px 16px;
   color: var(--text-strong);
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(236, 247, 255, 0.48)),
-    rgba(255, 255, 255, 0.34);
+    linear-gradient(135deg, rgba(var(--surface-rgb),  0.72), rgba(236, 247, 255, 0.48)),
+    rgba(var(--surface-rgb),  0.34);
   border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: clamp(20px, var(--radius-lg), 28px);
   box-shadow:
@@ -291,7 +291,7 @@ onUnmounted(() => {
   height: 38px;
   padding: 0 10px 0 13px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(var(--surface-rgb),  0.62);
   border: 1px solid rgba(93, 133, 164, 0.18);
   border-radius: 999px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
@@ -306,7 +306,7 @@ onUnmounted(() => {
   width: min(420px, 80vw);
   gap: 5px;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(var(--surface-rgb),  0.92);
   border: 1px solid rgba(100, 136, 166, 0.2);
   border-radius: 14px;
   box-shadow: var(--shadow-md);
@@ -350,7 +350,7 @@ onUnmounted(() => {
   font-size: 11px;
   font-family: inherit;
   text-align: center;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(var(--surface-rgb),  0.72);
   border: 1px solid rgba(100, 136, 166, 0.18);
   border-radius: 8px;
 }
@@ -372,7 +372,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 11px;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(var(--surface-rgb),  0.92);
   border: 1px solid rgba(100, 136, 166, 0.22);
   border-radius: 14px;
   box-shadow: var(--shadow-md);
@@ -411,7 +411,7 @@ onUnmounted(() => {
   padding: 0 9px;
   font-size: 12px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.56);
+  background: rgba(var(--surface-rgb),  0.56);
   border: 1px solid rgba(100, 136, 166, 0.17);
   border-radius: 999px;
 }
@@ -471,7 +471,7 @@ onUnmounted(() => {
   justify-content: center;
   width: 36px;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(var(--surface-rgb),  0.62);
   border-radius: 50%;
 }
 
@@ -496,7 +496,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 0 8px 0 5px;
   color: var(--text-strong);
-  background: rgba(255, 255, 255, 0.66);
+  background: rgba(var(--surface-rgb),  0.66);
   border-radius: 999px;
 }
 

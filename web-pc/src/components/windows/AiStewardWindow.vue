@@ -267,7 +267,7 @@ onMounted(loadStewardState);
 .ai-steward__suggestion,
 .ai-steward__governance,
 .ai-steward__audit {
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(var(--surface-rgb),  0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -330,7 +330,7 @@ onMounted(loadStewardState);
   gap: 9px;
   min-width: 0;
   padding: 9px;
-  background: rgba(255, 255, 255, 0.56);
+  background: rgba(var(--surface-rgb),  0.56);
   border-radius: var(--radius-sm);
 }
 

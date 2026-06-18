@@ -401,7 +401,7 @@ onMounted(async () => {
 .remote-access__security,
 .remote-access__audit {
   min-width: 0;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(var(--surface-rgb),  0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -465,7 +465,7 @@ onMounted(async () => {
   justify-items: center;
   padding: 10px 6px;
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.36);
+  background: rgba(var(--surface-rgb),  0.36);
 }
 
 .remote-access__status span {
@@ -579,7 +579,7 @@ onMounted(async () => {
   align-content: start;
   padding: 12px;
   text-align: left;
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(var(--surface-rgb),  0.58);
   border: 1px solid rgba(100, 136, 166, 0.14);
   border-radius: var(--radius-sm);
 }
@@ -675,7 +675,7 @@ onMounted(async () => {
   gap: 4px;
   padding: 5px 8px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(var(--surface-rgb),  0.72);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 10px;

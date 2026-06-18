@@ -469,7 +469,7 @@ onBeforeUnmount(() => {
 .download-center__task,
 .download-center__automation,
 .download-center__log {
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(var(--surface-rgb),  0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -556,7 +556,7 @@ onBeforeUnmount(() => {
 
 .download-center__limits div {
   padding: 8px;
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(var(--surface-rgb),  0.58);
   border-radius: var(--radius-sm);
 }
 
@@ -671,7 +671,7 @@ onBeforeUnmount(() => {
   flex: 0 0 38px;
   place-items: center;
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(var(--surface-rgb),  0.72);
   border-radius: var(--radius-sm);
 }
 

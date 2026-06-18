@@ -27,14 +27,23 @@ async function walk(dir) {
 
 function convertCss(css) {
   let count = 0;
-  const lines = css.split('\n').map((line) => {
-    const isBg = /background/.test(line);
-    const isOther = /box-shadow|border|inset|0 1px 0|drop-shadow|text-shadow/.test(line);
-    if (isBg && !isOther && WHITE.test(line)) {
+  let inBackground = false; // inside a multi-line background: ...; declaration
+  const lines = css.split('\n').map((rawLine) => {
+    let line = rawLine;
+    const startsBg = /\bbackground(-color|-image)?\s*:/.test(line);
+    const isShadowOrBorder = /box-shadow|border|inset|drop-shadow|text-shadow/.test(line);
+    const active = inBackground || (startsBg && !isShadowOrBorder);
+    if (active) {
       WHITE.lastIndex = 0;
-      count += (line.match(WHITE) || []).length;
-      return line.replace(WHITE, 'rgba(var(--surface-rgb), ');
+      const hits = (line.match(WHITE) || []).length;
+      if (hits) {
+        count += hits;
+        line = line.replace(WHITE, 'rgba(var(--surface-rgb), ');
+      }
     }
+    // track whether the (background) declaration continues onto the next line
+    if (startsBg && !isShadowOrBorder) inBackground = !line.includes(';');
+    else if (inBackground && line.includes(';')) inBackground = false;
     WHITE.lastIndex = 0;
     return line;
   });

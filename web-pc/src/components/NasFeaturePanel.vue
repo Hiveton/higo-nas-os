@@ -63,7 +63,7 @@ function stateText(state: string) {
   min-height: 126px;
   overflow: visible;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(var(--surface-rgb),  0.58);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
