@@ -14,7 +14,7 @@ CREATE TYPE job_state AS ENUM ('queued', 'running', 'succeeded', 'failed', 'paus
 CREATE TYPE risk_level AS ENUM ('low', 'medium', 'high');
 CREATE TYPE alert_tone AS ENUM ('blue', 'green', 'orange', 'red');
 CREATE TYPE storage_health AS ENUM ('healthy', 'warning', 'critical', 'syncing', 'unknown');
-CREATE TYPE disk_state AS ENUM ('healthy', 'warning', 'failed', 'spare', 'missing');
+CREATE TYPE disk_state AS ENUM ('healthy', 'warning', 'failed', 'spare', 'missing', 'unknown');
 CREATE TYPE download_kind AS ENUM ('http', 'bt', 'magnet', 'rss');
 CREATE TYPE container_state AS ENUM ('running', 'stopped', 'paused', 'exited', 'unknown');
 CREATE TYPE model_runtime AS ENUM ('local', 'cloud', 'hybrid');

@@ -88,7 +88,9 @@ onMounted(() => assistantStore.init());
 </script>
 
 <template>
-  <div class="ai-window">
+  <!-- shell holds the container context so @container can restyle .ai-window itself -->
+  <div class="ai-window-shell">
+    <div class="ai-window">
     <!-- Left: sessions -->
     <aside class="ai-window__sessions">
       <UiButton block :icon-left="MessageSquarePlus" :disabled="loading" @click="assistantStore.newThread()">
@@ -205,19 +207,24 @@ onMounted(() => assistantStore.init());
       @confirm="doDelete"
       @update:open="(v) => { if (!v) pendingDelete = ''; }"
     />
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* The shell is the query container; .ai-window is its child so @container can
+   restyle the grid itself (a container can't size-query its own element). */
+.ai-window-shell {
+  height: 100%;
+  min-height: 0;
+  container-type: inline-size;
+  container-name: aiwin;
+}
 .ai-window {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr) 260px;
   height: 100%;
   min-height: 0;
-  /* Respond to the window's own width, not the viewport — this lives in a
-     resizable desktop window. */
-  container-type: inline-size;
-  container-name: aiwin;
 }
 .ai-window__sessions {
   display: flex;
