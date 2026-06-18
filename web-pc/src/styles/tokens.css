@@ -93,6 +93,11 @@
   --z-toast: 1400;
   --z-context-menu: 1500;
 
+  /* Theme-driven surface RGB triplet. Use as rgba(var(--surface-rgb), <alpha>)
+     for any "white panel/card" background fill so it inverts in dark mode while
+     keeping the exact opacity. Light = white; dark override in base.css. */
+  --surface-rgb: 255, 255, 255;
+
   /* Form-control surface tokens (theme-aware; used by Ui form components) */
   --control-bg: rgba(255, 255, 255, 0.62);
   --control-bg-strong: rgba(255, 255, 255, 0.72);

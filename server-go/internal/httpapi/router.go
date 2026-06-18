@@ -267,6 +267,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	// Register domain task handlers before the pool starts.
 	storageService.AttachTaskRunner(taskManager)
 	mediaService.AttachTaskRunner(taskManager)
+	backupService.AttachTaskRunner(taskManager)
 	taskManager.Start(context.Background())
 
 	api := &API{

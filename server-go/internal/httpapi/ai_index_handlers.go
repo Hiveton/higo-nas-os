@@ -78,14 +78,40 @@ func (a *API) aiIndexFiles(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tree, err := a.files.Tree(r.Context(), body.Space)
+	root, err := a.files.Tree(r.Context(), body.Space)
 	if err != nil {
 		platform.WriteError(w, r, http.StatusBadRequest, "files_tree_failed", err.Error())
 		return
 	}
 
+	// The root tree is shallow (spaces only); fetch each space's full subtree so
+	// nested files are visible. Dedupe by path.
+	seen := map[string]bool{}
 	var nodes []files.FileNode
-	collectTextFiles(tree, &nodes)
+	add := func(n files.FileNode) {
+		if !seen[n.Path] {
+			seen[n.Path] = true
+			nodes = append(nodes, n)
+		}
+	}
+	collect := func(tree files.FileNode) {
+		var found []files.FileNode
+		collectTextFiles(tree, &found)
+		for _, n := range found {
+			add(n)
+		}
+	}
+	collect(root)
+	if body.Space == "" {
+		for _, child := range root.Children {
+			if !child.IsDir || child.Space == "" {
+				continue
+			}
+			if sub, err := a.files.Tree(r.Context(), child.Space); err == nil {
+				collect(sub)
+			}
+		}
+	}
 
 	indexed, skipped, failed := 0, 0, 0
 	for _, node := range nodes {

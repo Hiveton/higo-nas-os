@@ -1,0 +1,94 @@
+package backups
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+)
+
+// syncResult summarises one incremental sync run.
+type syncResult struct {
+	Copied  int
+	Skipped int
+	Bytes   int64
+}
+
+// syncTree performs an incremental one-way copy of source into target: files
+// missing in target or differing by size/mtime are copied; identical files are
+// skipped. Directory structure is mirrored. This is the real work behind a
+// backup "run" — it replaces the previous state-string simulation.
+func syncTree(source, target string) (syncResult, error) {
+	var res syncResult
+	info, err := os.Stat(source)
+	if err != nil {
+		return res, fmt.Errorf("source unavailable: %w", err)
+	}
+	if !info.IsDir() {
+		return res, fmt.Errorf("source is not a directory: %s", source)
+	}
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return res, err
+	}
+	err = filepath.Walk(source, func(path string, fi os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		dest := filepath.Join(target, rel)
+		if fi.IsDir() {
+			return os.MkdirAll(dest, 0o755)
+		}
+		if !fi.Mode().IsRegular() {
+			return nil // skip symlinks/devices
+		}
+		if existing, err := os.Stat(dest); err == nil {
+			if existing.Size() == fi.Size() && existing.ModTime().Equal(fi.ModTime()) {
+				res.Skipped++
+				return nil
+			}
+		}
+		if err := copyFile(path, dest, fi); err != nil {
+			return err
+		}
+		res.Copied++
+		res.Bytes += fi.Size()
+		return nil
+	})
+	return res, err
+}
+
+// copyFile copies src to dest atomically (temp + rename) and preserves the
+// modification time so the next incremental run can skip unchanged files.
+func copyFile(src, dest string, fi os.FileInfo) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp := dest + ".tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	_ = os.Chtimes(tmp, fi.ModTime(), fi.ModTime())
+	return os.Rename(tmp, dest)
+}

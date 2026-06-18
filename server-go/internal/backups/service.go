@@ -2,12 +2,14 @@ package backups
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"higoos/server-go/internal/state"
+	"higoos/server-go/internal/tasks"
 )
 
 type Job struct {
@@ -32,6 +34,7 @@ type Service struct {
 	mu        sync.RWMutex
 	jobs      []Job
 	statePath string
+	runner    *tasks.Manager
 }
 
 func NewService() *Service {
@@ -115,15 +118,97 @@ func (s *Service) Jobs(ctx context.Context) ([]Job, error) {
 	return cloneJobs(s.jobs), nil
 }
 
+// Run marks a backup job as syncing and, when a task runner is attached,
+// schedules a real incremental file sync (see syncTree). Without a runner it
+// keeps the legacy state-string behaviour so unit tests stay deterministic.
 func (s *Service) Run(ctx context.Context, id string) (Job, error) {
-	return s.update(ctx, id, func(job *Job) {
+	job, err := s.update(ctx, id, func(job *Job) {
 		job.State = "同步中"
 		job.Progress = minInt(99, maxInt(job.Progress+11, 82))
-		job.Speed = "24 MB/s"
-		job.ETA = "正在同步增量数据"
+		job.Speed = "正在同步增量数据"
+		job.ETA = "进行中"
 		job.LastRun = "刚刚"
 		job.Health = "正常"
 	})
+	if err != nil {
+		return Job{}, err
+	}
+	if s.runner != nil {
+		if _, err := s.runner.Enqueue(backupRunTaskKind, backupRunPayload{JobID: id}); err != nil {
+			return job, err
+		}
+	}
+	return job, nil
+}
+
+const backupRunTaskKind = "backups.run"
+
+type backupRunPayload struct {
+	JobID string `json:"jobId"`
+}
+
+// AttachTaskRunner wires the shared task runtime so backup runs perform a real
+// incremental file sync. Registers the handler; call once before Start.
+func (s *Service) AttachTaskRunner(m *tasks.Manager) {
+	if m == nil {
+		return
+	}
+	s.runner = m
+	m.Register(backupRunTaskKind, s.runBackupJob)
+}
+
+// runBackupJob is the task handler that executes a backup job's incremental
+// sync and writes the outcome back to the job record.
+func (s *Service) runBackupJob(ctx context.Context, h *tasks.Handle) (json.RawMessage, error) {
+	var payload backupRunPayload
+	if err := h.Unmarshal(&payload); err != nil {
+		return nil, err
+	}
+	source, target, ok := s.jobPaths(payload.JobID)
+	if !ok {
+		return nil, fmt.Errorf("backup job not found: %s", payload.JobID)
+	}
+	h.Progress(20, "syncing")
+
+	res, syncErr := syncTree(source, target)
+	if syncErr != nil {
+		// Honest failure: demo jobs point at logical space names, not real
+		// paths, so they surface a clear blocked state instead of fake success.
+		_, _ = s.update(context.Background(), payload.JobID, func(job *Job) {
+			job.State = "源路径不可用"
+			job.Health = "需要配置有效的源/目标路径"
+			job.Speed = "0 MB/s"
+			job.ETA = "已暂停"
+		})
+		return nil, syncErr
+	}
+
+	now := time.Now()
+	_, _ = s.update(context.Background(), payload.JobID, func(job *Job) {
+		job.State = "已完成"
+		job.Progress = 100
+		job.Health = "正常"
+		job.Speed = fmt.Sprintf("复制 %d 个文件 / 跳过 %d 个", res.Copied, res.Skipped)
+		job.ETA = "等待下次计划"
+		job.LastRun = now.Format("15:04")
+	})
+	return json.Marshal(map[string]any{
+		"jobId":   payload.JobID,
+		"copied":  res.Copied,
+		"skipped": res.Skipped,
+		"bytes":   res.Bytes,
+	})
+}
+
+func (s *Service) jobPaths(id string) (source, target string, ok bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, job := range s.jobs {
+		if job.ID == id {
+			return job.Source, job.Target, true
+		}
+	}
+	return "", "", false
 }
 
 func (s *Service) Pause(ctx context.Context, id string) (Job, error) {
