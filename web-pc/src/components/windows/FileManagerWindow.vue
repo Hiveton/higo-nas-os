@@ -21,6 +21,9 @@ import {
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { FileRow, FileTreeNode } from '../../api/types';
+import { UiButton, UiEmptyState, UiIconButton, UiInput, UiProgressBar, useConfirm } from '../ui';
+
+const confirm = useConfirm();
 
 type DisplayNode = FileTreeNode & {
   modified?: string;
@@ -450,7 +453,7 @@ async function renameSelected() {
 async function deleteSelected() {
   const node = selectedNode.value;
   if (!node) return;
-  if (!window.confirm(`删除“${node.name}”？文件会移入回收站。`)) return;
+  if (!(await confirm({ title: '删除文件夹？', message: '文件会移入回收站。', tone: 'danger' }))) return;
   busyAction.value = 'delete';
   try {
     await apiClient.files.delete(node.id, { actor: 'file-manager' });
@@ -551,9 +554,15 @@ onMounted(() => {
 
     <aside class="file-manager__sidebar" aria-label="文件目录">
       <div class="file-manager__search">
-        <Search :size="15" />
-        <input v-model="search" aria-label="搜索文件" placeholder="搜索文件名、类型、标签" @keyup.enter="runSearch" />
-        <button type="button" @click="runSearch">搜索</button>
+        <UiInput
+          v-model="search"
+          size="sm"
+          :prefix-icon="Search"
+          aria-label="搜索文件"
+          placeholder="搜索文件名、类型、标签"
+          @enter="runSearch"
+        />
+        <UiButton variant="soft" tone="primary" size="sm" @click="runSearch">搜索</UiButton>
       </div>
 
       <nav class="file-manager__tree">
@@ -575,22 +584,15 @@ onMounted(() => {
       <div class="file-manager__status">
         <strong>{{ loading ? '正在同步' : uploading ? '正在上传' : '文件状态' }}</strong>
         <span>{{ notice }}</span>
-        <div v-if="uploading || uploadProgress === 100" class="file-manager__upload-progress" role="progressbar" :aria-valuenow="uploadProgress" aria-valuemin="0" aria-valuemax="100">
-          <i :style="{ width: `${uploadProgress}%` }"></i>
-          <b>{{ uploadProgress }}%</b>
-        </div>
+        <UiProgressBar v-if="uploading || uploadProgress === 100" :value="uploadProgress" show-value />
       </div>
     </aside>
 
     <main class="file-manager__main">
       <header class="file-manager__pathbar">
         <div class="file-manager__nav-controls" aria-label="目录历史导航">
-          <button type="button" :disabled="!canGoBack" title="后退" aria-label="后退" @click="goBack">
-            <ChevronLeft :size="17" />
-          </button>
-          <button type="button" :disabled="!canGoForward" title="前进" aria-label="前进" @click="goForward">
-            <ChevronRight :size="17" />
-          </button>
+          <UiIconButton :icon="ChevronLeft" label="后退" variant="soft" size="sm" :disabled="!canGoBack" @click="goBack" />
+          <UiIconButton :icon="ChevronRight" label="前进" variant="soft" size="sm" :disabled="!canGoForward" @click="goForward" />
         </div>
         <form class="file-manager__path-entry" aria-label="文件路径" @submit.prevent="submitPath">
           <input
@@ -602,18 +604,15 @@ onMounted(() => {
             @blur="resetPathDraft"
           />
         </form>
-        <button class="file-manager__refresh" type="button" @click="loadTree(true)">
-          <RefreshCw :size="15" />
-          刷新
-        </button>
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="loadTree(true)">刷新</UiButton>
       </header>
 
       <section class="file-manager__toolbar" aria-label="文件操作">
-        <button type="button" :disabled="uploading" @click="chooseFiles"><UploadCloud :size="15" />上传</button>
-        <button type="button" @click="downloadSelected"><Download :size="15" />下载</button>
-        <button type="button" :disabled="busyAction === 'folder'" @click="createFolder"><FolderPlus :size="15" />新建文件夹</button>
-        <button type="button" :disabled="busyAction === 'rename'" @click="renameSelected"><Edit3 :size="15" />重命名</button>
-        <button type="button" :disabled="busyAction === 'delete'" @click="deleteSelected"><Trash2 :size="15" />删除</button>
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="UploadCloud" :disabled="uploading" @click="chooseFiles">上传</UiButton>
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Download" @click="downloadSelected">下载</UiButton>
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="FolderPlus" :disabled="busyAction === 'folder'" @click="createFolder">新建文件夹</UiButton>
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Edit3" :disabled="busyAction === 'rename'" @click="renameSelected">重命名</UiButton>
+        <UiButton variant="soft" tone="danger" size="sm" :icon-left="Trash2" :disabled="busyAction === 'delete'" @click="deleteSelected">删除</UiButton>
       </section>
 
       <section class="file-manager__table" aria-label="文件列表">
@@ -646,11 +645,12 @@ onMounted(() => {
           <span>{{ displayModified(item) }}</span>
           <span>{{ item.space || currentSpace || '-' }}</span>
         </button>
-        <div v-if="visibleItems.length === 0" class="file-manager__empty">
-          <UploadCloud :size="22" />
-          <strong>{{ searching ? '没有匹配文件' : '当前目录为空' }}</strong>
-          <span>可点击上传，或直接把文件拖入窗口。</span>
-        </div>
+        <UiEmptyState
+          v-if="visibleItems.length === 0"
+          :icon="UploadCloud"
+          :title="searching ? '没有匹配文件' : '当前目录为空'"
+          description="可点击上传，或直接把文件拖入窗口。"
+        />
       </section>
     </main>
 
@@ -689,9 +689,9 @@ onMounted(() => {
       </div>
 
       <div class="file-manager__actions">
-        <button type="button" :disabled="busyAction === 'preview'" @click="openPreview"><Eye :size="14" />预览</button>
-        <button type="button" :disabled="busyAction === 'share'" @click="shareSelected"><Share2 :size="14" />分享</button>
-        <button type="button" :disabled="busyAction === 'tag'" @click="tagSelected"><Tag :size="14" />加标签</button>
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Eye" :disabled="busyAction === 'preview'" @click="openPreview">预览</UiButton>
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Share2" :disabled="busyAction === 'share'" @click="shareSelected">分享</UiButton>
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Tag" :disabled="busyAction === 'tag'" @click="tagSelected">加标签</UiButton>
       </div>
 
       <div class="file-manager__preview">
@@ -744,49 +744,9 @@ onMounted(() => {
 
 .file-manager__search {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
-  min-height: 36px;
-  padding: 0 10px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.76);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.file-manager__search input {
-  width: 100%;
-  min-width: 0;
-  color: var(--text);
-  background: transparent;
-  border: 0;
-  outline: 0;
-  font-size: 12px;
-}
-
-.file-manager__search button,
-.file-manager__refresh,
-.file-manager__toolbar button,
-.file-manager__actions button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 10px;
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.78);
-  border: 1px solid rgba(19, 136, 255, 0.18);
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 760;
-}
-
-.file-manager__search button {
-  min-height: 26px;
-  padding: 0 8px;
-  font-size: 11px;
 }
 
 .file-manager__tree {
@@ -840,33 +800,6 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.file-manager__upload-progress {
-  position: relative;
-  height: 16px;
-  overflow: hidden;
-  background: rgba(148, 163, 184, 0.16);
-  border-radius: 999px;
-}
-
-.file-manager__upload-progress i {
-  position: absolute;
-  inset: 0 auto 0 0;
-  display: block;
-  background: #1688ff;
-  border-radius: inherit;
-  transition: width 160ms ease;
-}
-
-.file-manager__upload-progress b {
-  position: relative;
-  z-index: 1;
-  display: block;
-  color: var(--text-strong);
-  font-size: 10px;
-  line-height: 16px;
-  text-align: center;
-}
-
 .file-manager__main {
   display: grid;
   grid-template-rows: auto auto auto;
@@ -892,32 +825,8 @@ onMounted(() => {
 .file-manager__nav-controls {
   display: flex;
   align-items: center;
+  gap: 4px;
   min-width: 0;
-}
-
-.file-manager__nav-controls button {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(100, 136, 166, 0.2);
-}
-
-.file-manager__nav-controls button:first-child {
-  border-radius: 999px 0 0 999px;
-}
-
-.file-manager__nav-controls button:last-child {
-  margin-left: -1px;
-  border-radius: 0 999px 999px 0;
-}
-
-.file-manager__nav-controls button:disabled {
-  color: var(--text-soft);
-  cursor: not-allowed;
-  background: rgba(148, 163, 184, 0.1);
 }
 
 .file-manager__path-entry {
@@ -945,14 +854,6 @@ onMounted(() => {
 
 .file-manager__toolbar {
   flex-wrap: wrap;
-}
-
-.file-manager__toolbar button:disabled,
-.file-manager__actions button:disabled {
-  color: var(--text-soft);
-  cursor: not-allowed;
-  background: rgba(148, 163, 184, 0.12);
-  border-color: rgba(148, 163, 184, 0.18);
 }
 
 .file-manager__table {
@@ -1029,20 +930,6 @@ onMounted(() => {
   margin-top: 3px;
   color: var(--text-soft);
   font-size: 11px;
-}
-
-.file-manager__empty {
-  display: grid;
-  min-height: 220px;
-  place-items: center;
-  align-content: center;
-  gap: 7px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.file-manager__empty strong {
-  color: var(--text-strong);
 }
 
 .file-manager__inspector {

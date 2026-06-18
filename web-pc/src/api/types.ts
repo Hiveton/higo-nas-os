@@ -303,12 +303,18 @@ export type WorkflowNode = {
 
 export type AssistantRole = 'user' | 'assistant' | 'system' | 'tool';
 
+export type AssistantToolTrace = {
+  name: string;
+  summary?: string;
+};
+
 export type AssistantMessage = {
   id?: string;
   role: AssistantRole;
   text: string;
   createdAt?: string;
   citations?: Array<{ title: string; path?: string; url?: string }>;
+  tools?: AssistantToolTrace[];
   pendingActionId?: string;
 };
 
@@ -316,6 +322,21 @@ export type AssistantThread = {
   id: string;
   title?: string;
   messages: AssistantMessage[];
+};
+
+export type ThreadSummary = {
+  id: string;
+  title: string;
+  updatedAt?: string;
+  messageCount: number;
+};
+
+export type AssistantToolEvent = {
+  phase: 'start' | 'done';
+  name: string;
+  args?: string;
+  summary?: string;
+  error?: string;
 };
 
 export type RiskAction = {
@@ -827,6 +848,7 @@ export type SettingsState = {
   };
   ui?: {
     theme?: 'auto' | 'light' | 'dark' | string;
+    locale?: 'zh-CN' | 'en-US' | string;
     windowRadius?: 'compact' | 'default' | 'rounded' | string;
     dockPosition?: 'bottom' | 'left' | 'right' | string;
     dockStyle?: 'floating' | 'side' | 'compact' | string;

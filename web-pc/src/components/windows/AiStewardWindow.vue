@@ -5,11 +5,13 @@ import { apiClient } from '../../api/client';
 import type { AuditEntry, StewardSuggestion } from '../../api/types';
 import { auditEntries as seedAuditEntries, stewardSuggestions as seedStewardSuggestions } from '../../data/higoos';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
+import { UiBadge, UiButton, UiEmptyState } from '../ui';
+import type { UiTone } from '../ui';
 
-const riskClass = {
-  低风险: 'ai-steward__risk--low',
-  中风险: 'ai-steward__risk--mid',
-  高风险: 'ai-steward__risk--high',
+const riskTone: Record<string, UiTone> = {
+  低风险: 'success',
+  中风险: 'warning',
+  高风险: 'danger',
 };
 
 const dismissedSuggestions = ref<string[]>([]);
@@ -130,23 +132,37 @@ onMounted(loadStewardState);
             <h3>{{ item.title }}</h3>
             <p>{{ item.detail }}</p>
           </div>
-          <span :class="['ai-steward__risk', riskClass[item.risk]]">{{ item.risk }}</span>
+          <UiBadge :tone="riskTone[item.risk] ?? 'neutral'">{{ item.risk }}</UiBadge>
         </div>
         <div class="ai-steward__suggestion-foot">
           <span>{{ item.count }}</span>
           <div>
-            <button type="button" :disabled="actionBusyId === (item.id ?? item.title)" @click="handleSuggestionAction(item)">
+            <UiButton
+              size="sm"
+              :loading="actionBusyId === (item.id ?? item.title)"
+              :disabled="actionBusyId === (item.id ?? item.title)"
+              @click="handleSuggestionAction(item)"
+            >
               {{ actionBusyId === (item.id ?? item.title) ? '处理中' : item.action }}
-            </button>
-            <button type="button" class="ai-steward__ghost-button" :disabled="actionBusyId === (item.id ?? item.title)" @click="completeSuggestion(item)">确认</button>
+            </UiButton>
+            <UiButton
+              variant="soft"
+              size="sm"
+              :disabled="actionBusyId === (item.id ?? item.title)"
+              @click="completeSuggestion(item)"
+            >
+              确认
+            </UiButton>
           </div>
         </div>
       </article>
-      <div v-if="visibleSuggestions.length === 0" class="ai-steward__empty">
-        <CheckCircle2 :size="22" />
-        <strong>整理队列已清空</strong>
-        <span>所有建议都已确认或写入审计日志。</span>
-      </div>
+      <UiEmptyState
+        v-if="visibleSuggestions.length === 0"
+        :icon="CheckCircle2"
+        title="整理队列已清空"
+        description="所有建议都已确认或写入审计日志。"
+        compact
+      />
     </section>
 
     <section class="ai-steward__governance" aria-label="风险、审计和回滚">
@@ -268,30 +284,6 @@ onMounted(loadStewardState);
   line-height: 1.42;
 }
 
-.ai-steward__risk {
-  height: 22px;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 760;
-  white-space: nowrap;
-  border-radius: 999px;
-}
-
-.ai-steward__risk--low {
-  color: var(--accent-green);
-  background: rgba(34, 181, 115, 0.12);
-}
-
-.ai-steward__risk--mid {
-  color: #b36a00;
-  background: rgba(245, 158, 11, 0.14);
-}
-
-.ai-steward__risk--high {
-  color: var(--accent-red);
-  background: rgba(239, 68, 68, 0.12);
-}
-
 .ai-steward__suggestion-foot {
   display: flex;
   align-items: center;
@@ -308,41 +300,6 @@ onMounted(loadStewardState);
 .ai-steward__suggestion-foot div {
   display: flex;
   gap: 6px;
-}
-
-.ai-steward__suggestion-foot button {
-  height: 30px;
-  padding: 0 12px;
-  color: #fff;
-  background: var(--accent);
-  border: 0;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 760;
-}
-
-.ai-steward__suggestion-foot .ai-steward__ghost-button {
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.72);
-  border: 1px solid rgba(19, 136, 255, 0.16);
-}
-
-.ai-steward__empty {
-  display: grid;
-  min-height: 128px;
-  place-items: center;
-  align-content: center;
-  gap: 6px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: 11px;
-}
-
-.ai-steward__empty strong {
-  color: var(--text-strong);
-  font-size: 13px;
 }
 
 .ai-steward__governance {

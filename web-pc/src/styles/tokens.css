@@ -46,4 +46,57 @@
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --duration-fast: 140ms;
   --duration-md: 220ms;
+
+  /* Spacing scale (4px base, matches existing 8/12/14/16 paddings) */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Font-size scale (existing inline sizes were 11/13/14/16) */
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 24px;
+  --fs-3xl: 30px;
+
+  /* Line-height & weight */
+  --lh-tight: 1.2;
+  --lh-snug: 1.35;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.7;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* Z-index layer scale — replaces scattered ad-hoc values.
+     Windows use a dynamic band: window.z + --z-window (see DesktopWindow.vue). */
+  --z-window: 100;
+  --z-window-active: 120;
+  --z-dock: 600;
+  --z-topbar: 700;
+  --z-dropdown: 1000;
+  --z-tooltip: 1100;
+  --z-modal-backdrop: 1200;
+  --z-modal: 1210;
+  --z-toast: 1400;
+  --z-context-menu: 1500;
+
+  /* Glass surface semantic tokens (shared by .u-glass and Card/Panel) */
+  --glass-bg: linear-gradient(180deg, var(--surface-glass-strong), rgba(246, 251, 255, 0.52));
+  --glass-border: rgba(255, 255, 255, 0.44);
+  --glass-blur: var(--blur-md);
+  --glass-saturate: 150%;
+  --glass-shadow: var(--shadow-sm);
 }

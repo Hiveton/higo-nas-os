@@ -21,6 +21,7 @@ import {
 import { remoteStore } from '../../stores/remote';
 import type { AccessPolicy, RemoteDevice, RemoteLoginAlert } from '../../api/types';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
+import { UiButton } from '../ui';
 
 type PolicyKey = string;
 
@@ -217,8 +218,14 @@ async function scanShareLinks() {
 
 async function copyDomainToken() {
   try {
-    await remoteStore.createDomainToken();
+    const token = await remoteStore.createDomainToken();
     applyRemoteStatus();
+    try {
+      await navigator.clipboard?.writeText(token.token);
+      feedback.value = `已复制 ${token.domain} 的短期访问令牌，有效期 10 分钟`;
+    } catch {
+      feedback.value = `已生成 ${token.domain} 的短期访问令牌（请手动复制），有效期 10 分钟`;
+    }
   } catch {
     feedback.value = `已复制 ${remoteDomain.value} 的短期访问令牌，有效期 10 分钟`;
   }
@@ -260,12 +267,11 @@ onMounted(async () => {
         <span>{{ tunnelState }}</span>
       </div>
       <div class="remote-access__hero-actions">
-        <button type="button" @click="copyDomainToken"><Copy :size="14" /> 复制令牌</button>
-        <button type="button" @click="rotateDomainToken"><RefreshCw :size="14" /> 轮换</button>
-        <button class="remote-access__primary-button" type="button" @click="toggleRemoteChannel">
-          <component :is="remoteEnabled ? ShieldOff : ShieldCheck" :size="15" />
+        <UiButton variant="soft" size="sm" :icon-left="Copy" @click="copyDomainToken">复制令牌</UiButton>
+        <UiButton variant="soft" size="sm" :icon-left="RefreshCw" @click="rotateDomainToken">轮换</UiButton>
+        <UiButton size="sm" :icon-left="remoteEnabled ? ShieldOff : ShieldCheck" @click="toggleRemoteChannel">
           {{ remoteEnabled ? '暂停通道' : '启动通道' }}
-        </button>
+        </UiButton>
       </div>
     </section>
 
@@ -335,18 +341,17 @@ onMounted(async () => {
           </button>
         </div>
         <div class="remote-access__toggles">
-          <button type="button" @click="toggleTunnelMode"><Router :size="14" /> {{ tunnelMode }}</button>
-          <button type="button" @click="toggleMfa">
-            <component :is="mfaEnabled ? ShieldCheck : ShieldOff" :size="14" />
+          <UiButton variant="soft" size="sm" :icon-left="Router" @click="toggleTunnelMode">{{ tunnelMode }}</UiButton>
+          <UiButton variant="soft" size="sm" :icon-left="mfaEnabled ? ShieldCheck : ShieldOff" @click="toggleMfa">
             {{ mfaEnabled ? '关闭 MFA' : '启用 MFA' }}
-          </button>
+          </UiButton>
         </div>
       </section>
 
       <section class="remote-access__security" aria-label="异地登录提醒和分享链接安全检查">
         <header>
           <h3><AlertTriangle :size="15" /> 安全提醒</h3>
-          <button type="button" @click="scanShareLinks"><ScanLine :size="14" /> 扫描分享链接</button>
+          <UiButton variant="soft" size="sm" :icon-left="ScanLine" @click="scanShareLinks">扫描分享链接</UiButton>
         </header>
 
         <div class="remote-access__login-alerts">
@@ -445,29 +450,6 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
-}
-
-.remote-access__hero-actions button,
-.remote-access__toggles button,
-.remote-access__security header button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  padding: 0 10px;
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.72);
-  border: 1px solid rgba(19, 136, 255, 0.16);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 760;
-  white-space: nowrap;
-}
-
-.remote-access__hero-actions .remote-access__primary-button {
-  color: #fff;
-  background: var(--accent);
-  border-color: transparent;
 }
 
 .remote-access__status {
@@ -620,7 +602,7 @@ onMounted(async () => {
 }
 
 .remote-access__policy-card small {
-  color: #b36a00;
+  color: var(--accent-orange);
   font-size: 10px;
   font-weight: 760;
 }
@@ -645,7 +627,7 @@ onMounted(async () => {
   display: flex;
   gap: 8px;
   min-width: 0;
-  color: #b36a00;
+  color: var(--accent-orange);
 }
 
 .remote-access__login-alerts strong,
@@ -701,7 +683,7 @@ onMounted(async () => {
 }
 
 .remote-access__share-check--risk div {
-  color: #b36a00;
+  color: var(--accent-orange);
 }
 
 .remote-access__share-check--safe div {

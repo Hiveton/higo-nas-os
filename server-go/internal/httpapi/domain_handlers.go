@@ -320,11 +320,12 @@ func (a *API) fileRestore(w http.ResponseWriter, r *http.Request, id string) {
 	if !allowMethod(w, r, http.MethodPost) {
 		return
 	}
-	platform.WriteJSON(w, r, http.StatusOK, map[string]any{
-		"id":      "restore-" + id,
-		"status":  "planned",
-		"message": "restore plan created from recycle metadata",
-	})
+	row, err := a.files.Restore(r.Context(), id)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "file_restore_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, row)
 }
 
 func (a *API) filesBatchMove(w http.ResponseWriter, r *http.Request) {

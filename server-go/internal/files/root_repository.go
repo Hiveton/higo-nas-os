@@ -2,6 +2,7 @@ package files
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,19 @@ import (
 	"sync"
 	"time"
 )
+
+// recycleMeta is the sidecar manifest written next to each recycled entry so a
+// later Restore can move it back to its original location and recover its ID.
+type recycleMeta struct {
+	OriginalID   string    `json:"originalId"`
+	OriginalPath string    `json:"originalPath"`
+	OriginalReal string    `json:"originalRealPath"`
+	Space        string    `json:"space"`
+	RecycleName  string    `json:"recycleName"`
+	DeletedAt    time.Time `json:"deletedAt"`
+}
+
+const recycleMetaSuffix = ".meta.json"
 
 type RootRepository struct {
 	root string
@@ -256,12 +270,28 @@ func (r *RootRepository) Delete(ctx context.Context, id string, actor string) (F
 	if err := os.MkdirAll(recycleRoot, 0o755); err != nil {
 		return FileNode{}, err
 	}
-	target, err := r.safeJoin(recycleRoot, time.Now().UTC().Format("20060102T150405")+"-"+filepath.Base(node.RealPath))
+	recycleName := time.Now().UTC().Format("20060102T150405") + "-" + filepath.Base(node.RealPath)
+	target, err := r.safeJoin(recycleRoot, recycleName)
 	if err != nil {
 		return FileNode{}, err
 	}
-	if err := os.Rename(node.RealPath, target); err != nil {
+	originalReal := node.RealPath
+	if err := os.Rename(originalReal, target); err != nil {
 		return FileNode{}, err
+	}
+	// Persist a sidecar manifest so the entry can be restored later. A failure
+	// here is non-fatal: the file is already recycled, it just won't be
+	// restorable, so we surface it rather than rolling back the delete.
+	meta := recycleMeta{
+		OriginalID:   node.ID,
+		OriginalPath: node.Path,
+		OriginalReal: originalReal,
+		Space:        node.Space,
+		RecycleName:  filepath.Base(target),
+		DeletedAt:    time.Now().UTC(),
+	}
+	if payload, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+		_ = os.WriteFile(target+recycleMetaSuffix, payload, 0o644)
 	}
 	if err := r.rescanLocked(); err != nil {
 		return FileNode{}, err
@@ -269,6 +299,96 @@ func (r *RootRepository) Delete(ctx context.Context, id string, actor string) (F
 	node.Path = "/回收站/" + filepath.Base(target)
 	node.RealPath = target
 	return node, nil
+}
+
+// Restore moves a previously deleted entry from the recycle bin back to its
+// original location, recovering its original ID. When the original location is
+// already occupied the entry is restored under a deduplicated name so nothing
+// is clobbered.
+func (r *RootRepository) Restore(ctx context.Context, id string) (FileNode, error) {
+	if err := ctx.Err(); err != nil {
+		return FileNode{}, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return FileNode{}, errors.New("file id is required")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	recycleRoot := filepath.Join(r.root, ".recycle")
+	entries, err := os.ReadDir(recycleRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return FileNode{}, fmt.Errorf("nothing to restore: %s", id)
+		}
+		return FileNode{}, err
+	}
+
+	// Find the most recent recycle manifest matching this original id.
+	var (
+		match     recycleMeta
+		matchMeta string
+		found     bool
+	)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), recycleMetaSuffix) {
+			continue
+		}
+		metaPath := filepath.Join(recycleRoot, entry.Name())
+		payload, readErr := os.ReadFile(metaPath)
+		if readErr != nil {
+			continue
+		}
+		var meta recycleMeta
+		if json.Unmarshal(payload, &meta) != nil {
+			continue
+		}
+		if meta.OriginalID != id {
+			continue
+		}
+		if !found || meta.DeletedAt.After(match.DeletedAt) {
+			match, matchMeta, found = meta, metaPath, true
+		}
+	}
+	if !found {
+		return FileNode{}, fmt.Errorf("no recoverable entry found for id: %s", id)
+	}
+
+	source := filepath.Join(recycleRoot, match.RecycleName)
+	if _, err := os.Stat(source); err != nil {
+		return FileNode{}, fmt.Errorf("recycled entry missing on disk: %w", err)
+	}
+	dest := match.OriginalReal
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return FileNode{}, err
+	}
+	dest = dedupeRestorePath(dest)
+	if err := os.Rename(source, dest); err != nil {
+		return FileNode{}, err
+	}
+	_ = os.Remove(matchMeta)
+	if err := r.rescanLocked(); err != nil {
+		return FileNode{}, err
+	}
+	return r.nodeByRealPathLocked(dest)
+}
+
+// dedupeRestorePath returns path unchanged when nothing exists there, otherwise
+// appends a numeric suffix (before any extension) until a free path is found.
+func dedupeRestorePath(path string) string {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return path
+	}
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	for i := 1; i < 1000; i++ {
+		candidate := fmt.Sprintf("%s-恢复%d%s", base, i, ext)
+		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
+			return candidate
+		}
+	}
+	return path
 }
 
 func (r *RootRepository) Open(ctx context.Context, id string) (io.ReadCloser, FileNode, error) {

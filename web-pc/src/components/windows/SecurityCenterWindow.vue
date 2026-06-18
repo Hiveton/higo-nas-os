@@ -16,14 +16,23 @@ import {
 import { apiClient } from '../../api/client';
 import type { AiPolicy, AuditEntry, FileShare, IdentityPolicy, RiskAction, RiskLevel } from '../../api/types';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
+import { UiBadge, UiButton, UiCheckbox, UiSegmented } from '../ui';
+import type { UiTone } from '../ui';
 
 type RiskFilter = '全部' | RiskLevel;
 
-const riskClass: Record<RiskLevel, string> = {
-  低风险: 'security-center__risk--low',
-  中风险: 'security-center__risk--mid',
-  高风险: 'security-center__risk--high',
+const riskTone: Record<RiskLevel, UiTone> = {
+  低风险: 'success',
+  中风险: 'warning',
+  高风险: 'danger',
 };
+
+const riskFilterOptions: { value: RiskFilter; label: string }[] = [
+  { value: '全部', label: '全部' },
+  { value: '低风险', label: '低风险' },
+  { value: '中风险', label: '中风险' },
+  { value: '高风险', label: '高风险' },
+];
 
 const identities = ref<IdentityPolicy[]>([
   { id: 'admin', role: '管理员', name: 'Hiveton', mfa: true, fileAcl: true, appAdmin: true, aiTools: true },
@@ -280,17 +289,12 @@ onMounted(loadSecurityState);
     <section class="security-center__risks" aria-label="风险分级与确认">
       <header>
         <h3><Filter :size="15" /> 风险分级</h3>
-        <div class="security-center__filters">
-          <button
-            v-for="filter in ['全部', '低风险', '中风险', '高风险']"
-            :key="filter"
-            type="button"
-            :class="{ 'security-center__filter--active': riskFilter === filter }"
-            @click="setRiskFilter(filter as RiskFilter)"
-          >
-            {{ filter }}
-          </button>
-        </div>
+        <UiSegmented
+          :model-value="riskFilter"
+          :options="riskFilterOptions"
+          size="sm"
+          @change="(v) => setRiskFilter(v as RiskFilter)"
+        />
       </header>
 
       <div class="security-center__risk-list">
@@ -305,16 +309,26 @@ onMounted(loadSecurityState);
             <h4>{{ action.title }}</h4>
             <p>{{ action.scope }} · {{ action.actor }}</p>
           </div>
-          <span :class="['security-center__risk', riskClass[action.level]]">{{ action.level }}</span>
+          <UiBadge class="security-center__risk" :tone="riskTone[action.level]">{{ action.level }}</UiBadge>
           <small>{{ action.state }} · {{ action.rollback }}</small>
           <div class="security-center__risk-actions">
-            <button v-if="action.level !== '低风险'" type="button" :disabled="busyActionId === action.id || action.state !== '待处理'" @click.stop="confirmRisk(action)">
-              <CheckCircle2 :size="13" /> {{ busyActionId === action.id ? '处理中' : '确认' }}
-            </button>
-            <button v-else type="button" :disabled="busyActionId === action.id || action.state !== '待处理'" @click.stop="confirmRisk(action)">
-              <CheckCircle2 :size="13" /> {{ busyActionId === action.id ? '处理中' : '记录' }}
-            </button>
-            <button type="button" class="security-center__ghost" :disabled="busyActionId === action.id || action.state !== '待处理'" @click.stop="blockRisk(action)">阻止</button>
+            <UiButton
+              size="sm"
+              :icon-left="CheckCircle2"
+              :disabled="busyActionId === action.id || action.state !== '待处理'"
+              @click.stop="confirmRisk(action)"
+            >
+              {{ busyActionId === action.id ? '处理中' : action.level !== '低风险' ? '确认' : '记录' }}
+            </UiButton>
+            <UiButton
+              variant="ghost"
+              tone="danger"
+              size="sm"
+              :disabled="busyActionId === action.id || action.state !== '待处理'"
+              @click.stop="blockRisk(action)"
+            >
+              阻止
+            </UiButton>
           </div>
         </article>
       </div>
@@ -329,22 +343,30 @@ onMounted(loadSecurityState);
         <article v-for="identity in identities" :key="identity.role">
           <strong>{{ identity.role }}</strong>
           <small>{{ identity.name }}</small>
-          <label>
-            <input v-model="identity.mfa" :disabled="busyIdentityId === (identity.id ?? identity.role)" type="checkbox" @change="recordPermissionChange(identity, '多因素认证', identity.mfa)" />
-            多因素认证
-          </label>
-          <label>
-            <input v-model="identity.fileAcl" :disabled="busyIdentityId === (identity.id ?? identity.role)" type="checkbox" @change="recordPermissionChange(identity, '文件 ACL', identity.fileAcl)" />
-            文件 ACL
-          </label>
-          <label>
-            <input v-model="identity.appAdmin" :disabled="busyIdentityId === (identity.id ?? identity.role)" type="checkbox" @change="recordPermissionChange(identity, '应用管理', identity.appAdmin)" />
-            应用管理
-          </label>
-          <label>
-            <input v-model="identity.aiTools" :disabled="busyIdentityId === (identity.id ?? identity.role)" type="checkbox" @change="recordPermissionChange(identity, 'Agent 工具', identity.aiTools)" />
-            Agent 工具
-          </label>
+          <UiCheckbox
+            v-model="identity.mfa"
+            label="多因素认证"
+            :disabled="busyIdentityId === (identity.id ?? identity.role)"
+            @change="recordPermissionChange(identity, '多因素认证', identity.mfa)"
+          />
+          <UiCheckbox
+            v-model="identity.fileAcl"
+            label="文件 ACL"
+            :disabled="busyIdentityId === (identity.id ?? identity.role)"
+            @change="recordPermissionChange(identity, '文件 ACL', identity.fileAcl)"
+          />
+          <UiCheckbox
+            v-model="identity.appAdmin"
+            label="应用管理"
+            :disabled="busyIdentityId === (identity.id ?? identity.role)"
+            @change="recordPermissionChange(identity, '应用管理', identity.appAdmin)"
+          />
+          <UiCheckbox
+            v-model="identity.aiTools"
+            label="Agent 工具"
+            :disabled="busyIdentityId === (identity.id ?? identity.role)"
+            @change="recordPermissionChange(identity, 'Agent 工具', identity.aiTools)"
+          />
         </article>
       </div>
     </section>
@@ -360,14 +382,18 @@ onMounted(loadSecurityState);
             <strong>{{ policy.space }}</strong>
             <small>{{ policy.sensitive }}</small>
           </div>
-          <label>
-            <input v-model="policy.indexed" :disabled="busyPolicyId === (policy.id ?? policy.space)" type="checkbox" @change="recordAiPolicy(policy, 'AI 索引', policy.indexed)" />
-            AI 索引
-          </label>
-          <label>
-            <input v-model="policy.cloudModel" :disabled="busyPolicyId === (policy.id ?? policy.space)" type="checkbox" @change="recordAiPolicy(policy, '云模型调用', policy.cloudModel)" />
-            云模型
-          </label>
+          <UiCheckbox
+            v-model="policy.indexed"
+            label="AI 索引"
+            :disabled="busyPolicyId === (policy.id ?? policy.space)"
+            @change="recordAiPolicy(policy, 'AI 索引', policy.indexed)"
+          />
+          <UiCheckbox
+            v-model="policy.cloudModel"
+            label="云模型"
+            :disabled="busyPolicyId === (policy.id ?? policy.space)"
+            @change="recordAiPolicy(policy, '云模型调用', policy.cloudModel)"
+          />
         </article>
       </div>
     </section>
@@ -383,10 +409,17 @@ onMounted(loadSecurityState);
             <strong>{{ link.name }}</strong>
             <small>{{ link.target }} · {{ link.access }} · 下载 {{ link.downloads }}</small>
           </div>
-          <span :class="['security-center__risk', riskClass[link.risk]]">{{ link.active ? link.risk : '已撤销' }}</span>
-          <button type="button" :disabled="!link.active || busyShareId === link.id" @click="revokeShare(link.id)">
-            <Link2Off :size="13" /> {{ busyShareId === link.id ? '处理中' : '撤销' }}
-          </button>
+          <UiBadge class="security-center__risk" :tone="link.active ? riskTone[link.risk] : 'neutral'">{{ link.active ? link.risk : '已撤销' }}</UiBadge>
+          <UiButton
+            variant="soft"
+            tone="danger"
+            size="sm"
+            :icon-left="Link2Off"
+            :disabled="!link.active || busyShareId === link.id"
+            @click="revokeShare(link.id)"
+          >
+            {{ busyShareId === link.id ? '处理中' : '撤销' }}
+          </UiButton>
         </article>
       </div>
     </section>
@@ -403,9 +436,15 @@ onMounted(loadSecurityState);
             <strong>{{ entry.event }}</strong>
             <small>{{ entry.actor }} · {{ entry.risk }} · {{ entry.reverted ? '已回滚' : entry.rollback }}</small>
           </div>
-          <button type="button" :disabled="entry.reverted || busyAuditId === entry.id || !entry.rollback" @click="rollbackAudit(entry.id)">
+          <UiButton
+            variant="soft"
+            tone="danger"
+            size="sm"
+            :disabled="entry.reverted || busyAuditId === entry.id || !entry.rollback"
+            @click="rollbackAudit(entry.id)"
+          >
             {{ busyAuditId === entry.id ? '处理中' : '回滚' }}
-          </button>
+          </UiButton>
         </article>
       </div>
     </section>
@@ -502,36 +541,6 @@ onMounted(loadSecurityState);
   overflow: hidden;
 }
 
-.security-center__filters {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 5px;
-}
-
-.security-center__filters button,
-.security-center__risk-actions button,
-.security-center__share-list button,
-.security-center__audit-list button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 9px;
-  color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
-  border: 1px solid rgba(19, 136, 255, 0.18);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.security-center__filter--active {
-  color: #fff !important;
-  background: var(--accent) !important;
-}
-
 .security-center__risk-list,
 .security-center__share-list,
 .security-center__audit-list,
@@ -609,35 +618,8 @@ onMounted(loadSecurityState);
   gap: 6px;
 }
 
-.security-center__ghost {
-  color: var(--text-muted) !important;
-  background: rgba(255, 255, 255, 0.72) !important;
-  border-color: var(--border) !important;
-}
-
 .security-center__risk {
   justify-self: end;
-  height: 22px;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 760;
-  white-space: nowrap;
-  border-radius: 999px;
-}
-
-.security-center__risk--low {
-  color: var(--accent-green);
-  background: rgba(34, 181, 115, 0.12);
-}
-
-.security-center__risk--mid {
-  color: #b36a00;
-  background: rgba(245, 158, 11, 0.14);
-}
-
-.security-center__risk--high {
-  color: var(--accent-red);
-  background: rgba(239, 68, 68, 0.12);
 }
 
 .security-center__permissions,
@@ -665,21 +647,6 @@ onMounted(loadSecurityState);
   padding: 10px;
 }
 
-.security-center label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.3;
-}
-
-.security-center input {
-  flex: 0 0 auto;
-  accent-color: var(--accent);
-}
-
 .security-center__policy-list article,
 .security-center__share-list article,
 .security-center__audit-list article {
@@ -696,14 +663,6 @@ onMounted(loadSecurityState);
 
 .security-center__share--revoked {
   opacity: 0.62;
-}
-
-.security-center__share-list button:disabled,
-.security-center__audit-list button:disabled {
-  color: var(--text-soft);
-  cursor: not-allowed;
-  background: rgba(148, 163, 184, 0.12);
-  border-color: rgba(148, 163, 184, 0.18);
 }
 
 .security-center__audit-list article {

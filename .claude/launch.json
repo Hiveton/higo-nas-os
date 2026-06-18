@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-pc",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "web-pc", "run", "dev", "--", "--port", "5192"],
+      "port": 5192
+    }
+  ]
+}

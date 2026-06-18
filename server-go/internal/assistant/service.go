@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -9,9 +10,15 @@ import (
 	"sync"
 	"time"
 
+	"higoos/server-go/internal/agent"
+	"higoos/server-go/internal/apiclient"
 	"higoos/server-go/internal/llm"
 	"higoos/server-go/internal/state"
 )
+
+// maxToolRounds caps how many tool-call iterations the agent loop will run before
+// forcing a final textual answer.
+const maxToolRounds = 4
 
 // systemPrompt frames the assistant for bound LLM providers.
 const systemPrompt = "你是 HiGoOS NAS 的智能助手。用简洁的中文回答关于文件、备份、设备、" +
@@ -22,6 +29,7 @@ type Service struct {
 	now         func() time.Time
 	nextMessage int
 	nextAction  int
+	nextThread  int
 	threads     map[string]Thread
 	actions     map[string]Action
 	searchItems []SearchItem
@@ -29,6 +37,8 @@ type Service struct {
 
 	llmStore   *llm.Store
 	llmFactory llm.Factory
+	toolClient *apiclient.Client
+	tools      []agent.Tool
 }
 
 // WithLLM binds a provider store and client factory so the assistant produces
@@ -43,9 +53,22 @@ func (s *Service) WithLLM(store *llm.Store, factory llm.Factory) *Service {
 	return s
 }
 
+// WithTools enables the read-only tool-calling agent loop: the bound model may
+// call the given tools (executed against the API via client) to ground its
+// answers. Only effective for OpenAI-compatible providers. Safe to leave unset —
+// the assistant then answers from chat history alone.
+func (s *Service) WithTools(client *apiclient.Client, tools []agent.Tool) *Service {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.toolClient = client
+	s.tools = tools
+	return s
+}
+
 type snapshot struct {
 	NextMessage int               `json:"nextMessage"`
 	NextAction  int               `json:"nextAction"`
+	NextThread  int               `json:"nextThread"`
 	Threads     map[string]Thread `json:"threads"`
 	Actions     map[string]Action `json:"actions"`
 	SearchItems []SearchItem      `json:"searchItems"`
@@ -74,11 +97,75 @@ func NewServiceWithStateDir(stateDir string) (*Service, error) {
 	if len(persisted.Threads) > 0 {
 		service.nextMessage = persisted.NextMessage
 		service.nextAction = persisted.NextAction
+		service.nextThread = persisted.NextThread
 		service.threads = cloneThreadMap(persisted.Threads)
 		service.actions = cloneActionMap(persisted.Actions)
 		service.searchItems = append([]SearchItem(nil), persisted.SearchItems...)
 	}
 	return service, nil
+}
+
+// ListThreads returns lightweight summaries of every conversation, newest first.
+func (s *Service) ListThreads(ctx context.Context) []ThreadSummary {
+	if err := ctx.Err(); err != nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	summaries := make([]ThreadSummary, 0, len(s.threads))
+	for _, thread := range s.threads {
+		summaries = append(summaries, ThreadSummary{
+			ID:           thread.ID,
+			Title:        thread.Title,
+			UpdatedAt:    thread.UpdatedAt,
+			MessageCount: len(thread.Messages),
+		})
+	}
+	sort.SliceStable(summaries, func(i, j int) bool {
+		return summaries[i].UpdatedAt.After(summaries[j].UpdatedAt)
+	})
+	return summaries
+}
+
+// CreateThread starts a new, empty conversation and returns it.
+func (s *Service) CreateThread(ctx context.Context, title string) (Thread, error) {
+	if err := ctx.Err(); err != nil {
+		return Thread{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextThread++
+	now := s.now().UTC()
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "新对话"
+	}
+	thread := Thread{
+		ID:        fmt.Sprintf("thread-%03d", s.nextThread),
+		Title:     title,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	s.threads[thread.ID] = thread
+	return cloneThread(thread), s.saveLocked()
+}
+
+// DeleteThread removes a conversation and its pending actions.
+func (s *Service) DeleteThread(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	thread, ok := s.threads[id]
+	if !ok {
+		return fmt.Errorf("assistant thread not found: %s", id)
+	}
+	for _, action := range thread.PendingActions {
+		delete(s.actions, action.ID)
+	}
+	delete(s.threads, id)
+	return s.saveLocked()
 }
 
 func (s *Service) GetThread(ctx context.Context, id string) (Thread, error) {
@@ -104,7 +191,7 @@ func (s *Service) AddMessage(ctx context.Context, threadID string, request Messa
 // emit (which also receives the terminal Done chunk), then persists the assistant
 // message and any pending high-risk action. emit may be nil for a non-streamed
 // call. The model is invoked without holding the service lock.
-func (s *Service) AddMessageStream(ctx context.Context, threadID string, request MessageRequest, emit func(llm.StreamChunk)) (MessageResult, error) {
+func (s *Service) AddMessageStream(ctx context.Context, threadID string, request MessageRequest, emit func(StreamEvent)) (MessageResult, error) {
 	if err := ctx.Err(); err != nil {
 		return MessageResult{}, err
 	}
@@ -132,34 +219,38 @@ func (s *Service) AddMessageStream(ctx context.Context, threadID string, request
 	s.mu.Unlock()
 
 	// Phase 2: call the bound model (no lock held; may do network I/O).
-	assistantText, err := s.generateReply(ctx, text, history, emit)
+	res, err := s.generateReply(ctx, text, history, emit)
 	if err != nil {
 		return MessageResult{}, err
 	}
 
-	// Phase 3: persist the assistant reply and any high-risk action.
+	// Phase 3: persist the assistant reply and any pending action.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	thread = s.threads[threadID]
 	now := s.now().UTC()
-	assistantMessage := s.newMessageLocked(threadID, RoleAssistant, assistantText, request.ModelPolicy, nil)
+	assistantMessage := s.newMessageLocked(threadID, RoleAssistant, res.Text, request.ModelPolicy, nil)
+	assistantMessage.Tools = res.Traces
 
 	var action *Action
-	risk, confirmable := classifyAssistantAction(text)
-	if confirmable {
+	switch {
+	case res.Pending != nil:
+		// A real write tool call awaiting confirmation. Confirming it executes
+		// the stored tool (see ConfirmAction).
 		s.nextAction++
 		created := Action{
 			ID:             fmt.Sprintf("assistant-action-%03d", s.nextAction),
 			ThreadID:       threadID,
 			MessageID:      assistantMessage.ID,
 			ActorID:        request.ActorID,
-			Intent:         text,
-			Risk:           risk,
+			Intent:         res.Pending.Impact,
+			Risk:           RiskHigh,
 			Status:         ActionPending,
 			ConfirmationID: fmt.Sprintf("assistant-confirm-%03d", s.nextAction),
-			Impact:         impactForAssistantAction(text, risk),
-			RollbackID:     fmt.Sprintf("assistant-rollback-%03d", s.nextAction),
+			Impact:         res.Pending.Impact,
+			ToolName:       res.Pending.Name,
+			ToolArgs:       res.Pending.Args,
 			CreatedAt:      now,
 		}
 		assistantMessage.ActionID = created.ID
@@ -167,6 +258,30 @@ func (s *Service) AddMessageStream(ctx context.Context, threadID string, request
 		s.actions[created.ID] = created
 		thread.PendingActions = append(thread.PendingActions, created)
 		action = &created
+	case !res.Agent:
+		// Plain-chat fallback path: keep the keyword-based heuristic action.
+		risk, confirmable := classifyAssistantAction(text)
+		if confirmable {
+			s.nextAction++
+			created := Action{
+				ID:             fmt.Sprintf("assistant-action-%03d", s.nextAction),
+				ThreadID:       threadID,
+				MessageID:      assistantMessage.ID,
+				ActorID:        request.ActorID,
+				Intent:         text,
+				Risk:           risk,
+				Status:         ActionPending,
+				ConfirmationID: fmt.Sprintf("assistant-confirm-%03d", s.nextAction),
+				Impact:         impactForAssistantAction(text, risk),
+				RollbackID:     fmt.Sprintf("assistant-rollback-%03d", s.nextAction),
+				CreatedAt:      now,
+			}
+			assistantMessage.ActionID = created.ID
+			assistantMessage.RequiresConfirmation = true
+			s.actions[created.ID] = created
+			thread.PendingActions = append(thread.PendingActions, created)
+			action = &created
+		}
 	}
 
 	thread.Messages = append(thread.Messages, assistantMessage)
@@ -190,50 +305,224 @@ func (s *Service) AddMessageStream(ctx context.Context, threadID string, request
 // configured (or the factory can't resolve one) it falls back to a canned draft
 // so the assistant keeps working offline. A mid-stream error is surfaced to the
 // caller. emit, when non-nil, receives every delta plus the terminal Done chunk.
-func (s *Service) generateReply(ctx context.Context, userText string, history []llm.ChatMessage, emit func(llm.StreamChunk)) (string, error) {
+// pendingWrite is a confirmation-gated write tool call captured during the agent
+// loop instead of being executed.
+type pendingWrite struct {
+	Name   string
+	Args   string
+	Impact string
+}
+
+// replyResult bundles the assistant reply with tool traces and any pending write
+// action. Agent marks whether the tool-calling loop produced it.
+type replyResult struct {
+	Text    string
+	Traces  []ToolTrace
+	Agent   bool
+	Pending *pendingWrite
+}
+
+func (s *Service) generateReply(ctx context.Context, userText string, history []llm.ChatMessage, emit func(StreamEvent)) (replyResult, error) {
 	s.mu.RLock()
 	store := s.llmStore
 	factory := s.llmFactory
 	s.mu.RUnlock()
 
 	if store == nil || factory == nil {
-		return cannedReply(userText, emit), nil
+		return replyResult{Text: cannedReply(userText, emit)}, nil
 	}
 	provider, err := store.Default()
 	if err != nil {
-		return cannedReply(userText, emit), nil
+		return replyResult{Text: cannedReply(userText, emit)}, nil
 	}
 	client, err := factory(provider.Kind)
 	if err != nil {
-		return cannedReply(userText, emit), nil
+		return replyResult{Text: cannedReply(userText, emit)}, nil
 	}
 
+	s.mu.RLock()
+	toolClient := s.toolClient
+	tools := s.tools
+	s.mu.RUnlock()
+
 	messages := append([]llm.ChatMessage{{Role: "system", Content: systemPrompt}}, history...)
+
+	// Tool-calling agent loop (OpenAI-compatible providers only).
+	if toolClient != nil && len(tools) > 0 && provider.Kind == llm.KindOpenAI {
+		return agentReply(ctx, provider, messages, tools, toolClient, emit)
+	}
+
+	// Plain streamed chat.
 	var sb strings.Builder
 	streamErr := client.Stream(ctx, provider, llm.ChatRequest{Messages: messages}, func(chunk llm.StreamChunk) {
 		sb.WriteString(chunk.Delta)
-		if emit != nil {
-			emit(chunk)
-		}
+		emitDelta(emit, chunk.Delta)
 	})
 	if streamErr != nil {
-		return "", streamErr
+		return replyResult{}, streamErr
 	}
 	reply := strings.TrimSpace(sb.String())
 	if reply == "" {
 		reply = "（模型没有返回内容）"
 	}
-	return reply, nil
+	return replyResult{Text: reply}, nil
+}
+
+// emitDelta forwards a text delta to emit when both are non-empty.
+func emitDelta(emit func(StreamEvent), delta string) {
+	if emit != nil && delta != "" {
+		emit(StreamEvent{Delta: delta})
+	}
+}
+
+// agentReply runs the read-only tool-calling loop: it streams completions with
+// the tool catalog attached, executes any requested tools against the API, feeds
+// results back, and repeats until the model answers in text (or the round cap is
+// hit, after which a final tool-free pass forces an answer). Only content deltas
+// reach emit, so tool-call rounds are invisible in the persisted message.
+func agentReply(ctx context.Context, provider llm.Provider, messages []llm.ChatMessage, tools []agent.Tool, client *apiclient.Client, emit func(StreamEvent)) (replyResult, error) {
+	toolDefs := make([]llm.ToolDef, 0, len(tools))
+	byName := agent.ByName(tools)
+	for _, t := range tools {
+		toolDefs = append(toolDefs, llm.ToolDef{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
+	}
+
+	var sb strings.Builder
+	var traces []ToolTrace
+	var pending *pendingWrite
+	sink := func(chunk llm.StreamChunk) {
+		sb.WriteString(chunk.Delta)
+		emitDelta(emit, chunk.Delta)
+	}
+
+	for round := 0; round < maxToolRounds; round++ {
+		calls, err := llm.StreamWithTools(ctx, provider, messages, toolDefs, sink)
+		if err != nil {
+			return replyResult{}, err
+		}
+		if len(calls) == 0 {
+			break // model answered in text; content already streamed
+		}
+		messages = append(messages, llm.ChatMessage{Role: "assistant", ToolCalls: calls})
+		for _, call := range calls {
+			tool, isWrite := byName[call.Name], false
+			if t, ok := byName[call.Name]; ok {
+				isWrite = t.Write
+			}
+
+			// Write tools are NOT executed here — they become a single pending
+			// action the user must confirm. Only the first write per turn is
+			// captured; further writes are deferred so confirmations stay 1-at-a-time.
+			if isWrite {
+				var result json.RawMessage
+				if pending == nil {
+					var args map[string]any
+					if strings.TrimSpace(call.Arguments) != "" {
+						_ = json.Unmarshal([]byte(call.Arguments), &args)
+					}
+					impact := tool.Description
+					if tool.Impact != nil {
+						impact = tool.Impact(args)
+					}
+					pending = &pendingWrite{Name: call.Name, Args: call.Arguments, Impact: impact}
+					traces = append(traces, ToolTrace{Name: call.Name, Summary: "待确认：" + impact})
+					if emit != nil {
+						emit(StreamEvent{Tool: &ToolEvent{Phase: "confirm", Name: call.Name, Args: call.Arguments, Summary: impact}})
+					}
+					result = json.RawMessage(`{"status":"awaiting_user_confirmation","note":"已生成待确认卡片，用户确认后才会执行；不要假设已执行。"}`)
+				} else {
+					result = json.RawMessage(`{"status":"deferred","note":"已有一个操作待确认，请让用户先确认后再继续。"}`)
+				}
+				messages = append(messages, llm.ChatMessage{Role: "tool", ToolCallID: call.ID, Content: string(result)})
+				continue
+			}
+
+			// Read-only tools execute inline.
+			if emit != nil {
+				emit(StreamEvent{Tool: &ToolEvent{Phase: "start", Name: call.Name, Args: call.Arguments}})
+			}
+			result := runTool(ctx, client, byName, call)
+			summary := summarizeToolResult(result)
+			traces = append(traces, ToolTrace{Name: call.Name, Summary: summary})
+			if emit != nil {
+				emit(StreamEvent{Tool: &ToolEvent{Phase: "done", Name: call.Name, Summary: summary}})
+			}
+			messages = append(messages, llm.ChatMessage{Role: "tool", ToolCallID: call.ID, Content: string(result)})
+		}
+	}
+
+	// If the model only ever called tools (hit the cap), force a textual answer.
+	if strings.TrimSpace(sb.String()) == "" {
+		if _, err := llm.StreamWithTools(ctx, provider, messages, nil, sink); err != nil {
+			return replyResult{}, err
+		}
+	}
+
+	reply := strings.TrimSpace(sb.String())
+	if reply == "" {
+		reply = "（模型没有返回内容）"
+	}
+	return replyResult{Text: reply, Traces: traces, Agent: true, Pending: pending}, nil
+}
+
+// runTool executes a single tool call and returns its JSON result (or a JSON
+// error object the model can read).
+func runTool(ctx context.Context, client *apiclient.Client, byName map[string]agent.Tool, call llm.ToolCall) json.RawMessage {
+	tool, ok := byName[call.Name]
+	if !ok {
+		return toolError("unknown tool: " + call.Name)
+	}
+	var args map[string]any
+	if strings.TrimSpace(call.Arguments) != "" {
+		if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+			return toolError("invalid tool arguments: " + err.Error())
+		}
+	}
+	out, err := tool.Run(ctx, client, args)
+	if err != nil {
+		return toolError(err.Error())
+	}
+	if len(out) == 0 {
+		return json.RawMessage("null")
+	}
+	return out
+}
+
+// summarizeToolResult produces a short human-readable note for the analysis view:
+// the surfaced error, or an element/field count, falling back to a truncated
+// preview of the raw JSON.
+func summarizeToolResult(result json.RawMessage) string {
+	var asErr struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(result, &asErr) == nil && asErr.Error != "" {
+		return "出错：" + asErr.Error
+	}
+	var arr []json.RawMessage
+	if json.Unmarshal(result, &arr) == nil {
+		return fmt.Sprintf("返回 %d 条记录", len(arr))
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(result, &obj) == nil {
+		return fmt.Sprintf("返回 %d 个字段", len(obj))
+	}
+	preview := strings.TrimSpace(string(result))
+	if len(preview) > 60 {
+		preview = preview[:60] + "…"
+	}
+	return preview
+}
+
+func toolError(msg string) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{"error": msg})
+	return b
 }
 
 // cannedReply produces the offline draft response and pushes it through emit as a
 // single delta plus a terminal Done chunk.
-func cannedReply(userText string, emit func(llm.StreamChunk)) string {
+func cannedReply(userText string, emit func(StreamEvent)) string {
 	text := fmt.Sprintf("已根据当前权限生成「%s」的执行草案，高风险动作会等待你确认。", userText)
-	if emit != nil {
-		emit(llm.StreamChunk{Delta: text})
-		emit(llm.StreamChunk{Done: true})
-	}
+	emitDelta(emit, text)
 	return text
 }
 
@@ -258,6 +547,77 @@ func (s *Service) ConfirmAction(ctx context.Context, id string, request ConfirmA
 	if err := ctx.Err(); err != nil {
 		return Action{}, err
 	}
+
+	// Phase 1: validate and capture the tool call under the lock.
+	s.mu.Lock()
+	action, ok := s.actions[id]
+	if !ok {
+		s.mu.Unlock()
+		return Action{}, fmt.Errorf("assistant action not found: %s", id)
+	}
+	if action.Status != ActionPending {
+		s.mu.Unlock()
+		return Action{}, fmt.Errorf("assistant action is not pending: %s", id)
+	}
+	if request.Intent != "" && request.Intent != action.Intent {
+		s.mu.Unlock()
+		return Action{}, fmt.Errorf("assistant action intent mismatch")
+	}
+	toolClient := s.toolClient
+	byName := agent.ByName(s.tools)
+	toolName, toolArgs, impact, threadID := action.ToolName, action.ToolArgs, action.Impact, action.ThreadID
+	s.mu.Unlock()
+
+	// Phase 2: execute the confirmed write tool, if any (no lock held).
+	var resultText string
+	if toolName != "" {
+		tool, found := byName[toolName]
+		switch {
+		case !found || toolClient == nil:
+			resultText = "⚠️ 无法执行（工具不可用）：" + impact
+		default:
+			var args map[string]any
+			if strings.TrimSpace(toolArgs) != "" {
+				_ = json.Unmarshal([]byte(toolArgs), &args)
+			}
+			out, err := tool.Run(ctx, toolClient, args)
+			if err != nil {
+				resultText = fmt.Sprintf("❌ 执行失败：%s（%s）", impact, err.Error())
+			} else {
+				resultText = fmt.Sprintf("✅ 已执行：%s（%s）", impact, summarizeToolResult(out))
+			}
+		}
+	}
+
+	// Phase 3: mark confirmed and append the result message.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	action = s.actions[id]
+	action.Status = ActionConfirmed
+	action.ConfirmedAt = s.now().UTC()
+	action.ConfirmedBy = request.ActorID
+	s.actions[id] = action
+
+	thread := s.threads[threadID]
+	for i := range thread.PendingActions {
+		if thread.PendingActions[i].ID == id {
+			thread.PendingActions[i] = action
+		}
+	}
+	if resultText != "" {
+		resultMsg := s.newMessageLocked(threadID, RoleAssistant, resultText, "", nil)
+		thread.Messages = append(thread.Messages, resultMsg)
+	}
+	thread.UpdatedAt = action.ConfirmedAt
+	s.threads[threadID] = thread
+	return cloneAction(action), s.saveLocked()
+}
+
+// CancelAction rejects a pending action without executing it.
+func (s *Service) CancelAction(ctx context.Context, id string, request ConfirmActionRequest) (Action, error) {
+	if err := ctx.Err(); err != nil {
+		return Action{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -268,11 +628,7 @@ func (s *Service) ConfirmAction(ctx context.Context, id string, request ConfirmA
 	if action.Status != ActionPending {
 		return Action{}, fmt.Errorf("assistant action is not pending: %s", id)
 	}
-	if request.Intent != "" && request.Intent != action.Intent {
-		return Action{}, fmt.Errorf("assistant action intent mismatch")
-	}
-	action.Status = ActionConfirmed
-	action.ConfirmedAt = s.now().UTC()
+	action.Status = ActionCanceled
 	action.ConfirmedBy = request.ActorID
 	s.actions[id] = action
 
@@ -282,7 +638,7 @@ func (s *Service) ConfirmAction(ctx context.Context, id string, request ConfirmA
 			thread.PendingActions[i] = action
 		}
 	}
-	thread.UpdatedAt = action.ConfirmedAt
+	thread.UpdatedAt = s.now().UTC()
 	s.threads[action.ThreadID] = thread
 	return cloneAction(action), s.saveLocked()
 }
@@ -294,6 +650,7 @@ func (s *Service) saveLocked() error {
 	return state.SaveJSON(s.statePath, snapshot{
 		NextMessage: s.nextMessage,
 		NextAction:  s.nextAction,
+		NextThread:  s.nextThread,
 		Threads:     cloneThreadMap(s.threads),
 		Actions:     cloneActionMap(s.actions),
 		SearchItems: append([]SearchItem(nil), s.searchItems...),

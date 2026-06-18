@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { Boxes, CheckCircle2, DownloadCloud, Play, RefreshCw, Search, ShieldCheck, Square, Tags } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { AppCenterApp } from '../../api/types';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
+import { UiButton, UiInput, UiTabs } from '../ui';
 
 const fallbackApps: AppCenterApp[] = [
   {
@@ -63,6 +64,7 @@ const selectedAppId = ref(fallbackApps[0].id);
 const actionState = ref('应用中心正在连接后端套件目录。');
 
 const categories = computed(() => ['全部', ...Array.from(new Set(apps.value.map((app) => app.category)))]);
+const categoryTabs = computed(() => categories.value.map((category) => ({ key: category, label: category })));
 const filteredApps = computed(() => {
   const keyword = query.value.trim().toLowerCase();
   return apps.value.filter((app) => {
@@ -89,10 +91,9 @@ async function loadApps() {
   }
 }
 
-function selectCategory(category: string) {
-  activeCategory.value = category;
+watch(activeCategory, () => {
   selectedAppId.value = filteredApps.value[0]?.id ?? selectedAppId.value;
-}
+});
 
 function selectApp(id: string) {
   selectedAppId.value = id;
@@ -159,21 +160,14 @@ onMounted(loadApps);
 
     <main class="app-center__main">
       <aside class="app-center__catalog" aria-label="应用目录">
-        <label class="app-center__search">
-          <Search :size="14" />
-          <input v-model="query" type="search" placeholder="搜索应用、分类或能力" />
-        </label>
-        <div class="app-center__tabs">
-          <button
-            v-for="category in categories"
-            :key="category"
-            type="button"
-            :class="{ 'app-center__tab--active': category === activeCategory }"
-            @click="selectCategory(category)"
-          >
-            {{ category }}
-          </button>
-        </div>
+        <UiInput v-model="query" type="search" size="sm" :prefix-icon="Search" placeholder="搜索应用、分类或能力" />
+        <UiTabs
+          v-model="activeCategory"
+          :tabs="categoryTabs"
+          variant="pill"
+          size="sm"
+          overflow="menu"
+        />
         <button
           v-for="app in filteredApps"
           :key="app.id"
@@ -222,18 +216,10 @@ onMounted(loadApps);
         </div>
 
         <div class="app-center__actions">
-          <button v-if="!selectedApp.installed" type="button" @click="installApp()">
-            <DownloadCloud :size="14" /> 安装
-          </button>
-          <button v-if="selectedApp.updateAvailable" type="button" @click="updateApp()">
-            <RefreshCw :size="14" /> 更新
-          </button>
-          <button v-if="selectedApp.installed && !selectedApp.running" type="button" @click="startApp()">
-            <Play :size="14" /> 启动
-          </button>
-          <button v-if="selectedApp.running" type="button" @click="stopApp()">
-            <Square :size="14" /> 停止
-          </button>
+          <UiButton v-if="!selectedApp.installed" variant="soft" tone="primary" size="sm" :icon-left="DownloadCloud" @click="installApp()">安装</UiButton>
+          <UiButton v-if="selectedApp.updateAvailable" variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="updateApp()">更新</UiButton>
+          <UiButton v-if="selectedApp.installed && !selectedApp.running" variant="soft" tone="primary" size="sm" :icon-left="Play" @click="startApp()">启动</UiButton>
+          <UiButton v-if="selectedApp.running" variant="soft" tone="primary" size="sm" :icon-left="Square" @click="stopApp()">停止</UiButton>
         </div>
       </section>
     </main>
@@ -310,56 +296,6 @@ onMounted(loadApps);
   gap: 8px;
   overflow: hidden;
   padding: 10px;
-}
-
-.app-center__search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  padding: 0 9px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.app-center__search input {
-  min-width: 0;
-  width: 100%;
-  color: var(--text-strong);
-  background: transparent;
-  border: 0;
-  outline: 0;
-  font: inherit;
-  font-size: 12px;
-}
-
-.app-center__tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.app-center__tabs button,
-.app-center__actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 28px;
-  padding: 0 9px;
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.72);
-  border: 1px solid rgba(19, 136, 255, 0.16);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.app-center__tab--active {
-  color: #fff !important;
-  background: var(--accent) !important;
-  border-color: transparent !important;
 }
 
 .app-center__item {

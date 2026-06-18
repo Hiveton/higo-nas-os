@@ -4,6 +4,7 @@ import { ArchiveRestore, CheckCircle2, CloudUpload, DatabaseBackup, Pause, Play,
 import { apiClient } from '../../api/client';
 import type { BackupJob } from '../../api/types';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
+import { UiButton, UiProgressBar } from '../ui';
 
 const fallbackJobs: BackupJob[] = [
   {
@@ -158,8 +159,8 @@ onMounted(loadBackupJobs);
           <strong>{{ selectedJob.state }}</strong>
         </header>
 
-        <div class="backup-sync__meter" aria-label="备份进度">
-          <span :style="{ width: `${selectedJob.progress}%` }" />
+        <div class="backup-sync__meter">
+          <UiProgressBar :value="selectedJob.progress" size="lg" aria-label="备份进度" />
         </div>
 
         <div class="backup-sync__grid">
@@ -184,10 +185,10 @@ onMounted(loadBackupJobs);
         <p class="backup-sync__policy"><ShieldCheck :size="14" /> {{ selectedJob.policy }}</p>
 
         <div class="backup-sync__actions">
-          <button type="button" @click="runBackupJob()"><Play :size="14" /> 立即运行</button>
-          <button v-if="selectedJob.state !== '已暂停'" type="button" @click="pauseBackupJob()"><Pause :size="14" /> 暂停</button>
-          <button v-else type="button" @click="resumeBackupJob()"><Play :size="14" /> 恢复</button>
-          <button type="button" @click="verifyBackupJob()"><RefreshCw :size="14" /> 校验</button>
+          <UiButton variant="soft" tone="primary" size="sm" :icon-left="Play" @click="runBackupJob()">立即运行</UiButton>
+          <UiButton v-if="selectedJob.state !== '已暂停'" variant="soft" tone="primary" size="sm" :icon-left="Pause" @click="pauseBackupJob()">暂停</UiButton>
+          <UiButton v-else variant="soft" tone="primary" size="sm" :icon-left="Play" @click="resumeBackupJob()">恢复</UiButton>
+          <UiButton variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="verifyBackupJob()">校验</UiButton>
         </div>
       </section>
     </main>
@@ -338,17 +339,7 @@ onMounted(loadBackupJobs);
 }
 
 .backup-sync__meter {
-  height: 12px;
   margin: 16px 14px 12px;
-  overflow: hidden;
-  background: rgba(100, 136, 166, 0.14);
-  border-radius: 999px;
-}
-
-.backup-sync__meter span {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--accent-green));
 }
 
 .backup-sync__grid {
@@ -387,20 +378,6 @@ onMounted(loadBackupJobs);
   flex-wrap: wrap;
   gap: 8px;
   padding: 0 14px 14px;
-}
-
-.backup-sync__actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  padding: 0 10px;
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.72);
-  border: 1px solid rgba(19, 136, 255, 0.16);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 760;
 }
 
 .backup-sync__audit {

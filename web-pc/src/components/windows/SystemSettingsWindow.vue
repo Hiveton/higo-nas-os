@@ -5,23 +5,30 @@ import {
   ArchiveRestore,
   Bell,
   BrainCircuit,
-  CheckCircle2,
   Cloud,
   EyeOff,
-  Globe2,
   History,
-  LockKeyhole,
   Palette,
   RefreshCw,
   RotateCcw,
   Save,
-  Server,
   ShieldCheck,
   Users,
   Wifi,
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import { settingsStore } from '../../stores/settings';
+import { UiButton } from '../ui';
+import SettingsAccountsPanel from './settings/SettingsAccountsPanel.vue';
+import SettingsNetworkPanel from './settings/SettingsNetworkPanel.vue';
+import SettingsModelsPanel from './settings/SettingsModelsPanel.vue';
+import SettingsAiPanel from './settings/SettingsAiPanel.vue';
+import SettingsNotificationsPanel from './settings/SettingsNotificationsPanel.vue';
+import SettingsUpdatesPanel from './settings/SettingsUpdatesPanel.vue';
+import SettingsPrivacyPanel from './settings/SettingsPrivacyPanel.vue';
+import SettingsAuditPanel from './settings/SettingsAuditPanel.vue';
+import SettingsBackupPanel from './settings/SettingsBackupPanel.vue';
+import SettingsInterfacePanel from './settings/SettingsInterfacePanel.vue';
 import type {
   AccountSummary,
   AccountUser,
@@ -30,6 +37,7 @@ import type {
   AiProviderKind,
   SettingsState as ApiSettingsState,
 } from '../../api/types';
+import './settings/settings-window.css';
 
 type CategoryId =
   | 'accounts'
@@ -68,6 +76,7 @@ type SettingsState = {
   systemBackup: boolean;
   backupTarget: string;
   uiTheme: string;
+  uiLocale: string;
   windowRadius: string;
   dockPosition: string;
   dockStyle: string;
@@ -101,6 +110,10 @@ const themeOptions = [
   { value: 'light', label: '浅色' },
   { value: 'dark', label: '深色' },
 ];
+const localeOptions = [
+  { value: 'zh-CN', label: '简体中文' },
+  { value: 'en-US', label: 'English' },
+];
 const radiusOptions = [
   { value: 'compact', label: '紧凑' },
   { value: 'default', label: '默认' },
@@ -121,6 +134,10 @@ const dockIconSizeOptions = [
   { value: 'default', label: '默认' },
   { value: 'large', label: '大' },
 ];
+const dnsProfileOptions = ['自动 DNS', '家庭安全 DNS', '团队内网 DNS'].map((value) => ({ value, label: value }));
+const modelProviderOptions = ['本地 Qwen3-8B', '私有 vLLM 集群', 'OpenAI 云端增强', '局域网 Ollama'].map((value) => ({ value, label: value }));
+const releaseChannelOptions = ['稳定版', '安全预览', '开发者预览'].map((value) => ({ value, label: value }));
+const backupTargetOptions = ['HiGoNAS 内部快照', '异地 NAS', '加密云端仓库'].map((value) => ({ value, label: value }));
 
 const activeCategoryId = ref<CategoryId>('accounts');
 const updateStatus = ref('上次检查：今天 09:20，当前为最新版本。');
@@ -216,6 +233,7 @@ function createDefaultSettings(): SettingsState {
     systemBackup: true,
     backupTarget: 'HiGoNAS 内部快照',
     uiTheme: 'auto',
+    uiLocale: 'zh-CN',
     windowRadius: 'default',
     dockPosition: 'bottom',
     dockStyle: 'floating',
@@ -239,6 +257,7 @@ function applyBackendSettings(nextSettings: ApiSettingsState) {
     settings.value.privacyMode = '隐身优先';
   }
   settings.value.uiTheme = normalizeBackendOption(ui.theme, themeOptions, 'auto');
+  settings.value.uiLocale = normalizeBackendOption(ui.locale, localeOptions, 'zh-CN');
   settings.value.windowRadius = normalizeBackendOption(ui.windowRadius, radiusOptions, 'default');
   settings.value.dockPosition = normalizeBackendOption(ui.dockPosition, dockPositionOptions, 'bottom');
   settings.value.dockStyle = normalizeBackendOption(ui.dockStyle, dockStyleOptions, 'floating');
@@ -260,6 +279,7 @@ function toBackendSettings(): ApiSettingsState {
     },
     ui: {
       theme: settings.value.uiTheme,
+      locale: settings.value.uiLocale,
       windowRadius: settings.value.windowRadius,
       dockPosition: settings.value.dockPosition,
       dockStyle: settings.value.dockStyle,
@@ -312,7 +332,7 @@ function setPrivacyMode(mode: string) {
   lastAudit.value = `隐私模式已切换为${mode}。`;
 }
 
-function setInterfaceOption(key: 'uiTheme' | 'windowRadius' | 'dockPosition' | 'dockStyle' | 'dockIconSize', value: string) {
+function setInterfaceOption(key: 'uiTheme' | 'uiLocale' | 'windowRadius' | 'dockPosition' | 'dockStyle' | 'dockIconSize', value: string) {
   settings.value[key] = value;
   lastAudit.value = '界面设置已调整，保存后应用到桌面。';
 }
@@ -640,503 +660,115 @@ onMounted(async () => {
       </section>
 
       <section class="system-settings__content" aria-label="系统设置表单">
-        <div v-if="activeCategoryId === 'accounts'" class="system-settings__panel">
-          <div class="system-settings__account-status">
-            <strong>账号与空间授权</strong>
-            <span>{{ accountState }}</span>
-          </div>
+        <SettingsAccountsPanel
+          v-if="activeCategoryId === 'accounts'"
+          :account-state="accountState"
+          :account-busy="accountBusy"
+          :new-user="newUser"
+          :new-group="newGroup"
+          :member-editor="memberEditor"
+          :grant-editor="grantEditor"
+          :account-users="accountUsers"
+          :account-groups="accountGroups"
+          :grant-subjects="grantSubjects"
+          @create-user="createAccountUser"
+          @toggle-user="toggleAccountUser"
+          @delete-user="deleteAccountUser"
+          @create-group="createAccountGroup"
+          @add-member="addMemberToGroup"
+          @grant-space="grantAccountSpace"
+          @subject-type-change="grantEditor.subjectId = grantSubjects[0]?.id ?? ''"
+        />
 
-          <section class="system-settings__account-card" aria-label="创建用户">
-            <h4>创建用户</h4>
-            <div class="system-settings__account-form">
-              <label>
-                <span>用户名</span>
-                <input v-model="newUser.username" type="text" />
-              </label>
-              <label>
-                <span>显示名</span>
-                <input v-model="newUser.displayName" type="text" />
-              </label>
-              <label>
-                <span>密码</span>
-                <input v-model="newUser.password" type="password" />
-              </label>
-              <label>
-                <span>角色</span>
-                <select v-model="newUser.role">
-                  <option value="user">普通用户</option>
-                  <option value="admin">管理员</option>
-                  <option value="guest">访客</option>
-                </select>
-              </label>
-              <label>
-                <span>配额 GB</span>
-                <input v-model.number="newUser.quotaGB" min="0" type="number" />
-              </label>
-              <label>
-                <span>用户组</span>
-                <select v-model="newUser.groupId">
-                  <option value="">无</option>
-                  <option v-for="group in accountGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
-                </select>
-              </label>
-              <button type="button" :disabled="accountBusy === 'create-user'" @click="createAccountUser">
-                {{ accountBusy === 'create-user' ? '创建中' : '创建用户' }}
-              </button>
-            </div>
-          </section>
+        <SettingsNetworkPanel
+          v-else-if="activeCategoryId === 'network'"
+          :settings="settings"
+          :dns-profile-options="dnsProfileOptions"
+          @toggle-ddns="settings.ddnsEnabled = !settings.ddnsEnabled"
+          @toggle-remote="settings.remoteAccess = !settings.remoteAccess"
+        />
 
-          <section class="system-settings__account-card" aria-label="用户列表">
-            <h4>用户</h4>
-            <div class="system-settings__account-list">
-              <article v-for="user in accountUsers" :key="user.id">
-                <div>
-                  <strong>{{ user.displayName || user.username }}</strong>
-                  <small>{{ user.username }} · {{ user.role }} · {{ user.status }} · {{ Math.round(user.quotaBytes / 1024 / 1024 / 1024) }} GB</small>
-                </div>
-                <button type="button" :disabled="accountBusy === user.id" @click="toggleAccountUser(user)">
-                  {{ user.status === 'active' ? '停用' : '启用' }}
-                </button>
-                <button type="button" :disabled="accountBusy === user.id || user.role === 'admin'" @click="deleteAccountUser(user)">删除</button>
-              </article>
-            </div>
-          </section>
+        <SettingsModelsPanel
+          v-else-if="activeCategoryId === 'models'"
+          :settings="settings"
+          :model-strategies="modelStrategies"
+          :model-provider-options="modelProviderOptions"
+          :model-summary="modelSummary"
+          :providers="providers"
+          :provider-form="providerForm"
+          :provider-busy="providerBusy"
+          :provider-notice="providerNotice"
+          :provider-kinds="providerKinds"
+          :provider-kind-label="providerKindLabel"
+          @set-strategy="setModelStrategy"
+          @toggle-task-routing="settings.taskRouting = !settings.taskRouting"
+          @submit-provider="submitProvider"
+          @test-provider="testProvider"
+          @set-default-provider="setDefaultProvider"
+          @remove-provider="removeProvider"
+        />
 
-          <section class="system-settings__account-card" aria-label="用户组和授权">
-            <h4>用户组 / 授权</h4>
-            <div class="system-settings__account-form">
-              <label>
-                <span>新用户组</span>
-                <input v-model="newGroup.name" type="text" />
-              </label>
-              <label>
-                <span>描述</span>
-                <input v-model="newGroup.description" type="text" />
-              </label>
-              <button type="button" :disabled="accountBusy === 'create-group'" @click="createAccountGroup">创建组</button>
-              <label>
-                <span>选择组</span>
-                <select v-model="memberEditor.groupId">
-                  <option v-for="group in accountGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
-                </select>
-              </label>
-              <label>
-                <span>添加成员</span>
-                <select v-model="memberEditor.userId">
-                  <option v-for="user in accountUsers" :key="user.id" :value="user.id">{{ user.displayName || user.username }}</option>
-                </select>
-              </label>
-              <button type="button" :disabled="accountBusy === 'members'" @click="addMemberToGroup">保存成员</button>
-            </div>
-            <div class="system-settings__account-form">
-              <label>
-                <span>授权类型</span>
-                <select v-model="grantEditor.subjectType" @change="grantEditor.subjectId = grantSubjects[0]?.id ?? ''">
-                  <option value="user">用户</option>
-                  <option value="group">用户组</option>
-                </select>
-              </label>
-              <label>
-                <span>授权对象</span>
-                <select v-model="grantEditor.subjectId">
-                  <option v-for="subject in grantSubjects" :key="subject.id" :value="subject.id">{{ subject.label }}</option>
-                </select>
-              </label>
-              <label>
-                <span>空间 ID</span>
-                <input v-model="grantEditor.spaceId" type="text" />
-              </label>
-              <label>
-                <span>权限</span>
-                <select v-model="grantEditor.access">
-                  <option value="read">只读</option>
-                  <option value="read_write">读写</option>
-                  <option value="manage">管理</option>
-                </select>
-              </label>
-              <label>
-                <span>配额 GB</span>
-                <input v-model.number="grantEditor.quotaGB" min="0" type="number" />
-              </label>
-              <button type="button" :disabled="accountBusy === 'grant'" @click="grantAccountSpace">保存授权</button>
-            </div>
-          </section>
-        </div>
+        <SettingsAiPanel
+          v-else-if="activeCategoryId === 'ai'"
+          :settings="settings"
+          @toggle-local="settings.localAi = !settings.localAi"
+          @toggle-cloud="settings.cloudAi = !settings.cloudAi"
+          @toggle-private="settings.privateEndpoint = !settings.privateEndpoint"
+        />
 
-        <div v-else-if="activeCategoryId === 'network'" class="system-settings__panel">
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.ddnsEnabled }"
-            type="button"
-            @click="settings.ddnsEnabled = !settings.ddnsEnabled"
-          >
-            <span>DDNS higo-home.direct</span>
-            <b>{{ settings.ddnsEnabled ? '解析中' : '暂停' }}</b>
-          </button>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.remoteAccess }"
-            type="button"
-            @click="settings.remoteAccess = !settings.remoteAccess"
-          >
-            <span>远程访问通道</span>
-            <b>{{ settings.remoteAccess ? '可用' : '内网限定' }}</b>
-          </button>
-          <label class="system-settings__field">
-            <span>DNS 配置</span>
-            <select v-model="settings.dnsProfile">
-              <option>自动 DNS</option>
-              <option>家庭安全 DNS</option>
-              <option>团队内网 DNS</option>
-            </select>
-          </label>
-          <div class="system-settings__metric">
-            <Globe2 :size="17" />
-            <p>{{ settings.ddnsEnabled ? '公网域名健康，证书 28 天后自动续签。' : 'DDNS 已暂停，仅保留局域网访问。' }}</p>
-          </div>
-        </div>
+        <SettingsNotificationsPanel
+          v-else-if="activeCategoryId === 'notifications'"
+          :settings="settings"
+          :enabled-notice-count="enabledNoticeCount"
+          @toggle-backup="settings.backupNotice = !settings.backupNotice"
+          @toggle-security="settings.securityNotice = !settings.securityNotice"
+          @toggle-life="settings.lifeNotice = !settings.lifeNotice"
+        />
 
-        <div v-else-if="activeCategoryId === 'models'" class="system-settings__panel">
-          <div class="system-settings__segmented" aria-label="模型策略选择">
-            <button
-              v-for="strategy in modelStrategies"
-              :key="strategy"
-              :class="{ 'system-settings__segmented-button--active': strategy === settings.modelStrategy }"
-              type="button"
-              @click="setModelStrategy(strategy)"
-            >
-              {{ strategy }}
-            </button>
-          </div>
-          <label class="system-settings__field">
-            <span>默认模型</span>
-            <select v-model="settings.modelProvider">
-              <option>本地 Qwen3-8B</option>
-              <option>私有 vLLM 集群</option>
-              <option>OpenAI 云端增强</option>
-              <option>局域网 Ollama</option>
-            </select>
-          </label>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.taskRouting }"
-            type="button"
-            @click="settings.taskRouting = !settings.taskRouting"
-          >
-            <span>按任务类型路由 OCR / 摘要 / Agent 规划</span>
-            <b>{{ settings.taskRouting ? '启用' : '停用' }}</b>
-          </button>
-          <div class="system-settings__metric">
-            <BrainCircuit :size="17" />
-            <p>{{ modelSummary }}</p>
-          </div>
+        <SettingsUpdatesPanel
+          v-else-if="activeCategoryId === 'updates'"
+          :settings="settings"
+          :release-channel-options="releaseChannelOptions"
+          :update-status="updateStatus"
+          @toggle-auto-update="settings.autoUpdate = !settings.autoUpdate"
+          @check-updates="checkForUpdates"
+        />
 
-          <div class="provider-binding">
-            <div class="provider-binding__head">
-              <strong>模型供应商绑定</strong>
-              <span>{{ providerNotice }}</span>
-            </div>
+        <SettingsPrivacyPanel
+          v-else-if="activeCategoryId === 'privacy'"
+          :settings="settings"
+          :privacy-summary="privacySummary"
+          @set-privacy-mode="setPrivacyMode"
+          @toggle-sensitive="settings.sensitiveLocalOnly = !settings.sensitiveLocalOnly"
+        />
 
-            <ul v-if="providers.length" class="provider-list">
-              <li v-for="provider in providers" :key="provider.id" class="provider-list__item">
-                <div class="provider-list__info">
-                  <strong>
-                    {{ provider.name }}
-                    <em v-if="provider.isDefault" class="provider-list__badge">默认</em>
-                  </strong>
-                  <small>
-                    {{ providerKindLabel(provider.kind) }} · {{ provider.model }}
-                    <template v-if="provider.hasKey"> · 密钥 {{ provider.keyHint }}</template>
-                  </small>
-                </div>
-                <div class="provider-list__actions">
-                  <button type="button" :disabled="providerBusy" @click="testProvider(provider)">测试</button>
-                  <button v-if="!provider.isDefault" type="button" @click="setDefaultProvider(provider)">设为默认</button>
-                  <button type="button" class="provider-list__danger" @click="removeProvider(provider)">删除</button>
-                </div>
-              </li>
-            </ul>
-            <p v-else class="provider-list__empty">尚未绑定任何模型。添加一个 OpenAI / Anthropic / Gemini 端点即可启用真实问答。</p>
+        <SettingsAuditPanel
+          v-else-if="activeCategoryId === 'audit'"
+          :settings="settings"
+          :retention-options="retentionOptions"
+          @set-retention="setAuditRetention"
+        />
 
-            <form class="provider-form" @submit.prevent="submitProvider">
-              <label class="system-settings__field">
-                <span>名称</span>
-                <input v-model="providerForm.name" type="text" placeholder="如：公司 GPT-4o" />
-              </label>
-              <label class="system-settings__field">
-                <span>类型</span>
-                <select v-model="providerForm.kind">
-                  <option v-for="kind in providerKinds" :key="kind.value" :value="kind.value">{{ kind.label }}</option>
-                </select>
-              </label>
-              <label class="system-settings__field">
-                <span>Base URL（可选）</span>
-                <input v-model="providerForm.baseUrl" type="text" placeholder="如：http://localhost:11434/v1" />
-              </label>
-              <label class="system-settings__field">
-                <span>模型 ID</span>
-                <input v-model="providerForm.model" type="text" placeholder="如：gpt-4o-mini / claude-3-5-sonnet / gemini-1.5-pro" />
-              </label>
-              <label class="system-settings__field">
-                <span>API Key</span>
-                <input v-model="providerForm.apiKey" type="password" placeholder="本地模型可留空" autocomplete="off" />
-              </label>
-              <button type="submit" class="provider-form__submit" :disabled="providerBusy">添加供应商</button>
-            </form>
-          </div>
-        </div>
+        <SettingsBackupPanel
+          v-else-if="activeCategoryId === 'backup'"
+          :settings="settings"
+          :backup-target-options="backupTargetOptions"
+          @toggle-backup="settings.systemBackup = !settings.systemBackup"
+          @create-backup="createSystemBackup"
+        />
 
-        <div v-else-if="activeCategoryId === 'ai'" class="system-settings__panel">
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.localAi }"
-            type="button"
-            @click="settings.localAi = !settings.localAi"
-          >
-            <span>本地 AI 索引与基础理解</span>
-            <b>{{ settings.localAi ? '运行中' : '暂停' }}</b>
-          </button>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.cloudAi }"
-            type="button"
-            @click="settings.cloudAi = !settings.cloudAi"
-          >
-            <span>云端复杂推理增强</span>
-            <b>{{ settings.cloudAi ? '允许' : '禁止' }}</b>
-          </button>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.privateEndpoint }"
-            type="button"
-            @click="settings.privateEndpoint = !settings.privateEndpoint"
-          >
-            <span>私有模型端点</span>
-            <b>{{ settings.privateEndpoint ? '已接管' : '未接管' }}</b>
-          </button>
-          <div class="system-settings__metric">
-            <Server :size="17" />
-            <p>{{ settings.localAi ? '本地模型负责隐私索引和基础问答。' : '本地 AI 已暂停，文件访问不受影响。' }}</p>
-          </div>
-        </div>
+        <SettingsInterfacePanel
+          v-else-if="activeCategoryId === 'interface'"
+          :settings="settings"
+          :theme-options="themeOptions"
+          :locale-options="localeOptions"
+          :radius-options="radiusOptions"
+          :dock-position-options="dockPositionOptions"
+          :dock-style-options="dockStyleOptions"
+          :dock-icon-size-options="dockIconSizeOptions"
+          @set-option="setInterfaceOption"
+        />
 
-        <div v-else-if="activeCategoryId === 'notifications'" class="system-settings__panel">
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.backupNotice }"
-            type="button"
-            @click="settings.backupNotice = !settings.backupNotice"
-          >
-            <span>备份失败 / 完整性提醒</span>
-            <b>{{ settings.backupNotice ? '推送' : '静默' }}</b>
-          </button>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.securityNotice }"
-            type="button"
-            @click="settings.securityNotice = !settings.securityNotice"
-          >
-            <span>权限风险 / 硬盘异常</span>
-            <b>{{ settings.securityNotice ? '推送' : '静默' }}</b>
-          </button>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.lifeNotice }"
-            type="button"
-            @click="settings.lifeNotice = !settings.lifeNotice"
-          >
-            <span>证件、保修、生活提醒</span>
-            <b>{{ settings.lifeNotice ? '推送' : '静默' }}</b>
-          </button>
-          <div class="system-settings__metric">
-            <Bell :size="17" />
-            <p>{{ enabledNoticeCount }} 类通知已开启，通知中心会聚合系统、备份、Agent 和生活提醒。</p>
-          </div>
-        </div>
-
-        <div v-else-if="activeCategoryId === 'updates'" class="system-settings__panel">
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.autoUpdate }"
-            type="button"
-            @click="settings.autoUpdate = !settings.autoUpdate"
-          >
-            <span>夜间自动更新</span>
-            <b>{{ settings.autoUpdate ? '开启' : '关闭' }}</b>
-          </button>
-          <label class="system-settings__field">
-            <span>更新渠道</span>
-            <select v-model="settings.releaseChannel">
-              <option>稳定版</option>
-              <option>安全预览</option>
-              <option>开发者预览</option>
-            </select>
-          </label>
-          <button class="system-settings__action-button" type="button" @click="checkForUpdates">
-            <RefreshCw :size="14" />
-            检查更新
-          </button>
-          <div class="system-settings__metric">
-            <CheckCircle2 :size="17" />
-            <p>{{ updateStatus }}</p>
-          </div>
-        </div>
-
-        <div v-else-if="activeCategoryId === 'privacy'" class="system-settings__panel">
-          <div class="system-settings__segmented" aria-label="隐私模式选择">
-            <button
-              v-for="mode in ['家庭默认', '隐身优先', '企业合规']"
-              :key="mode"
-              :class="{ 'system-settings__segmented-button--active': mode === settings.privacyMode }"
-              type="button"
-              @click="setPrivacyMode(mode)"
-            >
-              {{ mode }}
-            </button>
-          </div>
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.sensitiveLocalOnly }"
-            type="button"
-            @click="settings.sensitiveLocalOnly = !settings.sensitiveLocalOnly"
-          >
-            <span>敏感文件禁止云端处理</span>
-            <b>{{ settings.sensitiveLocalOnly ? '强制本地' : '按策略路由' }}</b>
-          </button>
-          <div class="system-settings__metric system-settings__metric--privacy">
-            <LockKeyhole :size="17" />
-            <p>{{ privacySummary }}</p>
-          </div>
-        </div>
-
-        <div v-else-if="activeCategoryId === 'audit'" class="system-settings__panel">
-          <div class="system-settings__segmented" aria-label="审计保留周期">
-            <button
-              v-for="retention in retentionOptions"
-              :key="retention"
-              :class="{ 'system-settings__segmented-button--active': retention === settings.auditRetention }"
-              type="button"
-              @click="setAuditRetention(retention)"
-            >
-              {{ retention }}
-            </button>
-          </div>
-          <div class="system-settings__metric">
-            <History :size="17" />
-            <p>当前保留 {{ settings.auditRetention }}，记录身份、工具调用、数据范围、设置修改和回滚方式。</p>
-          </div>
-          <div class="system-settings__audit-list">
-            <span>权限修改</span>
-            <span>模型调用</span>
-            <span>分享链接</span>
-            <span>备份任务</span>
-          </div>
-        </div>
-
-        <div v-else-if="activeCategoryId === 'backup'" class="system-settings__panel">
-          <button
-            class="system-settings__toggle"
-            :class="{ 'system-settings__toggle--on': settings.systemBackup }"
-            type="button"
-            @click="settings.systemBackup = !settings.systemBackup"
-          >
-            <span>系统配置快照</span>
-            <b>{{ settings.systemBackup ? '每日' : '手动' }}</b>
-          </button>
-          <label class="system-settings__field">
-            <span>备份目标</span>
-            <select v-model="settings.backupTarget">
-              <option>HiGoNAS 内部快照</option>
-              <option>异地 NAS</option>
-              <option>加密云端仓库</option>
-            </select>
-          </label>
-          <div class="system-settings__metric">
-            <ArchiveRestore :size="17" />
-            <p>{{ settings.backupTarget }}：备份系统设置、权限策略、模型路由和通知规则。</p>
-          </div>
-          <button class="system-settings__action-button" type="button" @click="createSystemBackup">
-            <ArchiveRestore :size="14" />
-            立即创建系统备份
-          </button>
-        </div>
-
-        <div v-else-if="activeCategoryId === 'interface'" class="system-settings__panel system-settings__panel--interface">
-          <section class="system-settings__account-card" aria-label="主题">
-            <h4>主题</h4>
-            <div class="system-settings__segmented system-settings__segmented--three">
-              <button
-                v-for="option in themeOptions"
-                :key="option.value"
-                :class="{ 'system-settings__segmented-button--active': option.value === settings.uiTheme }"
-                type="button"
-                @click="setInterfaceOption('uiTheme', option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-          </section>
-
-          <section class="system-settings__account-card" aria-label="窗口圆角">
-            <h4>窗口圆角</h4>
-            <div class="system-settings__segmented system-settings__segmented--three">
-              <button
-                v-for="option in radiusOptions"
-                :key="option.value"
-                :class="{ 'system-settings__segmented-button--active': option.value === settings.windowRadius }"
-                type="button"
-                @click="setInterfaceOption('windowRadius', option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-          </section>
-
-          <section class="system-settings__account-card" aria-label="Dock 位置">
-            <h4>Dock 位置</h4>
-            <div class="system-settings__segmented system-settings__segmented--three">
-              <button
-                v-for="option in dockPositionOptions"
-                :key="option.value"
-                :class="{ 'system-settings__segmented-button--active': option.value === settings.dockPosition }"
-                type="button"
-                @click="setInterfaceOption('dockPosition', option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-          </section>
-
-          <section class="system-settings__account-card" aria-label="Dock 样式">
-            <h4>Dock 样式</h4>
-            <div class="system-settings__segmented system-settings__segmented--three">
-              <button
-                v-for="option in dockStyleOptions"
-                :key="option.value"
-                :class="{ 'system-settings__segmented-button--active': option.value === settings.dockStyle }"
-                type="button"
-                @click="setInterfaceOption('dockStyle', option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-          </section>
-
-          <section class="system-settings__account-card" aria-label="Dock 图标大小">
-            <h4>Dock 图标大小</h4>
-            <div class="system-settings__segmented system-settings__segmented--three">
-              <button
-                v-for="option in dockIconSizeOptions"
-                :key="option.value"
-                :class="{ 'system-settings__segmented-button--active': option.value === settings.dockIconSize }"
-                type="button"
-                @click="setInterfaceOption('dockIconSize', option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-          </section>
-        </div>
       </section>
 
       <section class="system-settings__footer" aria-label="保存和审计状态">
@@ -1145,662 +777,10 @@ onMounted(async () => {
           <span>账号权限、网络、模型、安全治理和备份策略均受审计保护。</span>
         </div>
         <div class="system-settings__footer-actions">
-          <button type="button" @click="restoreDefaults">
-            <RotateCcw :size="14" />
-            恢复默认
-          </button>
-          <button class="system-settings__primary" type="button" @click="saveSettings">
-            <Save :size="14" />
-            保存应用
-          </button>
+          <UiButton variant="soft" :icon-left="RotateCcw" @click="restoreDefaults">恢复默认</UiButton>
+          <UiButton :icon-left="Save" @click="saveSettings">保存应用</UiButton>
         </div>
       </section>
     </main>
   </div>
 </template>
-
-<style scoped>
-.system-settings {
-  display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
-  gap: 14px;
-  height: 100%;
-  min-height: 0;
-}
-
-.system-settings__sidebar,
-.system-settings__hero,
-.system-settings__content,
-.system-settings__footer {
-  min-height: 0;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.system-settings__sidebar {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-}
-
-.system-settings__sidebar header {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 12px;
-  color: var(--accent);
-  border-bottom: 1px solid rgba(100, 136, 166, 0.14);
-}
-
-.system-settings__sidebar strong,
-.system-settings__sidebar span {
-  display: block;
-}
-
-.system-settings__sidebar strong {
-  color: var(--text-strong);
-  font-size: 13px;
-}
-
-.system-settings__sidebar span {
-  margin-top: 3px;
-  color: var(--text-soft);
-  font-size: 11px;
-}
-
-.system-settings__nav {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  min-height: 0;
-  padding: 10px;
-  overflow: auto;
-}
-
-.system-settings__nav-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 8px 9px;
-  color: var(--text-muted);
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-}
-
-.system-settings__nav-item--active {
-  color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.system-settings__nav-item span {
-  min-width: 0;
-}
-
-.system-settings__nav-item strong,
-.system-settings__nav-item small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.system-settings__nav-item strong {
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.system-settings__nav-item small {
-  margin-top: 3px;
-  color: var(--text-soft);
-  font-size: 10px;
-}
-
-.system-settings__main {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 12px;
-  min-height: 0;
-}
-
-.system-settings__hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 13px 14px;
-  background: linear-gradient(135deg, rgba(231, 247, 255, 0.9), rgba(255, 255, 255, 0.62));
-}
-
-.system-settings__hero p,
-.system-settings__hero h3 {
-  margin: 0;
-}
-
-.system-settings__hero p {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.system-settings__hero h3 {
-  margin-top: 3px;
-  color: var(--text-strong);
-  font-size: 18px;
-}
-
-.system-settings__hero > span {
-  max-width: 48%;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.45;
-  text-align: right;
-}
-
-.system-settings__content {
-  min-height: 0;
-  overflow: auto;
-}
-
-.system-settings__panel {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-}
-
-.system-settings__account-status,
-.system-settings__account-card {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  padding: 11px;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.14);
-  border-radius: var(--radius-sm);
-}
-
-.system-settings__account-status strong,
-.system-settings__account-card h4 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.system-settings__account-status span {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.system-settings__account-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
-  gap: 8px;
-  min-width: 0;
-}
-
-.system-settings__account-form label {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.system-settings__account-form span {
-  color: var(--text-soft);
-  font-size: 10px;
-  font-weight: 720;
-}
-
-.system-settings__account-form input,
-.system-settings__account-form select {
-  width: 100%;
-  min-width: 0;
-  height: 30px;
-  padding: 0 8px;
-  color: var(--text-strong);
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-}
-
-.system-settings__account-form button,
-.system-settings__account-list button {
-  align-self: end;
-  min-height: 30px;
-  padding: 0 9px;
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.72);
-  border: 1px solid rgba(19, 136, 255, 0.16);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.system-settings__account-form button:disabled,
-.system-settings__account-list button:disabled {
-  color: var(--text-soft);
-  cursor: not-allowed;
-  background: rgba(148, 163, 184, 0.14);
-  border-color: rgba(148, 163, 184, 0.18);
-}
-
-.system-settings__account-list {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
-}
-
-.system-settings__account-list article {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 8px;
-  background: rgba(255, 255, 255, 0.54);
-  border: 1px solid rgba(100, 136, 166, 0.12);
-  border-radius: var(--radius-sm);
-}
-
-.system-settings__account-list strong,
-.system-settings__account-list small {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.system-settings__account-list strong {
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.system-settings__account-list small {
-  margin-top: 3px;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.system-settings__field {
-  display: grid;
-  gap: 7px;
-  padding: 11px;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.14);
-  border-radius: var(--radius-sm);
-}
-
-.system-settings__field span {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.system-settings__field select {
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  padding: 0 9px;
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  outline: 0;
-  font-size: 12px;
-}
-
-.system-settings__toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 46px;
-  padding: 10px 11px;
-  color: var(--text);
-  text-align: left;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.14);
-  border-radius: var(--radius-sm);
-}
-
-.system-settings__toggle--on {
-  border-color: rgba(19, 136, 255, 0.22);
-  background: rgba(231, 247, 255, 0.74);
-}
-
-.system-settings__toggle span {
-  min-width: 0;
-  color: var(--text-strong);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.system-settings__toggle b {
-  flex: 0 0 auto;
-  padding: 5px 8px;
-  color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
-  border-radius: 999px;
-  font-size: 11px;
-}
-
-.system-settings__segmented {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.system-settings__segmented--three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.system-settings__segmented button {
-  min-height: 34px;
-  padding: 6px 8px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.14);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.system-settings__segmented .system-settings__segmented-button--active {
-  color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
-  border-color: rgba(19, 136, 255, 0.24);
-}
-
-.system-settings__metric {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-height: 44px;
-  padding: 10px 11px;
-  color: var(--accent-green);
-  background: rgba(240, 253, 244, 0.72);
-  border: 1px solid rgba(34, 181, 115, 0.18);
-  border-radius: var(--radius-sm);
-}
-
-.system-settings__metric--privacy {
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.74);
-  border-color: rgba(19, 136, 255, 0.18);
-}
-
-.system-settings__metric p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.system-settings__action-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: fit-content;
-  min-height: 30px;
-  padding: 0 11px;
-  color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
-  border: 1px solid rgba(19, 136, 255, 0.18);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.system-settings__audit-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.system-settings__audit-list span {
-  padding: 6px 9px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.system-settings__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 11px 12px;
-}
-
-.system-settings__footer strong,
-.system-settings__footer span {
-  display: block;
-}
-
-.system-settings__footer strong {
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.system-settings__footer span {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.system-settings__footer-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 7px;
-}
-
-.system-settings__footer-actions button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 10px;
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.72);
-  border: 1px solid rgba(19, 136, 255, 0.16);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.system-settings__footer-actions .system-settings__primary {
-  color: #fff;
-  background: var(--accent);
-  border-color: transparent;
-}
-
-@media (max-width: 760px) {
-  .system-settings {
-    display: block;
-    overflow: auto;
-  }
-
-  .system-settings__sidebar {
-    margin-bottom: 10px;
-  }
-
-  .system-settings__nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-height: 210px;
-  }
-
-  .system-settings__main {
-    min-height: 520px;
-  }
-
-  .system-settings__hero,
-  .system-settings__footer {
-    display: grid;
-  }
-
-  .system-settings__hero > span {
-    max-width: none;
-    text-align: left;
-  }
-
-  .system-settings__segmented {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .system-settings__footer-actions {
-    width: 100%;
-  }
-
-  .system-settings__footer-actions button {
-    flex: 1 1 0;
-  }
-}
-
-.provider-binding {
-  display: grid;
-  gap: 12px;
-  margin-top: 6px;
-  padding: 12px;
-  border: 1px solid rgba(90, 128, 160, 0.16);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.46);
-}
-
-.provider-binding__head {
-  display: grid;
-  gap: 4px;
-}
-
-.provider-binding__head strong {
-  font-size: 13px;
-  color: var(--text-strong);
-}
-
-.provider-binding__head span {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.4;
-}
-
-.provider-list {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.provider-list__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px;
-  border: 1px solid rgba(90, 128, 160, 0.14);
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.7);
-}
-
-.provider-list__info strong {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-strong);
-}
-
-.provider-list__info small {
-  display: block;
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.provider-list__badge {
-  padding: 1px 7px;
-  border-radius: 999px;
-  color: var(--accent-green);
-  background: rgba(34, 197, 94, 0.14);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 800;
-}
-
-.provider-list__actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: 6px;
-}
-
-.provider-list__actions button {
-  padding: 5px 9px;
-  border: 1px solid rgba(19, 136, 255, 0.2);
-  border-radius: var(--radius-sm);
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.7);
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.provider-list__actions button:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-.provider-list__danger {
-  color: var(--accent-red, #e5484d) !important;
-  border-color: rgba(229, 72, 77, 0.24) !important;
-  background: rgba(229, 72, 77, 0.1) !important;
-}
-
-.provider-list__empty {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.provider-form {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding-top: 4px;
-}
-
-.provider-form__submit {
-  grid-column: 1 / -1;
-  padding: 9px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
-  font-size: 12px;
-  font-weight: 760;
-  cursor: pointer;
-}
-
-.provider-form__submit:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-@media (max-width: 720px) {
-  .provider-form {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

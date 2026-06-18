@@ -6,6 +6,7 @@ import { apiClient } from '../../api/client';
 import type { AgentTemplate, WorkflowNode } from '../../api/types';
 import { agentTemplates as seedAgentTemplates, workflowNodes as seedWorkflowNodes } from '../../data/higoos';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
+import { UiButton } from '../ui';
 
 type LocalWorkflowNode = WorkflowNode & { icon?: Component };
 
@@ -163,9 +164,15 @@ onMounted(loadAgentWorkbench);
     <section class="agent-workbench__workflow" aria-label="Workflow nodes">
       <header>
         <h3>Workflow nodes</h3>
-        <button type="button" :disabled="simulationState === 'running' && !activeConfirmationId" @click="runSimulation">
-          <Play :size="14" /> {{ simulationState === 'running' ? '重新模拟' : '模拟执行' }}
-        </button>
+        <UiButton
+          variant="soft"
+          size="sm"
+          :icon-left="Play"
+          :disabled="simulationState === 'running' && !activeConfirmationId"
+          @click="runSimulation"
+        >
+          {{ simulationState === 'running' ? '重新模拟' : '模拟执行' }}
+        </UiButton>
       </header>
       <div class="agent-workbench__nodes">
         <article
@@ -203,10 +210,9 @@ onMounted(loadAgentWorkbench);
         <strong>{{ executionConfirmed ? '执行已确认' : '等待执行确认' }}</strong>
         <p>{{ actionMessage || `${selectedTemplate?.name} 将按最小权限执行，写入审计日志；不删除原文件。` }}</p>
       </div>
-      <button type="button" :disabled="simulationState === 'idle' && !activeRunId" @click="confirmExecution">
-        <CheckCircle2 :size="15" />
+      <UiButton :icon-left="CheckCircle2" :disabled="simulationState === 'idle' && !activeRunId" @click="confirmExecution">
         {{ executionConfirmed ? '已确认' : '确认执行' }}
-      </button>
+      </UiButton>
     </section>
     <NasFeaturePanel class="agent-workbench__features" :modules="['ai', 'vm']" />
   </div>
@@ -312,20 +318,6 @@ onMounted(loadAgentWorkbench);
   overflow: hidden;
 }
 
-.agent-workbench__workflow header button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 10px;
-  color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
-  border: 1px solid rgba(19, 136, 255, 0.18);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 760;
-}
-
 .agent-workbench__nodes {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -428,21 +420,6 @@ onMounted(loadAgentWorkbench);
   margin: 4px 0 0;
   color: var(--text-muted);
   font-size: 11px;
-}
-
-.agent-workbench__confirm button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  color: #fff;
-  white-space: nowrap;
-  background: var(--accent);
-  border: 0;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 760;
 }
 
 @media (max-width: 900px) {

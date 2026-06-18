@@ -93,7 +93,9 @@ func (a *API) aiProviderTest(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 	req := llm.ChatRequest{
-		MaxTokens: 16,
+		// Generous budget so reasoning models (which spend tokens on hidden
+		// reasoning before any visible content) still return a non-empty reply.
+		MaxTokens: 256,
 		Messages:  []llm.ChatMessage{{Role: "user", Content: "Reply with the single word: OK"}},
 	}
 	start := time.Now()
@@ -143,9 +145,22 @@ func (a *API) streamAssistantMessage(w http.ResponseWriter, r *http.Request, thr
 		flusher.Flush()
 	}
 
-	result, err := a.assistant.AddMessageStream(r.Context(), threadID, req, func(chunk llm.StreamChunk) {
-		if chunk.Delta != "" {
-			writeEvent(map[string]any{"delta": chunk.Delta})
+	result, err := a.assistant.AddMessageStream(r.Context(), threadID, req, func(evt assistant.StreamEvent) {
+		switch {
+		case evt.Tool != nil:
+			tool := map[string]any{"phase": evt.Tool.Phase, "name": evt.Tool.Name}
+			if evt.Tool.Args != "" {
+				tool["args"] = evt.Tool.Args
+			}
+			if evt.Tool.Summary != "" {
+				tool["summary"] = evt.Tool.Summary
+			}
+			if evt.Tool.Error != "" {
+				tool["error"] = evt.Tool.Error
+			}
+			writeEvent(map[string]any{"tool": tool})
+		case evt.Delta != "":
+			writeEvent(map[string]any{"delta": evt.Delta})
 		}
 	})
 	if err != nil {

@@ -27,7 +27,7 @@ import DesktopDock from './components/DesktopDock.vue';
 import DesktopWindow from './components/DesktopWindow.vue';
 import DesktopContextMenu from './components/DesktopContextMenu.vue';
 import DesktopWidgets from './components/DesktopWidgets.vue';
-import AiAssistantPanel from './components/AiAssistantPanel.vue';
+import AiAssistantWindow from './components/windows/AiAssistantWindow.vue';
 import FileManagerWindow from './components/windows/FileManagerWindow.vue';
 import AiStewardWindow from './components/windows/AiStewardWindow.vue';
 import AgentWorkbenchWindow from './components/windows/AgentWorkbenchWindow.vue';
@@ -46,6 +46,8 @@ import RemoteAccessWindow from './components/windows/RemoteAccessWindow.vue';
 import FeatureModuleWindow from './components/windows/FeatureModuleWindow.vue';
 import { desktopStore } from './stores/desktop';
 import { settingsStore } from './stores/settings';
+import { setLocale } from './i18n';
+import { UiToastHost, UiConfirmHost, useToast } from './components/ui';
 import type { DesktopApp, DesktopSession, DesktopWindowConfig } from './api/types';
 import { desktopWindows as seedDesktopWindows, dockApps as seedDockApps } from './data/higoos';
 import type { NasFeatureKey } from './data/nasFeatures';
@@ -88,6 +90,8 @@ type ContextMenuState = {
   items: AppContextMenuItem[];
 };
 
+const toast = useToast();
+
 const defaultPinnedDockAppIds = [
   'file-manager',
   'music-center',
@@ -109,6 +113,8 @@ const minWindowWidth = 360;
 const minWindowHeight = 300;
 const uiSettings = computed(() => settingsStore.settings.value.ui ?? {});
 const uiTheme = computed(() => normalizeOption(uiSettings.value.theme, ['auto', 'light', 'dark'] as const, 'auto'));
+const uiLocale = computed(() => normalizeOption(uiSettings.value.locale, ['zh-CN', 'en-US'] as const, 'zh-CN'));
+watch(uiLocale, (locale) => setLocale(locale), { immediate: true });
 const uiWindowRadius = computed(() =>
   normalizeOption(uiSettings.value.windowRadius, ['compact', 'default', 'rounded'] as const, 'default'),
 );
@@ -156,7 +162,6 @@ const desktopIconPositions = ref<Record<string, IconPosition>>(createDesktopIcon
 const windowGeometries = ref<Record<string, Partial<WindowGeometry>>>({});
 const windowLayerOrder = ref<string[]>([]);
 const launchProgress = ref(0);
-const toastMessage = ref('');
 const contextTarget = ref<HTMLElement | null>(null);
 const contextMenu = ref<ContextMenuState>({
   visible: false,
@@ -175,7 +180,6 @@ const featureModuleByWindowId: Record<string, NasFeatureKey> = {
   'openclaw-center': 'ai',
 };
 let launchTimer: number | undefined;
-let toastTimer: number | undefined;
 let sessionSaveTimer: number | undefined;
 let isHydratingSession = false;
 
@@ -867,12 +871,6 @@ function closeDockApp(id: string) {
     return;
   }
 
-  if (id === 'ai-assistant') {
-    assistantVisible.value = false;
-    activeWindowId.value = openWindowIds.value.find((windowId) => !minimizedWindowIds.value.includes(windowId)) ?? '';
-    showToast('AI 助手已退出。');
-    return;
-  }
 
   if (utilityAppId.value === id) {
     utilityAppId.value = '';
@@ -974,15 +972,6 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 function openApp(id: string) {
   const isWindow = desktopWindows.some((window) => window.id === id);
 
-  if (id === 'ai-assistant') {
-    assistantVisible.value = isCompact.value
-      ? activeWindowId.value !== id || !assistantVisible.value
-      : !assistantVisible.value;
-    activeWindowId.value = id;
-    utilityAppId.value = '';
-    return;
-  }
-
   const wasOpen = openWindowIds.value.includes(id);
   if (isWindow && !wasOpen) {
     openWindowIds.value.push(id);
@@ -1043,11 +1032,7 @@ const activeUtilityApp = computed(() =>
 );
 
 function showToast(message: string) {
-  toastMessage.value = message;
-  if (toastTimer) window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => {
-    toastMessage.value = '';
-  }, 2600);
+  toast.show(message);
 }
 
 function startUtilityLaunch(id: string) {
@@ -1072,10 +1057,6 @@ function handleTopbarAction(action: string) {
     notice: '通知已标记为已读',
   };
   showToast(messages[action] ?? '操作已执行');
-}
-
-function runCompactAssistantAction(action: string) {
-  showToast(`AI 助手已生成：${action}`);
 }
 
 function updateCompactState() {
@@ -1127,7 +1108,6 @@ onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
   window.removeEventListener('keydown', handleGlobalKeydown);
   if (launchTimer) window.clearInterval(launchTimer);
-  if (toastTimer) window.clearTimeout(toastTimer);
   if (sessionSaveTimer) window.clearTimeout(sessionSaveTimer);
 });
 </script>
@@ -1169,6 +1149,7 @@ onUnmounted(() => {
         @contextmenu-window="openWindowContextMenu($event, window.id)"
       >
         <FileManagerWindow v-if="window.id === 'file-manager'" />
+        <AiAssistantWindow v-else-if="window.id === 'ai-assistant'" />
         <AiStewardWindow v-else-if="window.id === 'ai-file-steward'" />
         <AgentWorkbenchWindow v-else-if="window.id === 'agent-workbench'" />
         <StorageMonitorWindow v-else-if="window.id === 'storage-monitor'" />
@@ -1203,34 +1184,6 @@ onUnmounted(() => {
         </div>
         <button type="button" @click="utilityAppId = ''">收起</button>
       </section>
-
-      <section
-        v-if="isCompact && assistantVisible && activeWindowId === 'ai-assistant'"
-        class="compact-assistant"
-        aria-label="HiGo AI 助手"
-      >
-        <header>
-          <div>
-            <p>HiGo AI 助手</p>
-            <h2>常驻系统副驾</h2>
-          </div>
-          <button type="button" @click="assistantVisible = false">收起</button>
-        </header>
-        <div class="compact-assistant__message compact-assistant__message--user">
-          找一下上个月客户 A 的最终合同，并确认有没有备份。
-        </div>
-        <div class="compact-assistant__message">
-          找到了 1 份最终版合同，已进入每日快照和异地备份，权限为项目组可见。
-        </div>
-        <div class="compact-assistant__actions">
-          <button type="button" @click="runCompactAssistantAction('整理计划')">生成整理计划</button>
-          <button type="button" @click="runCompactAssistantAction('权限审计')">检查权限审计</button>
-          <button type="button" @click="runCompactAssistantAction('备份报告')">汇总备份报告</button>
-        </div>
-      </section>
-
-      <AiAssistantPanel v-if="assistantVisible && !isCompact" />
-      <output v-if="toastMessage" class="desktop-toast" aria-live="polite">{{ toastMessage }}</output>
     </section>
 
     <DesktopDock
@@ -1255,5 +1208,8 @@ onUnmounted(() => {
       @select="handleContextMenuAction"
       @close="closeContextMenu"
     />
+
+    <UiToastHost />
+    <UiConfirmHost />
   </main>
 </template>

@@ -356,6 +356,18 @@ export const desktopWindows: DesktopWindowConfig[] = [
     height: 500,
     z: 21,
   },
+  {
+    id: 'ai-assistant',
+    title: 'AI 助手',
+    subtitle: '对话 / 工具分析 / 多会话',
+    status: '在线',
+    statusTone: 'blue',
+    x: 200,
+    y: 96,
+    width: 1040,
+    height: 720,
+    z: 22,
+  },
 ];
 
 export const folders = ['家庭空间', '团队空间', '照片与视频', '财务票据', '项目资料', 'Docker 数据', '备份归档'];

@@ -178,7 +178,7 @@ func registerDocker(r *registry) {
 			return c.DockerRestartContainer(ctx, in.ID)
 		})
 
-	addTool(r, "docker", "higo.docker.containers.complete_restart",
+	addTool(r, "docker", "higo.docker.containers.complete-restart",
 		"Recreate and restart a Docker container with its original configuration.",
 		mutating(),
 		func(ctx context.Context, c *apiclient.Client, in DockerContainerIDInput) (json.RawMessage, error) {

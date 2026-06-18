@@ -18,6 +18,10 @@ import {
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { DownloadTask, SpeedProfile } from '../../api/types';
+import { useI18n } from 'vue-i18n';
+import { UiBadge, UiButton, UiEmptyState, UiFormField, UiInput, UiModal } from '../ui';
+
+const { t } = useI18n();
 
 type SourceType = 'BT' | 'HTTP' | '磁力' | '订阅';
 type SpeedMode = '智能限速' | '夜间全速' | '家庭优先';
@@ -66,12 +70,12 @@ const activeProfile = computed(() => {
 });
 const completedCount = computed(() => tasks.value.filter((task) => task.status === '已完成').length);
 
-const statusClass: Record<string, string> = {
-  排队中: 'download-center__status--queued',
-  下载中: 'download-center__status--running',
-  暂停: 'download-center__status--paused',
-  已完成: 'download-center__status--done',
-  失败: 'download-center__status--failed',
+const statusTone: Record<string, 'neutral' | 'primary' | 'warning' | 'success' | 'danger'> = {
+  排队中: 'neutral',
+  下载中: 'primary',
+  暂停: 'warning',
+  已完成: 'success',
+  失败: 'danger',
 };
 
 async function loadDownloadState(silent = false) {
@@ -220,14 +224,18 @@ onBeforeUnmount(() => {
             {{ source.type }}
           </button>
         </div>
-        <label class="download-center__input">
-          <span>链接 / 订阅地址</span>
-          <input v-model="newTaskLink" placeholder="粘贴 HTTP、BT、磁力或订阅链接" />
-        </label>
-        <button class="download-center__primary" type="button" :disabled="busyAction === 'create' || !newTaskLink.trim()" @click="addDownloadTask">
-          <FileDown :size="14" />
+        <UiFormField label="链接 / 订阅地址">
+          <UiInput v-model="newTaskLink" placeholder="粘贴 HTTP、BT、磁力或订阅链接" />
+        </UiFormField>
+        <UiButton
+          block
+          :icon-left="FileDown"
+          :loading="busyAction === 'create'"
+          :disabled="!newTaskLink.trim()"
+          @click="addDownloadTask"
+        >
           {{ busyAction === 'create' ? '添加中' : '添加到队列' }}
-        </button>
+        </UiButton>
       </section>
 
       <section class="download-center__card">
@@ -287,9 +295,7 @@ onBeforeUnmount(() => {
               <strong>{{ task.name }}</strong>
               <span>{{ task.source }} · {{ task.category }} · {{ task.size }}</span>
             </div>
-            <small :class="['download-center__status', statusClass[task.status] ?? 'download-center__status--queued']">
-              {{ task.status }}
-            </small>
+            <UiBadge :tone="statusTone[task.status] ?? 'neutral'" size="sm">{{ task.status }}</UiBadge>
           </div>
           <div class="download-center__progress">
             <div :style="{ width: `${task.progress}%` }" />
@@ -299,11 +305,12 @@ onBeforeUnmount(() => {
             <span>{{ task.archived ? '已归档' : task.handling }}</span>
           </div>
         </button>
-        <div v-if="visibleTasks.length === 0" class="download-center__empty">
-          <Download :size="20" />
-          <strong>{{ tasks.length === 0 ? '下载队列为空' : '该分类暂无任务' }}</strong>
-          <span>{{ tasks.length === 0 ? '添加 HTTP、BT、磁力或订阅链接后会显示在这里。' : '切换分类查看其它任务。' }}</span>
-        </div>
+        <UiEmptyState
+          v-if="visibleTasks.length === 0"
+          :icon="Download"
+          :title="tasks.length === 0 ? t('windows.download.emptyQueue') : t('windows.download.emptyCategory')"
+          :description="tasks.length === 0 ? t('windows.download.emptyQueueHint') : t('windows.download.emptyCategoryHint')"
+        />
       </section>
     </main>
 
@@ -331,19 +338,35 @@ onBeforeUnmount(() => {
         </section>
 
         <div class="download-center__actions" aria-label="下载任务操作">
-          <button type="button" :disabled="selectedTask.status === '已完成' || busyAction === `toggle-${selectedTask.id}`" @click="toggleTask(selectedTask)">
-            <Play v-if="selectedTask.status === '暂停'" :size="14" />
-            <Pause v-else :size="14" />
+          <UiButton
+            variant="soft"
+            size="sm"
+            :icon-left="selectedTask.status === '暂停' ? Play : Pause"
+            :disabled="selectedTask.status === '已完成'"
+            :loading="busyAction === `toggle-${selectedTask.id}`"
+            @click="toggleTask(selectedTask)"
+          >
             {{ busyAction === `toggle-${selectedTask.id}` ? '处理中' : selectedTask.status === '暂停' ? '恢复任务' : '暂停任务' }}
-          </button>
-          <button type="button" :disabled="busyAction === `archive-${selectedTask.id}`" @click="archiveCompleted">
-            <FolderArchive :size="14" />
+          </UiButton>
+          <UiButton
+            variant="soft"
+            size="sm"
+            :icon-left="FolderArchive"
+            :loading="busyAction === `archive-${selectedTask.id}`"
+            @click="archiveCompleted"
+          >
             {{ busyAction === `archive-${selectedTask.id}` ? '归档中' : '完成并归档' }}
-          </button>
-          <button type="button" :disabled="busyAction === `delete-${selectedTask.id}`" @click="requestDeleteTask">
-            <Trash2 :size="14" />
+          </UiButton>
+          <UiButton
+            variant="soft"
+            tone="danger"
+            size="sm"
+            :icon-left="Trash2"
+            :loading="busyAction === `delete-${selectedTask.id}`"
+            @click="requestDeleteTask"
+          >
             {{ busyAction === `delete-${selectedTask.id}` ? '删除中' : '删除任务' }}
-          </button>
+          </UiButton>
         </div>
 
         <section class="download-center__automation">
@@ -363,11 +386,13 @@ onBeforeUnmount(() => {
         </section>
       </template>
 
-      <div v-else class="download-center__empty download-center__empty--detail">
-        <Download :size="20" />
-        <strong>暂无下载任务</strong>
-        <span>从左侧添加真实下载链接。</span>
-      </div>
+      <UiEmptyState
+        v-else
+        :icon="Download"
+        compact
+        :title="t('windows.download.emptyDetail')"
+        :description="t('windows.download.emptyDetailHint')"
+      />
 
       <section class="download-center__log" aria-label="操作记录">
         <h3>任务日志</h3>
@@ -378,36 +403,39 @@ onBeforeUnmount(() => {
       </section>
     </aside>
 
-    <Teleport to="body">
-      <div v-if="deleteConfirmTask" class="download-center__modal-backdrop" role="presentation">
-        <section class="download-center__modal" role="dialog" aria-modal="true" aria-labelledby="download-delete-title">
-          <header>
-            <div>
-              <p>删除下载任务</p>
-              <h3 id="download-delete-title">{{ deleteConfirmTask.name }}</h3>
-            </div>
-            <button type="button" aria-label="取消删除" @click="deleteConfirmTask = null">取消</button>
-          </header>
-          <p class="download-center__modal-copy">
-            可以只删除队列记录，也可以同时删除已经下载的文件和未完成的断点文件。
-          </p>
-          <p v-if="deleteConfirmTask.filePath" class="download-center__modal-path">{{ deleteConfirmTask.filePath }}</p>
-          <div class="download-center__modal-actions">
-            <button type="button" :disabled="busyAction === `delete-${deleteConfirmTask.id}`" @click="deleteSelectedTask(false)">
-              仅删除任务
-            </button>
-            <button
-              class="download-center__modal-danger"
-              type="button"
-              :disabled="busyAction === `delete-${deleteConfirmTask.id}`"
-              @click="deleteSelectedTask(true)"
-            >
-              删除任务和文件
-            </button>
-          </div>
-        </section>
-      </div>
-    </Teleport>
+    <UiModal
+      :open="!!deleteConfirmTask"
+      :title="t('windows.download.deleteTitle')"
+      size="sm"
+      :close-on-backdrop="busyAction !== `delete-${deleteConfirmTask?.id}`"
+      :close-on-esc="busyAction !== `delete-${deleteConfirmTask?.id}`"
+      @close="deleteConfirmTask = null"
+    >
+      <template v-if="deleteConfirmTask">
+        <p class="download-center__modal-name">{{ deleteConfirmTask.name }}</p>
+        <p class="download-center__modal-copy">
+          {{ t('windows.download.deleteHint') }}
+        </p>
+        <p v-if="deleteConfirmTask.filePath" class="download-center__modal-path">{{ deleteConfirmTask.filePath }}</p>
+      </template>
+      <template #footer>
+        <UiButton
+          variant="ghost"
+          tone="neutral"
+          :disabled="busyAction === `delete-${deleteConfirmTask?.id}`"
+          @click="deleteSelectedTask(false)"
+        >
+          {{ t('windows.download.deleteTaskOnly') }}
+        </UiButton>
+        <UiButton
+          tone="danger"
+          :loading="busyAction === `delete-${deleteConfirmTask?.id}`"
+          @click="deleteSelectedTask(true)"
+        >
+          {{ t('windows.download.deleteTaskAndFiles') }}
+        </UiButton>
+      </template>
+    </UiModal>
   </div>
 </template>
 
@@ -497,9 +525,7 @@ onBeforeUnmount(() => {
 
 .download-center__source,
 .download-center__speed button,
-.download-center__categories button,
-.download-center__actions button,
-.download-center__primary {
+.download-center__categories button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -519,44 +545,6 @@ onBeforeUnmount(() => {
   color: #fff;
   background: var(--accent);
   border-color: transparent;
-}
-
-.download-center__input {
-  display: grid;
-  gap: 6px;
-}
-
-.download-center__input span {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.download-center__input input {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  padding: 0 9px;
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  outline: 0;
-  font-size: 12px;
-}
-
-.download-center__primary {
-  justify-content: center;
-  color: #fff;
-  background: var(--accent);
-}
-
-.download-center__primary:disabled,
-.download-center__actions button:disabled {
-  color: var(--text-soft);
-  cursor: not-allowed;
-  background: rgba(148, 163, 184, 0.12);
-  border-color: rgba(148, 163, 184, 0.18);
 }
 
 .download-center__limits {
@@ -629,40 +617,6 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 
-.download-center__status {
-  flex: 0 0 auto;
-  height: 22px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.download-center__status--running {
-  color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
-}
-
-.download-center__status--queued {
-  color: #6b7f98;
-  background: rgba(148, 163, 184, 0.14);
-}
-
-.download-center__status--paused {
-  color: #b36a00;
-  background: rgba(245, 158, 11, 0.14);
-}
-
-.download-center__status--done {
-  color: var(--accent-green);
-  background: rgba(34, 181, 115, 0.13);
-}
-
-.download-center__status--failed {
-  color: #dc2626;
-  background: rgba(239, 68, 68, 0.13);
-}
-
 .download-center__progress {
   height: 9px;
   overflow: hidden;
@@ -674,24 +628,6 @@ onBeforeUnmount(() => {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), var(--accent-cyan), var(--accent-green));
   border-radius: inherit;
-}
-
-.download-center__empty {
-  display: grid;
-  min-height: 180px;
-  place-items: center;
-  align-content: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.download-center__empty strong {
-  color: var(--text-strong);
-}
-
-.download-center__empty--detail {
-  min-height: 120px;
 }
 
 .download-center__detail {
@@ -744,11 +680,6 @@ onBeforeUnmount(() => {
   line-height: 1.35;
 }
 
-.download-center__actions button:disabled {
-  cursor: default;
-  opacity: 0.48;
-}
-
 .download-center__automation,
 .download-center__log {
   display: grid;
@@ -774,91 +705,28 @@ onBeforeUnmount(() => {
   list-style: none;
 }
 
-.download-center__modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: grid;
-  place-items: center;
-  padding: 18px;
-  background: rgba(6, 12, 22, 0.36);
-  backdrop-filter: blur(8px);
-}
-
-.download-center__modal {
-  display: grid;
-  gap: 12px;
-  width: min(420px, 100%);
-  padding: 16px;
-  color: var(--text);
-  background: color-mix(in srgb, var(--surface) 94%, white 6%);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
-}
-
-.download-center__modal header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.download-center__modal h3,
-.download-center__modal p {
-  margin: 0;
-}
-
-.download-center__modal h3 {
-  margin-top: 4px;
+.download-center__modal-name {
+  margin: 0 0 var(--space-1);
   color: var(--text-strong);
-  font-size: 14px;
-  line-height: 1.28;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
 }
 
-.download-center__modal header p,
 .download-center__modal-copy,
 .download-center__modal-path {
+  margin: 0 0 var(--space-3);
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
 }
 
 .download-center__modal-path {
-  padding: 9px 10px;
+  padding: var(--space-2) var(--space-3);
   overflow-wrap: anywhere;
   background: rgba(148, 163, 184, 0.1);
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: var(--radius-sm);
-}
-
-.download-center__modal header button,
-.download-center__modal-actions button {
-  min-height: 30px;
-  padding: 0 11px;
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.72);
-  border: 1px solid rgba(19, 136, 255, 0.18);
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 760;
-}
-
-.download-center__modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.download-center__modal-actions .download-center__modal-danger {
-  color: #fff;
-  background: #ef4444;
-  border-color: transparent;
-}
-
-.download-center__modal-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.52;
 }
 
 @media (max-width: 860px) {

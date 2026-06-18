@@ -67,10 +67,29 @@ type ProviderInput struct {
 }
 
 // ChatMessage is one turn in a conversation. Role is "system" | "user" |
-// "assistant".
+// "assistant" | "tool". ToolCalls is set on assistant turns that request tools;
+// ToolCallID is set on tool-result turns to link them to the originating call.
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"toolCalls,omitempty"`
+	ToolCallID string     `json:"toolCallId,omitempty"`
+}
+
+// ToolDef describes a function the model may call. Parameters is a JSON Schema
+// object.
+type ToolDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+// ToolCall is a function invocation requested by the model. Arguments is the raw
+// JSON-encoded argument object.
+type ToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // ChatRequest is the provider-agnostic chat completion request. Model overrides

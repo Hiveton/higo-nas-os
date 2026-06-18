@@ -61,6 +61,7 @@ func BuildServer(cfg platform.Config, client *apiclient.Client) *mcp.Server {
 	registerVideo(reg)
 	registerMusic(reg)
 	registerMedia(reg)
+	registerAI(reg)
 	registerAssistant(reg)
 	registerAgents(reg)
 	registerSteward(reg)

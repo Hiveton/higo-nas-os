@@ -357,6 +357,90 @@ func TestRootRepositoryCreatesMovesRenamesDeletesAndDownloads(t *testing.T) {
 	}
 }
 
+func TestRootRepositoryRestoreReturnsDeletedFileToOriginalLocation(t *testing.T) {
+	root := t.TempDir()
+	repo, err := NewRootRepository(root)
+	if err != nil {
+		t.Fatalf("root repo: %v", err)
+	}
+	service, err := NewService(repo)
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	ctx := context.Background()
+
+	if _, err := service.CreateFolder(ctx, CreateFolderRequest{Space: "家庭空间", Name: "documents"}); err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	file, err := service.CreateFile(ctx, CreateFileRequest{Path: "家庭空间/documents", Name: "note.md", Content: "hello"})
+	if err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	originalID, originalPath := file.ID, file.Path
+
+	if _, err := service.Delete(ctx, file.ID, "test"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := service.Get(ctx, originalID); err == nil {
+		t.Fatalf("file should be gone from tree after delete")
+	}
+
+	restored, err := service.Restore(ctx, originalID)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if restored.ID != originalID {
+		t.Fatalf("restore should recover original id: got %s want %s", restored.ID, originalID)
+	}
+	if restored.Path != originalPath {
+		t.Fatalf("restore should return file to original path: got %s want %s", restored.Path, originalPath)
+	}
+	if _, err := service.Get(ctx, originalID); err != nil {
+		t.Fatalf("restored file should be back in tree: %v", err)
+	}
+
+	// Restoring again must fail cleanly: the manifest is consumed.
+	if _, err := service.Restore(ctx, originalID); err == nil {
+		t.Fatalf("second restore should fail, manifest already consumed")
+	}
+}
+
+func TestRootRepositoryRestoreDedupesWhenOriginalPathOccupied(t *testing.T) {
+	root := t.TempDir()
+	repo, err := NewRootRepository(root)
+	if err != nil {
+		t.Fatalf("root repo: %v", err)
+	}
+	service, err := NewService(repo)
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	ctx := context.Background()
+
+	if _, err := service.CreateFolder(ctx, CreateFolderRequest{Space: "家庭空间", Name: "documents"}); err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	file, err := service.CreateFile(ctx, CreateFileRequest{Path: "家庭空间/documents", Name: "note.md", Content: "v1"})
+	if err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	if _, err := service.Delete(ctx, file.ID, "test"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	// Re-create a file at the same original location before restoring.
+	if _, err := service.CreateFile(ctx, CreateFileRequest{Path: "家庭空间/documents", Name: "note.md", Content: "v2"}); err != nil {
+		t.Fatalf("recreate file: %v", err)
+	}
+
+	restored, err := service.Restore(ctx, file.ID)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if restored.Path == file.Path {
+		t.Fatalf("restore should not clobber existing file; expected deduped path, got %s", restored.Path)
+	}
+}
+
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

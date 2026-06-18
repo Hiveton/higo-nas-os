@@ -22,6 +22,7 @@ import (
 	"higoos/server-go/internal/files"
 	"higoos/server-go/internal/llm"
 	higomcp "higoos/server-go/internal/mcp"
+	"higoos/server-go/internal/mcpclient"
 	"higoos/server-go/internal/media"
 	"higoos/server-go/internal/monitoring"
 	"higoos/server-go/internal/music"
@@ -406,6 +407,20 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/security/audit/", api.securityAuditByID)
 	mux.HandleFunc("/api/v1/shares", api.securityShares)
 	mux.HandleFunc("/api/v1/shares/", api.securityShareByID)
+	// The assistant drives the FULL tool catalog through an in-process MCP client
+	// — the same Model Context Protocol surface external clients use. Read-only
+	// tools execute inline; mutating/destructive tools (per their MCP annotation)
+	// are gated behind the confirmation flow. Tools dispatch into this same mux.
+	assistantLoopback := apiclient.NewInProcess(mux, apiclient.Auth{})
+	if session, err := mcpclient.Connect(context.Background(), cfg, assistantLoopback); err != nil {
+		logger.Warn("assistant mcp session unavailable", slog.Any("error", err))
+	} else if catalog, err := session.Catalog(context.Background()); err != nil {
+		logger.Warn("assistant mcp catalog unavailable", slog.Any("error", err))
+	} else {
+		assistantService.WithTools(assistantLoopback, catalog)
+		logger.Info("assistant tools bound via mcp", slog.Int("count", len(catalog)))
+	}
+
 	if cfg.MCPEnabled {
 		// Embedded Model Context Protocol endpoint. Tool handlers call back into
 		// this same mux in-process (no network hop), forwarding the caller's

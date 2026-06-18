@@ -14,6 +14,7 @@ import type {
   AppCenterApp,
   AssistantMessage,
   AssistantThread,
+  ThreadSummary,
   AuditEntry,
   BackupJob,
   ComposeStack,
@@ -221,14 +222,18 @@ export const apiClient = {
 
   assistant: {
     semanticSearch: (payload: RecordPayload) => POST<SemanticSearchResult>('/api/v1/search/semantic', payload),
-    createThread: (payload?: RecordPayload) => POST<AssistantThread>('/api/v1/assistant/threads', payload ?? {}),
+    listThreads: () => GET<ThreadSummary[]>('/api/v1/assistant/threads'),
+    createThread: (payload?: { title?: string }) => POST<AssistantThread>('/api/v1/assistant/threads', payload ?? {}),
     getThread: (id: Id) => GET<AssistantThread>(`/api/v1/assistant/threads/${pathId(id)}`),
+    deleteThread: (id: Id) => DELETE<{ id: string; deleted: boolean }>(`/api/v1/assistant/threads/${pathId(id)}`),
     sendMessage: (threadId: Id, message: Pick<AssistantMessage, 'role' | 'text'>) =>
       POST<AssistantMessage>(`/api/v1/assistant/threads/${pathId(threadId)}/messages`, message),
     streamMessage: (threadId: Id, message: Pick<AssistantMessage, 'role' | 'text'>, handlers: ChatStreamHandlers) =>
       streamSSE(`/api/v1/assistant/threads/${pathId(threadId)}/messages`, message, handlers),
     confirmAction: (id: Id, payload?: RecordPayload) =>
       POST<TaskResponse>(`/api/v1/assistant/actions/${pathId(id)}/confirm`, payload ?? {}),
+    cancelAction: (id: Id, payload?: RecordPayload) =>
+      POST<TaskResponse>(`/api/v1/assistant/actions/${pathId(id)}/cancel`, payload ?? {}),
   },
 
   ai: {

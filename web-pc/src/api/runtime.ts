@@ -123,8 +123,17 @@ export function createEventStream(path = '/api/v1/events/stream', options: Event
   });
 }
 
+export type ChatToolEvent = {
+  phase: 'start' | 'done' | 'confirm';
+  name: string;
+  args?: string;
+  summary?: string;
+  error?: string;
+};
+
 export type ChatStreamHandlers = {
   onDelta?: (text: string) => void;
+  onTool?: (event: ChatToolEvent) => void;
   onDone?: (payload: { message?: unknown; error?: string }) => void;
   signal?: AbortSignal;
 };
@@ -172,8 +181,15 @@ export async function streamSSE(path: string, body: unknown, handlers: ChatStrea
     if (dataLines.length === 0) return;
     const payload = dataLines.join('\n');
     try {
-      const parsed = JSON.parse(payload) as { delta?: string; done?: boolean; error?: string; message?: unknown };
+      const parsed = JSON.parse(payload) as {
+        delta?: string;
+        tool?: ChatToolEvent;
+        done?: boolean;
+        error?: string;
+        message?: unknown;
+      };
       if (typeof parsed.delta === 'string' && parsed.delta) handlers.onDelta?.(parsed.delta);
+      if (parsed.tool) handlers.onTool?.(parsed.tool);
       if (parsed.done) handlers.onDone?.({ message: parsed.message, error: parsed.error });
     } catch {
       // Ignore frames that are not valid JSON.

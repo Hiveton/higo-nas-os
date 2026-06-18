@@ -28,6 +28,7 @@ type MutableRepository interface {
 	Rename(context.Context, string, RenameRequest) (FileNode, error)
 	Move(context.Context, string, MoveRequest) (FileNode, error)
 	Delete(context.Context, string, string) (FileNode, error)
+	Restore(context.Context, string) (FileNode, error)
 	Open(context.Context, string) (io.ReadCloser, FileNode, error)
 }
 
@@ -220,6 +221,18 @@ func (s *Service) Delete(ctx context.Context, id string, actor string) (FileRow,
 		return FileRow{}, fmt.Errorf("file repository does not support mutations")
 	}
 	node, err := repo.Delete(ctx, id, actor)
+	if err != nil {
+		return FileRow{}, err
+	}
+	return rowFromNode(node), nil
+}
+
+func (s *Service) Restore(ctx context.Context, id string) (FileRow, error) {
+	repo, ok := s.repo.(MutableRepository)
+	if !ok {
+		return FileRow{}, fmt.Errorf("file repository does not support mutations")
+	}
+	node, err := repo.Restore(ctx, id)
 	if err != nil {
 		return FileRow{}, err
 	}

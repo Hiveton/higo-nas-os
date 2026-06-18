@@ -167,15 +167,28 @@ func (a *API) assistantSemanticSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) assistantThreads(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
+	switch r.Method {
+	case http.MethodGet:
+		platform.WriteJSON(w, r, http.StatusOK, a.assistant.ListThreads(r.Context()))
+	case http.MethodPost:
+		var body struct {
+			Title string `json:"title"`
+		}
+		if r.ContentLength != 0 {
+			if err := decodeJSON(r, &body); err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+				return
+			}
+		}
+		thread, err := a.assistant.CreateThread(r.Context(), body.Title)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "assistant_thread_create_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, mapAssistantThread(thread))
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPost)
 	}
-	thread, err := a.assistant.GetThread(r.Context(), "thread-current")
-	if err != nil {
-		platform.WriteError(w, r, http.StatusNotFound, "assistant_thread_not_found", err.Error())
-		return
-	}
-	platform.WriteJSON(w, r, http.StatusOK, mapAssistantThread(thread))
 }
 
 func (a *API) assistantThreadByID(w http.ResponseWriter, r *http.Request) {
@@ -186,15 +199,23 @@ func (a *API) assistantThreadByID(w http.ResponseWriter, r *http.Request) {
 	}
 	threadID := parts[0]
 	if len(parts) == 1 {
-		if !allowMethod(w, r, http.MethodGet) {
-			return
+		switch r.Method {
+		case http.MethodGet:
+			thread, err := a.assistant.GetThread(r.Context(), threadID)
+			if err != nil {
+				platform.WriteError(w, r, http.StatusNotFound, "assistant_thread_not_found", err.Error())
+				return
+			}
+			platform.WriteJSON(w, r, http.StatusOK, mapAssistantThread(thread))
+		case http.MethodDelete:
+			if err := a.assistant.DeleteThread(r.Context(), threadID); err != nil {
+				platform.WriteError(w, r, http.StatusNotFound, "assistant_thread_not_found", err.Error())
+				return
+			}
+			platform.WriteJSON(w, r, http.StatusOK, map[string]any{"id": threadID, "deleted": true})
+		default:
+			allowMethod(w, r, http.MethodGet, http.MethodDelete)
 		}
-		thread, err := a.assistant.GetThread(r.Context(), threadID)
-		if err != nil {
-			platform.WriteError(w, r, http.StatusNotFound, "assistant_thread_not_found", err.Error())
-			return
-		}
-		platform.WriteJSON(w, r, http.StatusOK, mapAssistantThread(thread))
 		return
 	}
 	if len(parts) == 2 && parts[1] == "messages" {
@@ -238,7 +259,7 @@ func (a *API) assistantActionByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/assistant/actions/"), "/"), "/")
-	if len(parts) != 2 || parts[1] != "confirm" {
+	if len(parts) != 2 || (parts[1] != "confirm" && parts[1] != "cancel") {
 		platform.WriteError(w, r, http.StatusNotFound, "assistant_action_route_not_found", "assistant action route not found")
 		return
 	}
@@ -249,9 +270,17 @@ func (a *API) assistantActionByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	action, err := a.assistant.ConfirmAction(r.Context(), parts[0], body)
+	var (
+		action assistant.Action
+		err    error
+	)
+	if parts[1] == "cancel" {
+		action, err = a.assistant.CancelAction(r.Context(), parts[0], body)
+	} else {
+		action, err = a.assistant.ConfirmAction(r.Context(), parts[0], body)
+	}
 	if err != nil {
-		platform.WriteError(w, r, http.StatusBadRequest, "assistant_confirm_failed", err.Error())
+		platform.WriteError(w, r, http.StatusBadRequest, "assistant_action_failed", err.Error())
 		return
 	}
 	platform.WriteJSON(w, r, http.StatusOK, mapTaskResponse(action.ID, string(action.Status), action.Impact))
@@ -699,12 +728,17 @@ func mapAssistantThread(thread assistant.Thread) map[string]any {
 }
 
 func mapAssistantMessage(message assistant.Message) map[string]any {
+	tools := make([]map[string]any, 0, len(message.Tools))
+	for _, t := range message.Tools {
+		tools = append(tools, map[string]any{"name": t.Name, "summary": t.Summary})
+	}
 	return map[string]any{
 		"id":              message.ID,
 		"role":            message.Role,
 		"text":            message.Text,
 		"createdAt":       message.CreatedAt,
 		"citations":       message.Citations,
+		"tools":           tools,
 		"pendingActionId": message.ActionID,
 	}
 }

@@ -18,6 +18,7 @@ const files = {
   contextMenu: 'src/components/DesktopContextMenu.vue',
   fileManager: 'src/components/windows/FileManagerWindow.vue',
   steward: 'src/components/windows/AiStewardWindow.vue',
+  aiAssistant: 'src/components/windows/AiAssistantWindow.vue',
   agent: 'src/components/windows/AgentWorkbenchWindow.vue',
   storage: 'src/components/windows/StorageMonitorWindow.vue',
   photo: 'src/components/windows/PhotoMediaWindow.vue',
@@ -48,9 +49,9 @@ await Promise.all(
 
 const checks = [
   ['App declares a served favicon asset', source.index.includes('href="/favicon.svg"') && source.favicon.includes('<svg')],
-  ['App exposes toast feedback', source.app.includes('toastMessage')],
+  ['App exposes toast feedback', source.app.includes('showToast') && source.app.includes('UiToastHost')],
   ['App supports utility launch progress', source.app.includes('launchProgress')],
-  ['Compact assistant action buttons are wired', source.app.includes('runCompactAssistantAction')],
+  ['AI assistant window action buttons are wired', source.app.includes('AiAssistantWindow') && source.aiAssistant.includes('@confirm-action="confirmAction"') && source.aiAssistant.includes('assistantStore.confirmAction') === false && source.aiAssistant.includes('apiClient.assistant.confirmAction') && source.aiAssistant.includes('@send="handleSend"')],
   ['TopBar suggestions can be applied', source.topbar.includes('applySuggestion')],
   ['TopBar menu actions produce feedback', source.topbar.includes('emit(') && source.topbar.includes('topbar-action')],
   ['TopBar loads backend monitoring metrics and alerts', source.topbar.includes('monitoringStore.loadMonitoringSnapshot()') && source.topbar.includes('topbarMetrics') && source.monitoringStore.includes('loadMonitoringSnapshot')],

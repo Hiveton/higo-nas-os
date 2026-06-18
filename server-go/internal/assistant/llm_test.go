@@ -34,8 +34,8 @@ func TestAddMessageStreamUsesBoundLLM(t *testing.T) {
 	})
 
 	var streamed strings.Builder
-	res, err := svc.AddMessageStream(context.Background(), "thread-current", MessageRequest{Text: "hi"}, func(c llm.StreamChunk) {
-		streamed.WriteString(c.Delta)
+	res, err := svc.AddMessageStream(context.Background(), "thread-current", MessageRequest{Text: "hi"}, func(e StreamEvent) {
+		streamed.WriteString(e.Delta)
 	})
 	if err != nil {
 		t.Fatalf("AddMessageStream: %v", err)

@@ -1307,6 +1307,70 @@ svg {
   }
 }
 
+/* Narrow windows: collapse in-window navigation / tab strips into a single
+   compact, horizontally-scrollable row. Without this, wrapping flex/grid nav
+   strips expand into many rows and the navigation fills the whole window
+   before any content is reachable. One swipeable row keeps the nav "tidy"
+   (收齐) and leaves the content visible. */
+@container desktop-window-body (max-width: 760px) {
+  .desktop-window__body :is(
+    .app-center__tabs,
+    .live-tabs,
+    .video-mobile-tabs,
+    .storage-monitor__tabs,
+    .download-center__categories,
+    .file-manager__nav-controls,
+    .docker-resource-tabs,
+    .docker-detail-tabs,
+    .system-settings__nav,
+    .music-app__nav
+  ) {
+    display: flex !important;
+    flex-flow: row nowrap !important;
+    grid-template-columns: none !important;
+    align-items: center;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent);
+  }
+
+  .desktop-window__body :is(
+    .app-center__tabs,
+    .live-tabs,
+    .video-mobile-tabs,
+    .storage-monitor__tabs,
+    .download-center__categories,
+    .file-manager__nav-controls,
+    .docker-resource-tabs,
+    .docker-detail-tabs,
+    .system-settings__nav,
+    .music-app__nav
+  )::-webkit-scrollbar {
+    display: none;
+  }
+
+  .desktop-window__body :is(
+    .app-center__tabs,
+    .live-tabs,
+    .video-mobile-tabs,
+    .storage-monitor__tabs,
+    .download-center__categories,
+    .file-manager__nav-controls,
+    .docker-resource-tabs,
+    .docker-detail-tabs,
+    .system-settings__nav,
+    .music-app__nav
+  ) > * {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    scroll-snap-align: start;
+  }
+}
+
 @container desktop-window-body (max-width: 900px) {
   .desktop-window__body .file-manager__row.file-manager__row {
     grid-template-columns: minmax(0, 1fr) 82px 82px !important;
@@ -1478,22 +1542,36 @@ svg {
   box-shadow: 0 0 0 1px rgba(83, 122, 154, 0.16) inset;
 }
 
+/* Shared glass-surface utility — single source for the frosted panel look.
+   Drives the .glass-panel/.panel/.widget/.card aliases below and replaces the
+   ad-hoc backdrop-filter blocks duplicated across window components. */
+.u-glass,
 .glass-panel,
 .panel,
 .widget,
 .card {
-  border: 1px solid rgba(255, 255, 255, 0.44);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
-  background: linear-gradient(180deg, var(--surface-glass-strong), rgba(246, 251, 255, 0.52));
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(var(--blur-md)) saturate(150%);
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 
+.u-glass--strong {
+  --glass-blur: var(--blur-lg);
+}
+
+.u-glass--flat {
+  --glass-shadow: none;
+}
+
+.u-glass--dark,
 .glass-panel--dark,
 .panel--dark {
   color: var(--text-inverse);
-  border-color: rgba(255, 255, 255, 0.18);
-  background: linear-gradient(180deg, rgba(26, 52, 80, 0.66), rgba(16, 35, 56, 0.48));
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --glass-bg: linear-gradient(180deg, rgba(26, 52, 80, 0.66), rgba(16, 35, 56, 0.48));
 }
 
 .button,

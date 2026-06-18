@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { CheckCircle2, FileText, ShieldAlert } from 'lucide-vue-next';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
 import { nasFeatures, type NasFeatureKey } from '../../data/nasFeatures';
+import { UiButton } from '../ui';
 
 const props = defineProps<{
   moduleKey: NasFeatureKey;
@@ -32,15 +33,17 @@ function selectAction(label: string) {
     <NasFeaturePanel :modules="[moduleKey]" />
 
     <section class="feature-module__actions" aria-label="功能操作">
-      <button
+      <UiButton
         v-for="feature in features"
         :key="feature.title"
-        type="button"
+        variant="soft"
+        tone="primary"
+        size="sm"
+        :icon-left="FileText"
         @click="selectAction(feature.title)"
       >
-        <FileText :size="14" />
-        <span>{{ feature.title }}</span>
-      </button>
+        {{ feature.title }}
+      </UiButton>
     </section>
 
     <section class="feature-module__state">
@@ -108,20 +111,6 @@ function selectAction(label: string) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.feature-module__actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 10px;
-  color: var(--accent);
-  background: rgba(231, 247, 255, 0.72);
-  border: 1px solid rgba(19, 136, 255, 0.16);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 760;
 }
 
 .feature-module__state,
