@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"higoos/server-go/internal/platform"
@@ -52,7 +53,7 @@ func cors(publicOrigin string) middleware {
 func sessionGuard(cfg platform.Config) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodOptions || cfg.Environment == "dev" || cfg.Environment == "test" || !hasAPIPrefix(r.URL.Path) {
+			if r.Method == http.MethodOptions || cfg.Environment == "dev" || cfg.Environment == "test" || !requiresSession(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -71,6 +72,13 @@ func sessionGuard(cfg platform.Config) middleware {
 
 func hasAPIPrefix(path string) bool {
 	return len(path) >= len("/api/v1/") && path[:len("/api/v1/")] == "/api/v1/"
+}
+
+// requiresSession reports whether a path is guarded by the session check. The
+// embedded MCP endpoint is guarded like the API surface so the same auth
+// protects it outside dev/test.
+func requiresSession(path string) bool {
+	return hasAPIPrefix(path) || path == "/mcp" || strings.HasPrefix(path, "/mcp/")
 }
 
 func recoverPanic(logger *slog.Logger) middleware {

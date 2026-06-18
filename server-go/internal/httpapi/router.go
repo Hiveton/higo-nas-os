@@ -8,8 +8,11 @@ import (
 	"strings"
 	"time"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"higoos/server-go/internal/accounts"
 	"higoos/server-go/internal/agents"
+	"higoos/server-go/internal/apiclient"
 	"higoos/server-go/internal/appcenter"
 	"higoos/server-go/internal/assistant"
 	"higoos/server-go/internal/backups"
@@ -17,6 +20,8 @@ import (
 	hdocker "higoos/server-go/internal/docker"
 	"higoos/server-go/internal/downloads"
 	"higoos/server-go/internal/files"
+	"higoos/server-go/internal/llm"
+	higomcp "higoos/server-go/internal/mcp"
 	"higoos/server-go/internal/media"
 	"higoos/server-go/internal/monitoring"
 	"higoos/server-go/internal/music"
@@ -35,6 +40,7 @@ type Dependencies struct {
 	Files      *files.Service
 	Monitoring *monitoring.Service
 	Settings   *settings.Store
+	LLM        *llm.Store
 	Storage    *storage.Service
 	Downloads  *downloads.Service
 	Docker     *hdocker.DevService
@@ -194,6 +200,17 @@ func NewRouter(deps Dependencies) http.Handler {
 			assistantService = assistant.NewService()
 		}
 	}
+	llmStore := deps.LLM
+	if llmStore == nil {
+		var err error
+		llmStore, err = llm.NewStoreWithStateDir(cfg.StateDir)
+		if err != nil {
+			logger.Warn("llm provider state unavailable", slog.Any("error", err))
+			llmStore = llm.NewStore()
+		}
+	}
+	assistantService.WithLLM(llmStore, llm.NewClient)
+
 	agentsService := deps.Agents
 	if agentsService == nil {
 		var err error
@@ -237,6 +254,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		files:      fileService,
 		monitoring: monitoringService,
 		settings:   settingsStore,
+		llm:        llmStore,
 		storage:    storageService,
 		downloads:  downloadsService,
 		docker:     dockerService,
@@ -359,6 +377,8 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/assistant/threads", api.assistantThreads)
 	mux.HandleFunc("/api/v1/assistant/threads/", api.assistantThreadByID)
 	mux.HandleFunc("/api/v1/assistant/actions/", api.assistantActionByID)
+	mux.HandleFunc("/api/v1/ai/providers", api.aiProviders)
+	mux.HandleFunc("/api/v1/ai/providers/", api.aiProviderByID)
 	mux.HandleFunc("/api/v1/agents/templates", api.agentTemplates)
 	mux.HandleFunc("/api/v1/agents", api.agentsRoot)
 	mux.HandleFunc("/api/v1/agents/", api.agentByID)
@@ -386,6 +406,24 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/security/audit/", api.securityAuditByID)
 	mux.HandleFunc("/api/v1/shares", api.securityShares)
 	mux.HandleFunc("/api/v1/shares/", api.securityShareByID)
+	if cfg.MCPEnabled {
+		// Embedded Model Context Protocol endpoint. Tool handlers call back into
+		// this same mux in-process (no network hop), forwarding the caller's
+		// session/Authorization so calls run as the real actor. A fresh catalog
+		// is built per MCP session (sessions are long-lived).
+		loopback := apiclient.NewInProcess(mux, apiclient.Auth{})
+		getServer := func(req *http.Request) *mcpsdk.Server {
+			auth := apiclient.Auth{Authorization: req.Header.Get("Authorization")}
+			if cookie, err := req.Cookie("higo_session"); err == nil {
+				auth.SessionCookie = cookie.Value
+			}
+			return higomcp.BuildServer(cfg, loopback.WithAuth(auth))
+		}
+		streamable := mcpsdk.NewStreamableHTTPHandler(getServer, nil)
+		mux.Handle("/mcp", streamable)
+		mux.Handle("/mcp/", streamable)
+	}
+
 	mux.HandleFunc("/", api.staticAssets)
 
 	return chain(
@@ -415,6 +453,7 @@ type API struct {
 	files      *files.Service
 	monitoring *monitoring.Service
 	settings   *settings.Store
+	llm        *llm.Store
 	storage    *storage.Service
 	downloads  *downloads.Service
 	docker     *hdocker.DevService

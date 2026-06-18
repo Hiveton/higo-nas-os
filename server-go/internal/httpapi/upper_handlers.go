@@ -212,12 +212,17 @@ func (a *API) assistantThreadByID(w http.ResponseWriter, r *http.Request) {
 			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
 			return
 		}
-		result, err := a.assistant.AddMessage(r.Context(), threadID, assistant.MessageRequest{
+		messageReq := assistant.MessageRequest{
 			ActorID:     body.ActorID,
 			Text:        body.Text,
 			Scopes:      body.Scopes,
 			ModelPolicy: body.ModelPolicy,
-		})
+		}
+		if wantsEventStream(r) {
+			a.streamAssistantMessage(w, r, threadID, messageReq)
+			return
+		}
+		result, err := a.assistant.AddMessage(r.Context(), threadID, messageReq)
 		if err != nil {
 			platform.WriteError(w, r, http.StatusBadRequest, "assistant_message_failed", err.Error())
 			return

@@ -15,6 +15,8 @@
 #   SSH_PASS     ssh/sudo password    (required; uses sshpass)
 #   TARGET_ARCH  go GOARCH for target (default: arm64)
 #   SKIP_DEPS    set to 1 to skip apt package install
+#   SKIP_WEB     set to 1 to skip building/deploying the web-pc frontend
+#                (backend-only deploy)
 #
 # Requires on the build machine: go (>= go.mod version), node/npm, rsync, sshpass.
 
@@ -25,6 +27,7 @@ HOST="${HOST:-${1:-10.211.55.3}}"
 SSH_USER="${SSH_USER:-${2:-hiveton}}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
 SKIP_DEPS="${SKIP_DEPS:-0}"
+SKIP_WEB="${SKIP_WEB:-0}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVER_DIR="$REPO_ROOT/server-go"
@@ -64,24 +67,30 @@ trap cleanup EXIT
 log "Cross-compiling Go backend for linux/$TARGET_ARCH"
 mkdir -p "$BUILD_DIR/bin"
 ( cd "$SERVER_DIR"
-  for cmd in higo-api higo-worker higoctl; do
+  for cmd in higo-api higo-worker higoctl higo-mcp; do
     CGO_ENABLED=0 GOOS=linux GOARCH="$TARGET_ARCH" \
       go build -trimpath -ldflags="-s -w" -o "$BUILD_DIR/bin/$cmd" "./cmd/$cmd"
   done )
 
 # --- 2. build frontend ------------------------------------------------------
-log "Building web-pc frontend"
-( cd "$WEB_DIR"
-  [[ -d node_modules ]] || npm ci
-  npm run build )
+if [[ "$SKIP_WEB" != "1" ]]; then
+  log "Building web-pc frontend"
+  ( cd "$WEB_DIR"
+    [[ -d node_modules ]] || npm ci
+    npm run build )
+else
+  log "SKIP_WEB=1 — skipping frontend build (backend-only deploy)"
+fi
 
 # --- 3. ship artifacts to remote staging ------------------------------------
 log "Syncing artifacts to $SSH_USER@$HOST:$REMOTE_STAGE"
 rsh "rm -rf $REMOTE_STAGE && mkdir -p $REMOTE_STAGE/bin $REMOTE_STAGE/web"
 sshpass -e rsync -az --delete -e "ssh ${SSH_OPTS[*]}" \
   "$BUILD_DIR/bin/" "$SSH_USER@$HOST:$REMOTE_STAGE/bin/"
-sshpass -e rsync -az --delete -e "ssh ${SSH_OPTS[*]}" \
-  "$WEB_DIR/dist/" "$SSH_USER@$HOST:$REMOTE_STAGE/web/"
+if [[ "$SKIP_WEB" != "1" ]]; then
+  sshpass -e rsync -az --delete -e "ssh ${SSH_OPTS[*]}" \
+    "$WEB_DIR/dist/" "$SSH_USER@$HOST:$REMOTE_STAGE/web/"
+fi
 sshpass -e rsync -az -e "ssh ${SSH_OPTS[*]}" \
   "$DEPLOY_DIR/higo-api.service" "$DEPLOY_DIR/higo-worker.service" \
   "$DEPLOY_DIR/server.env" "$SSH_USER@$HOST:$REMOTE_STAGE/"
@@ -95,13 +104,18 @@ fi
 
 # --- 5. install + restart ---------------------------------------------------
 log "Installing binaries, web, units and restarting services"
+WEB_INSTALL="rsync -a --delete $REMOTE_STAGE/web/ $INSTALL_WEB/"
+if [[ "$SKIP_WEB" == "1" ]]; then
+  WEB_INSTALL="echo 'SKIP_WEB=1 — leaving installed frontend untouched'"
+fi
 rsudo "set -e
   install -d $INSTALL_BIN $INSTALL_WEB /etc/higoos /var/lib/higoos/state /srv/higoos/nas
   systemctl stop higo-worker higo-api 2>/dev/null || true
   install -m 0755 $REMOTE_STAGE/bin/higo-api    $INSTALL_BIN/higo-api
   install -m 0755 $REMOTE_STAGE/bin/higo-worker $INSTALL_BIN/higo-worker
   install -m 0755 $REMOTE_STAGE/bin/higoctl      $INSTALL_BIN/higoctl
-  rsync -a --delete $REMOTE_STAGE/web/ $INSTALL_WEB/
+  install -m 0755 $REMOTE_STAGE/bin/higo-mcp     $INSTALL_BIN/higo-mcp
+  $WEB_INSTALL
   [ -f /etc/higoos/server.env ] || install -m 0644 $REMOTE_STAGE/server.env /etc/higoos/server.env
   install -m 0644 $REMOTE_STAGE/higo-api.service    /etc/systemd/system/higo-api.service
   install -m 0644 $REMOTE_STAGE/higo-worker.service /etc/systemd/system/higo-worker.service

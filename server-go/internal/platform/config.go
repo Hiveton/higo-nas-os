@@ -15,6 +15,13 @@ type Config struct {
 	NASRoot      string
 	StaticDir    string
 	Ready        bool
+
+	// MCPEnabled controls whether the embedded Model Context Protocol endpoint
+	// (/mcp) is mounted on the API server. Defaults to true in dev/test.
+	MCPEnabled bool
+	// MCPDomains is an optional comma-separated allowlist of tool domains
+	// (e.g. "files,storage,docker"). Empty means expose every domain.
+	MCPDomains string
 }
 
 func LoadConfig() Config {
@@ -28,6 +35,8 @@ func LoadConfig() Config {
 		NASRoot:      getenv("HIGO_NAS_ROOT", ""),
 		StaticDir:    getenv("HIGO_STATIC_DIR", ""),
 		Ready:        true,
+		MCPEnabled:   getenvBool("HIGO_MCP_ENABLED", true),
+		MCPDomains:   getenv("HIGO_MCP_DOMAINS", ""),
 	}
 }
 
@@ -56,6 +65,21 @@ func getenv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func getenvBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "TRUE", "True", "yes", "on":
+		return true
+	case "0", "false", "FALSE", "False", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func defaultStateDir() string {

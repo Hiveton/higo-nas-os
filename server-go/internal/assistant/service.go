@@ -9,8 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"higoos/server-go/internal/llm"
 	"higoos/server-go/internal/state"
 )
+
+// systemPrompt frames the assistant for bound LLM providers.
+const systemPrompt = "你是 HiGoOS NAS 的智能助手。用简洁的中文回答关于文件、备份、设备、" +
+	"Docker 和权限的问题。涉及移动、删除、分享、收紧权限等高风险操作时，先说明影响并等待用户确认，不要假装已经执行。"
 
 type Service struct {
 	mu          sync.RWMutex
@@ -21,6 +26,21 @@ type Service struct {
 	actions     map[string]Action
 	searchItems []SearchItem
 	statePath   string
+
+	llmStore   *llm.Store
+	llmFactory llm.Factory
+}
+
+// WithLLM binds a provider store and client factory so the assistant produces
+// real, streamed model responses. When no provider is configured (or this is
+// never called) the assistant falls back to a canned draft reply so the app
+// still runs offline.
+func (s *Service) WithLLM(store *llm.Store, factory llm.Factory) *Service {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.llmStore = store
+	s.llmFactory = factory
+	return s
 }
 
 type snapshot struct {
@@ -74,7 +94,17 @@ func (s *Service) GetThread(ctx context.Context, id string) (Thread, error) {
 	return cloneThread(thread), nil
 }
 
+// AddMessage records a user turn and returns the assistant's full reply. It is
+// AddMessageStream with no incremental callback.
 func (s *Service) AddMessage(ctx context.Context, threadID string, request MessageRequest) (MessageResult, error) {
+	return s.AddMessageStream(ctx, threadID, request, nil)
+}
+
+// AddMessageStream records a user turn, streams the bound model's reply through
+// emit (which also receives the terminal Done chunk), then persists the assistant
+// message and any pending high-risk action. emit may be nil for a non-streamed
+// call. The model is invoked without holding the service lock.
+func (s *Service) AddMessageStream(ctx context.Context, threadID string, request MessageRequest, emit func(llm.StreamChunk)) (MessageResult, error) {
 	if err := ctx.Err(); err != nil {
 		return MessageResult{}, err
 	}
@@ -83,18 +113,36 @@ func (s *Service) AddMessage(ctx context.Context, threadID string, request Messa
 		return MessageResult{}, fmt.Errorf("assistant message text is required")
 	}
 
+	// Phase 1: record the user message and snapshot history for the model.
+	s.mu.Lock()
+	thread, ok := s.threads[threadID]
+	if !ok {
+		s.mu.Unlock()
+		return MessageResult{}, fmt.Errorf("assistant thread not found: %s", threadID)
+	}
+	userMessage := s.newMessageLocked(threadID, RoleUser, text, request.ModelPolicy, nil)
+	thread.Messages = append(thread.Messages, userMessage)
+	thread.UpdatedAt = s.now().UTC()
+	s.threads[threadID] = thread
+	history := chatHistoryLocked(thread)
+	if err := s.saveLocked(); err != nil {
+		s.mu.Unlock()
+		return MessageResult{}, err
+	}
+	s.mu.Unlock()
+
+	// Phase 2: call the bound model (no lock held; may do network I/O).
+	assistantText, err := s.generateReply(ctx, text, history, emit)
+	if err != nil {
+		return MessageResult{}, err
+	}
+
+	// Phase 3: persist the assistant reply and any high-risk action.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	thread, ok := s.threads[threadID]
-	if !ok {
-		return MessageResult{}, fmt.Errorf("assistant thread not found: %s", threadID)
-	}
+	thread = s.threads[threadID]
 	now := s.now().UTC()
-	userMessage := s.newMessageLocked(threadID, RoleUser, text, request.ModelPolicy, nil)
-	thread.Messages = append(thread.Messages, userMessage)
-
-	assistantText := fmt.Sprintf("已根据当前权限生成「%s」的执行草案，高风险动作会等待你确认。", text)
 	assistantMessage := s.newMessageLocked(threadID, RoleAssistant, assistantText, request.ModelPolicy, nil)
 
 	var action *Action
@@ -136,6 +184,74 @@ func (s *Service) AddMessage(ctx context.Context, threadID string, request Messa
 		result.Action = &cloned
 	}
 	return result, s.saveLocked()
+}
+
+// generateReply streams a reply from the bound model. When no provider is
+// configured (or the factory can't resolve one) it falls back to a canned draft
+// so the assistant keeps working offline. A mid-stream error is surfaced to the
+// caller. emit, when non-nil, receives every delta plus the terminal Done chunk.
+func (s *Service) generateReply(ctx context.Context, userText string, history []llm.ChatMessage, emit func(llm.StreamChunk)) (string, error) {
+	s.mu.RLock()
+	store := s.llmStore
+	factory := s.llmFactory
+	s.mu.RUnlock()
+
+	if store == nil || factory == nil {
+		return cannedReply(userText, emit), nil
+	}
+	provider, err := store.Default()
+	if err != nil {
+		return cannedReply(userText, emit), nil
+	}
+	client, err := factory(provider.Kind)
+	if err != nil {
+		return cannedReply(userText, emit), nil
+	}
+
+	messages := append([]llm.ChatMessage{{Role: "system", Content: systemPrompt}}, history...)
+	var sb strings.Builder
+	streamErr := client.Stream(ctx, provider, llm.ChatRequest{Messages: messages}, func(chunk llm.StreamChunk) {
+		sb.WriteString(chunk.Delta)
+		if emit != nil {
+			emit(chunk)
+		}
+	})
+	if streamErr != nil {
+		return "", streamErr
+	}
+	reply := strings.TrimSpace(sb.String())
+	if reply == "" {
+		reply = "（模型没有返回内容）"
+	}
+	return reply, nil
+}
+
+// cannedReply produces the offline draft response and pushes it through emit as a
+// single delta plus a terminal Done chunk.
+func cannedReply(userText string, emit func(llm.StreamChunk)) string {
+	text := fmt.Sprintf("已根据当前权限生成「%s」的执行草案，高风险动作会等待你确认。", userText)
+	if emit != nil {
+		emit(llm.StreamChunk{Delta: text})
+		emit(llm.StreamChunk{Done: true})
+	}
+	return text
+}
+
+// chatHistoryLocked maps thread messages to provider-agnostic chat turns. Callers
+// hold s.mu.
+func chatHistoryLocked(thread Thread) []llm.ChatMessage {
+	out := make([]llm.ChatMessage, 0, len(thread.Messages))
+	for _, m := range thread.Messages {
+		if strings.TrimSpace(m.Text) == "" {
+			continue
+		}
+		role := "user"
+		if m.Role == RoleAssistant {
+			role = "assistant"
+		}
+		out = append(out, llm.ChatMessage{Role: role, Content: m.Text})
+	}
+	return out
 }
 
 func (s *Service) ConfirmAction(ctx context.Context, id string, request ConfirmActionRequest) (Action, error) {
