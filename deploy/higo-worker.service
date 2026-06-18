@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=xuehui
-Group=xuehui
+User=hiveton
+Group=hiveton
 EnvironmentFile=/etc/higoos/server.env
 ExecStart=/opt/higoos/bin/higo-worker
 Restart=always
