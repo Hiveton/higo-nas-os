@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +18,7 @@ type DevService struct {
 	stacks     []ComposeStack
 	containers []Container
 	logs       map[string][]ContainerLog
+	pulls      map[string]ImagePullStatus
 	logSeq     int
 	statePath  string
 }
@@ -72,7 +75,8 @@ func NewDevService() *DevService {
 				Isolation: "DMZ 网络 · 只读反代配置",
 			},
 		},
-		logs: make(map[string][]ContainerLog),
+		logs:  make(map[string][]ContainerLog),
+		pulls: make(map[string]ImagePullStatus),
 	}
 	service.seedLogs()
 	return service
@@ -128,12 +132,241 @@ func (s *DevService) Containers(ctx context.Context) ([]Container, error) {
 	return cloneContainers(s.containers), nil
 }
 
+func (s *DevService) Images(ctx context.Context) ([]Image, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if dockerCLIAvailable() {
+		return liveImages(ctx)
+	}
+	return []Image{}, nil
+}
+
+func (s *DevService) Volumes(ctx context.Context) ([]Volume, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if dockerCLIAvailable() {
+		return liveVolumes(ctx)
+	}
+	return []Volume{}, nil
+}
+
+func (s *DevService) Networks(ctx context.Context) ([]Network, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if dockerCLIAvailable() {
+		return liveNetworks(ctx)
+	}
+	return []Network{}, nil
+}
+
+func (s *DevService) SearchImages(ctx context.Context, query string) ([]ImageSearchResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !dockerCLIAvailable() {
+		return nil, fmt.Errorf("docker CLI is not installed")
+	}
+	return liveSearchImages(ctx, query)
+}
+
+func (s *DevService) PullImage(ctx context.Context, request PullImageRequest) error {
+	_, err := s.StartPullImage(ctx, request)
+	return err
+}
+
+func (s *DevService) StartPullImage(ctx context.Context, request PullImageRequest) (ImagePullStatus, error) {
+	if err := ctx.Err(); err != nil {
+		return ImagePullStatus{}, err
+	}
+	if !dockerCLIAvailable() {
+		return ImagePullStatus{}, fmt.Errorf("docker CLI is not installed")
+	}
+	image := strings.TrimSpace(request.Image)
+	if image == "" {
+		return ImagePullStatus{}, fmt.Errorf("docker image is required")
+	}
+	now := time.Now()
+	taskID := image
+	s.mu.Lock()
+	if s.pulls == nil {
+		s.pulls = make(map[string]ImagePullStatus)
+	}
+	if existing, ok := s.pulls[taskID]; ok && (existing.Status == "queued" || existing.Status == "running") {
+		s.mu.Unlock()
+		return existing, nil
+	}
+	task := ImagePullStatus{
+		ID:        taskID,
+		Image:     image,
+		Status:    "queued",
+		Message:   "等待拉取",
+		Progress:  1,
+		StartedAt: now,
+		UpdatedAt: now,
+	}
+	s.pulls[taskID] = task
+	s.mu.Unlock()
+
+	go func() {
+		pullCtx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
+		defer cancel()
+		livePullImageProgress(pullCtx, image, func(next ImagePullStatus) {
+			next.ID = taskID
+			next.Image = image
+			s.updateImagePull(next)
+		})
+	}()
+	return task, nil
+}
+
+func (s *DevService) ImagePulls(ctx context.Context) ([]ImagePullStatus, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	pulls := make([]ImagePullStatus, 0, len(s.pulls))
+	for _, pull := range s.pulls {
+		pulls = append(pulls, pull)
+	}
+	sort.Slice(pulls, func(i, j int) bool {
+		return pulls[i].UpdatedAt.After(pulls[j].UpdatedAt)
+	})
+	return pulls, nil
+}
+
+func (s *DevService) updateImagePull(next ImagePullStatus) {
+	if next.ID == "" {
+		next.ID = next.Image
+	}
+	next.UpdatedAt = time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pulls == nil {
+		s.pulls = make(map[string]ImagePullStatus)
+	}
+	if previous, ok := s.pulls[next.ID]; ok {
+		if next.StartedAt.IsZero() {
+			next.StartedAt = previous.StartedAt
+		}
+		if next.Progress < previous.Progress && next.Status == "running" {
+			next.Progress = previous.Progress
+		}
+	}
+	s.pulls[next.ID] = next
+}
+
+func (s *DevService) RemoveImage(ctx context.Context, request RemoveImageRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !dockerCLIAvailable() {
+		return fmt.Errorf("docker CLI is not installed")
+	}
+	return liveRemoveImage(ctx, request)
+}
+
+func (s *DevService) CreateVolume(ctx context.Context, request CreateVolumeRequest) (Volume, error) {
+	if err := ctx.Err(); err != nil {
+		return Volume{}, err
+	}
+	if !dockerCLIAvailable() {
+		return Volume{}, fmt.Errorf("docker CLI is not installed")
+	}
+	return liveCreateVolume(ctx, request)
+}
+
+func (s *DevService) RemoveVolume(ctx context.Context, request RemoveVolumeRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !dockerCLIAvailable() {
+		return fmt.Errorf("docker CLI is not installed")
+	}
+	return liveRemoveVolume(ctx, request)
+}
+
+func (s *DevService) CreateNetwork(ctx context.Context, request CreateNetworkRequest) (Network, error) {
+	if err := ctx.Err(); err != nil {
+		return Network{}, err
+	}
+	if !dockerCLIAvailable() {
+		return Network{}, fmt.Errorf("docker CLI is not installed")
+	}
+	return liveCreateNetwork(ctx, request)
+}
+
+func (s *DevService) RemoveNetwork(ctx context.Context, request RemoveNetworkRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !dockerCLIAvailable() {
+		return fmt.Errorf("docker CLI is not installed")
+	}
+	return liveRemoveNetwork(ctx, request)
+}
+
+func (s *DevService) ConnectNetwork(ctx context.Context, request NetworkConnectRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !dockerCLIAvailable() {
+		return fmt.Errorf("docker CLI is not installed")
+	}
+	return liveConnectNetwork(ctx, request)
+}
+
+func (s *DevService) DisconnectNetwork(ctx context.Context, request NetworkDisconnectRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !dockerCLIAvailable() {
+		return fmt.Errorf("docker CLI is not installed")
+	}
+	return liveDisconnectNetwork(ctx, request)
+}
+
+func (s *DevService) CreateContainer(ctx context.Context, request CreateContainerRequest) (Container, error) {
+	if err := ctx.Err(); err != nil {
+		return Container{}, err
+	}
+	if !dockerCLIAvailable() {
+		return Container{}, fmt.Errorf("docker CLI is not installed")
+	}
+	return liveCreateContainer(ctx, request)
+}
+
+func (s *DevService) RemoveContainer(ctx context.Context, containerID string, request RemoveContainerRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !dockerCLIAvailable() {
+		return fmt.Errorf("docker CLI is not installed")
+	}
+	return liveRemoveContainer(ctx, containerID, request)
+}
+
+func (s *DevService) Exec(ctx context.Context, containerID string, request ContainerExecRequest) (ContainerExecResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ContainerExecResult{}, err
+	}
+	if !dockerCLIAvailable() {
+		return ContainerExecResult{}, fmt.Errorf("docker CLI is not installed")
+	}
+	return liveExecContainer(ctx, containerID, request)
+}
+
 func (s *DevService) Logs(ctx context.Context, containerID string, tail int) ([]ContainerLog, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if dockerCLIAvailable() {
-		return liveLogs(ctx, containerID, tail)
+		if logs, err := liveLogs(ctx, containerID, tail); err == nil {
+			return logs, nil
+		}
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -152,7 +385,9 @@ func (s *DevService) Start(ctx context.Context, containerID string) (Container, 
 		return Container{}, err
 	}
 	if dockerCLIAvailable() {
-		return liveContainerAction(ctx, containerID, "start")
+		if container, err := liveContainerAction(ctx, containerID, "start"); err == nil {
+			return container, nil
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -174,7 +409,9 @@ func (s *DevService) Stop(ctx context.Context, containerID string) (Container, e
 		return Container{}, err
 	}
 	if dockerCLIAvailable() {
-		return liveContainerAction(ctx, containerID, "stop")
+		if container, err := liveContainerAction(ctx, containerID, "stop"); err == nil {
+			return container, nil
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -196,7 +433,9 @@ func (s *DevService) Restart(ctx context.Context, containerID string) (Container
 		return Container{}, err
 	}
 	if dockerCLIAvailable() {
-		return liveContainerAction(ctx, containerID, "restart")
+		if container, err := liveContainerAction(ctx, containerID, "restart"); err == nil {
+			return container, nil
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -219,7 +458,9 @@ func (s *DevService) CompleteRestart(ctx context.Context, containerID string) (C
 		return Container{}, err
 	}
 	if dockerCLIAvailable() {
-		return liveFindContainer(ctx, containerID)
+		if container, err := liveFindContainer(ctx, containerID); err == nil {
+			return container, nil
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -244,7 +485,9 @@ func (s *DevService) UpdateLimits(ctx context.Context, containerID string, limit
 		return Container{}, err
 	}
 	if dockerCLIAvailable() {
-		return liveUpdateLimits(ctx, containerID, limit)
+		if container, err := liveUpdateLimits(ctx, containerID, limit); err == nil {
+			return container, nil
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

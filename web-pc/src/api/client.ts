@@ -18,6 +18,12 @@ import type {
   DesktopWindowConfig,
   Disk,
   DockerContainer,
+  DockerExecResult,
+  DockerImage,
+  DockerImagePullStatus,
+  DockerImageSearchResult,
+  DockerNetwork,
+  DockerVolume,
   DownloadTaskActionResult,
   DomainToken,
   DownloadTask,
@@ -299,7 +305,33 @@ export const apiClient = {
   docker: {
     getStacks: () => GET<ComposeStack[]>('/api/v1/docker/stacks'),
     getContainers: () => GET<DockerContainer[]>('/api/v1/docker/containers'),
+    getImages: () => GET<DockerImage[]>('/api/v1/docker/images'),
+    getVolumes: () => GET<DockerVolume[]>('/api/v1/docker/volumes'),
+    getNetworks: () => GET<DockerNetwork[]>('/api/v1/docker/networks'),
+    searchImages: (q: string) => GET<DockerImageSearchResult[]>('/api/v1/docker/images/search', { query: { q } }),
+    getImagePulls: () => GET<DockerImagePullStatus[]>('/api/v1/docker/images/pulls'),
+    pullImage: (payload: RecordPayload) => POST<DockerImagePullStatus>('/api/v1/docker/images/pull', payload),
+    removeImage: (payload: RecordPayload) => POST<RecordPayload>('/api/v1/docker/images/remove', payload),
+    createVolume: (payload: RecordPayload) => POST<DockerVolume>('/api/v1/docker/volumes', payload),
+    removeVolume: (payload: RecordPayload) => POST<RecordPayload>('/api/v1/docker/volumes/remove', payload),
+    createNetwork: (payload: RecordPayload) => POST<DockerNetwork>('/api/v1/docker/networks', payload),
+    removeNetwork: (payload: RecordPayload) => POST<RecordPayload>('/api/v1/docker/networks/remove', payload),
+    connectNetwork: (payload: RecordPayload) => POST<RecordPayload>('/api/v1/docker/networks/connect', payload),
+    disconnectNetwork: (payload: RecordPayload) => POST<RecordPayload>('/api/v1/docker/networks/disconnect', payload),
+    createContainer: (payload: RecordPayload) => POST<DockerContainer>('/api/v1/docker/containers', payload),
+    removeContainer: (id: Id, payload: RecordPayload) =>
+      DELETE<RecordPayload>(`/api/v1/docker/containers/${pathId(id)}`, { body: payload }),
     getContainerLogs: (id: Id, tail = 20) => GET<string[]>(`/api/v1/docker/containers/${pathId(id)}/logs`, { query: { tail } }),
+    terminalUrl: (id: Id, shell = '/bin/sh') => {
+      const url = new URL(
+        buildApiUrl(`/api/v1/docker/containers/${pathId(id)}/terminal`, { shell }),
+        typeof window === 'undefined' ? 'http://localhost' : window.location.href,
+      );
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      return url.toString();
+    },
+    execContainer: (id: Id, payload: RecordPayload) =>
+      POST<DockerExecResult>(`/api/v1/docker/containers/${pathId(id)}/exec`, payload),
     startContainer: (id: Id) => POST<DockerContainer>(`/api/v1/docker/containers/${pathId(id)}/start`),
     stopContainer: (id: Id) => POST<DockerContainer>(`/api/v1/docker/containers/${pathId(id)}/stop`),
     restartContainer: (id: Id) => POST<DockerContainer>(`/api/v1/docker/containers/${pathId(id)}/restart`),

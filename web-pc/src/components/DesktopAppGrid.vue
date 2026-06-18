@@ -66,8 +66,8 @@ function clampPosition(x: number, y: number) {
   const bounds = getStageBounds();
   const minY = window.innerWidth > 1180 ? 72 : 8;
   return {
-    x: Math.round(Math.min(Math.max(8, x), Math.max(8, bounds.width - 96))),
-    y: Math.round(Math.min(Math.max(minY, y), Math.max(minY, bounds.height - 104))),
+    x: Math.round(Math.min(Math.max(8, x), Math.max(8, bounds.width - 106))),
+    y: Math.round(Math.min(Math.max(minY, y), Math.max(minY, bounds.height - 112))),
   };
 }
 
@@ -187,12 +187,12 @@ onUnmounted(() => {
 .desktop-app {
   position: absolute;
   display: grid;
-  width: 82px;
-  min-height: 76px;
+  width: 94px;
+  min-height: 84px;
   justify-items: center;
   align-content: start;
-  gap: 5px;
-  padding: 6px 5px 5px;
+  gap: 6px;
+  padding: 6px 6px 5px;
   color: rgba(255, 255, 255, 0.96);
   text-align: center;
   text-shadow: 0 1px 3px rgba(9, 34, 58, 0.54);
@@ -264,7 +264,7 @@ onUnmounted(() => {
 .desktop-app__name {
   display: -webkit-box;
   width: 100%;
-  min-height: 28px;
+  min-height: 30px;
   overflow: hidden;
   font-size: 12px;
   font-weight: 760;

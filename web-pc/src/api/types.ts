@@ -428,6 +428,62 @@ export type DockerContainer = {
   log: string[];
 };
 
+export type DockerImage = {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  created: string;
+  iconUrl?: string;
+};
+
+export type DockerImageSearchResult = {
+  name: string;
+  description: string;
+  stars: number;
+  official: boolean;
+  automated: boolean;
+  iconUrl?: string;
+};
+
+export type DockerImagePullStatus = {
+  id: string;
+  image: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | string;
+  message: string;
+  progress: number;
+  downloaded: string;
+  total: string;
+  speed: string;
+  error: string;
+  startedAt: string;
+  updatedAt: string;
+};
+
+export type DockerVolume = {
+  name: string;
+  driver: string;
+  scope: string;
+  mountpoint: string;
+};
+
+export type DockerNetwork = {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  subnet?: string;
+  gateway?: string;
+  internal?: boolean;
+  attachable?: boolean;
+  containers?: string[];
+};
+
+export type DockerExecResult = {
+  exitCode: number;
+  output: string;
+};
+
 export type BackupJob = {
   id: string;
   name: string;

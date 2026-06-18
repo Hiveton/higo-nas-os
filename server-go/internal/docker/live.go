@@ -1,14 +1,18 @@
 package docker
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -67,6 +71,57 @@ type dockerStatsLine struct {
 	MemPerc  string `json:"MemPerc"`
 	MemUsage string `json:"MemUsage"`
 }
+
+type dockerImageLine struct {
+	ID           string `json:"ID"`
+	Repository   string `json:"Repository"`
+	Tag          string `json:"Tag"`
+	CreatedSince string `json:"CreatedSince"`
+	CreatedAt    string `json:"CreatedAt"`
+	Size         string `json:"Size"`
+}
+
+type dockerVolumeLine struct {
+	Name       string `json:"Name"`
+	Driver     string `json:"Driver"`
+	Scope      string `json:"Scope"`
+	Mountpoint string `json:"Mountpoint"`
+}
+
+type dockerNetworkLine struct {
+	ID     string `json:"ID"`
+	Name   string `json:"Name"`
+	Driver string `json:"Driver"`
+	Scope  string `json:"Scope"`
+}
+
+type dockerNetworkInspect struct {
+	ID         string `json:"Id"`
+	Name       string `json:"Name"`
+	Driver     string `json:"Driver"`
+	Scope      string `json:"Scope"`
+	Internal   bool   `json:"Internal"`
+	Attachable bool   `json:"Attachable"`
+	IPAM       struct {
+		Config []struct {
+			Subnet  string `json:"Subnet"`
+			Gateway string `json:"Gateway"`
+		} `json:"Config"`
+	} `json:"IPAM"`
+	Containers map[string]struct {
+		Name string `json:"Name"`
+	} `json:"Containers"`
+}
+
+type dockerSearchLine struct {
+	Name        string `json:"Name"`
+	Description string `json:"Description"`
+	Stars       string `json:"StarCount"`
+	Official    string `json:"IsOfficial"`
+	Automated   string `json:"IsAutomated"`
+}
+
+var pullSizePattern = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?\s*(?:[KMGT]?I?B|B))\s*/\s*([0-9]+(?:\.[0-9]+)?\s*(?:[KMGT]?I?B|B))`)
 
 func liveStacks(ctx context.Context) ([]ComposeStack, error) {
 	containers, err := liveContainers(ctx)
@@ -140,6 +195,628 @@ func liveContainers(ctx context.Context) ([]Container, error) {
 	return containers, nil
 }
 
+func liveImages(ctx context.Context) ([]Image, error) {
+	output, err := runDocker(ctx, "images", "--format", "{{json .}}")
+	if err != nil {
+		return nil, err
+	}
+	images := []Image{}
+	for _, line := range nonEmptyLines(output) {
+		var item dockerImageLine
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			continue
+		}
+		images = append(images, Image{
+			ID:         item.ID,
+			Repository: item.Repository,
+			Tag:        item.Tag,
+			Size:       item.Size,
+			Created:    firstNonEmpty(item.CreatedSince, item.CreatedAt),
+			IconURL:    dockerHubIconURL(item.Repository),
+		})
+	}
+	return images, nil
+}
+
+func liveVolumes(ctx context.Context) ([]Volume, error) {
+	output, err := runDocker(ctx, "volume", "ls", "--format", "{{json .}}")
+	if err != nil {
+		return nil, err
+	}
+	volumes := []Volume{}
+	for _, line := range nonEmptyLines(output) {
+		var item dockerVolumeLine
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			continue
+		}
+		volumes = append(volumes, Volume{
+			Name:       item.Name,
+			Driver:     item.Driver,
+			Scope:      item.Scope,
+			Mountpoint: item.Mountpoint,
+		})
+	}
+	return volumes, nil
+}
+
+func liveNetworks(ctx context.Context) ([]Network, error) {
+	output, err := runDocker(ctx, "network", "ls", "--format", "{{json .}}")
+	if err != nil {
+		return nil, err
+	}
+	networks := []Network{}
+	for _, line := range nonEmptyLines(output) {
+		var item dockerNetworkLine
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			continue
+		}
+		networks = append(networks, Network{
+			ID:     item.ID,
+			Name:   item.Name,
+			Driver: item.Driver,
+			Scope:  item.Scope,
+		})
+	}
+	if len(networks) > 0 {
+		inspectArgs := []string{"network", "inspect"}
+		for _, network := range networks {
+			inspectArgs = append(inspectArgs, network.Name)
+		}
+		if inspected, err := runDocker(ctx, inspectArgs...); err == nil {
+			var details []dockerNetworkInspect
+			if json.Unmarshal([]byte(inspected), &details) == nil {
+				byName := make(map[string]dockerNetworkInspect, len(details))
+				for _, detail := range details {
+					byName[detail.Name] = detail
+				}
+				for index := range networks {
+					detail, ok := byName[networks[index].Name]
+					if !ok {
+						continue
+					}
+					networks[index].Internal = detail.Internal
+					networks[index].Attachable = detail.Attachable
+					if len(detail.IPAM.Config) > 0 {
+						networks[index].Subnet = detail.IPAM.Config[0].Subnet
+						networks[index].Gateway = detail.IPAM.Config[0].Gateway
+					}
+					names := make([]string, 0, len(detail.Containers))
+					for _, container := range detail.Containers {
+						if container.Name != "" {
+							names = append(names, container.Name)
+						}
+					}
+					sort.Strings(names)
+					networks[index].Containers = names
+				}
+			}
+		}
+	}
+	return networks, nil
+}
+
+func liveSearchImages(ctx context.Context, query string) ([]ImageSearchResult, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []ImageSearchResult{}, nil
+	}
+	output, err := runDocker(ctx, "search", "--limit", "20", "--format", "{{json .}}", query)
+	if err != nil {
+		return nil, err
+	}
+	results := []ImageSearchResult{}
+	for _, line := range nonEmptyLines(output) {
+		var item dockerSearchLine
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			continue
+		}
+		stars, _ := strconv.Atoi(strings.TrimSpace(item.Stars))
+		results = append(results, ImageSearchResult{
+			Name:        item.Name,
+			Description: item.Description,
+			Stars:       stars,
+			Official:    dockerBool(item.Official),
+			Automated:   dockerBool(item.Automated),
+			IconURL:     dockerHubIconURL(item.Name),
+		})
+	}
+	return results, nil
+}
+
+func dockerHubIconURL(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" || image == "<none>" {
+		return ""
+	}
+	image = strings.TrimPrefix(image, "docker.io/")
+	image = strings.TrimPrefix(image, "index.docker.io/")
+	slashIndex := strings.LastIndex(image, "/")
+	colonIndex := strings.LastIndex(image, ":")
+	if colonIndex > slashIndex {
+		image = image[:colonIndex]
+	}
+	if atIndex := strings.Index(image, "@"); atIndex >= 0 {
+		image = image[:atIndex]
+	}
+	parts := strings.Split(image, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return ""
+	}
+	if strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":") || parts[0] == "localhost" {
+		return ""
+	}
+	repo := image
+	if len(parts) == 1 {
+		repo = "library/" + parts[0]
+	}
+	if strings.TrimSpace(repo) == "" {
+		return ""
+	}
+	return "https://hub.docker.com/api/media/repos_logo/v1/" + strings.ReplaceAll(repo, "/", "%2F")
+}
+
+func livePullImage(ctx context.Context, image string) error {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return fmt.Errorf("docker image is required")
+	}
+	_, err := runDockerCombined(ctx, "pull", image)
+	return err
+}
+
+func livePullImageProgress(ctx context.Context, image string, emit func(ImagePullStatus)) error {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		err := fmt.Errorf("docker image is required")
+		emit(ImagePullStatus{Image: image, Status: "failed", Message: "镜像名为空", Error: err.Error(), Progress: 0})
+		return err
+	}
+	startedAt := time.Now()
+	emit(ImagePullStatus{
+		Image:     image,
+		Status:    "running",
+		Message:   "正在连接镜像仓库",
+		Progress:  2,
+		StartedAt: startedAt,
+		UpdatedAt: startedAt,
+	})
+
+	command := exec.CommandContext(ctx, "docker", "pull", image)
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		emitPullFailure(image, startedAt, err, emit)
+		return err
+	}
+	stderr, err := command.StderrPipe()
+	if err != nil {
+		emitPullFailure(image, startedAt, err, emit)
+		return err
+	}
+	if err := command.Start(); err != nil {
+		emitPullFailure(image, startedAt, err, emit)
+		return err
+	}
+
+	lines := make(chan string, 64)
+	var wg sync.WaitGroup
+	scan := func(reader io.Reader) {
+		defer wg.Done()
+		scanner := bufio.NewScanner(reader)
+		scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
+		scanner.Split(scanPullTokens)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" {
+				lines <- line
+			}
+		}
+	}
+	wg.Add(2)
+	go scan(stdout)
+	go scan(stderr)
+	go func() {
+		wg.Wait()
+		close(lines)
+	}()
+
+	tracker := newPullProgressTracker()
+	for line := range lines {
+		status := tracker.update(line)
+		status.Image = image
+		status.Status = "running"
+		status.StartedAt = startedAt
+		status.UpdatedAt = time.Now()
+		emit(status)
+	}
+
+	if err := command.Wait(); err != nil {
+		emitPullFailure(image, startedAt, err, emit)
+		return err
+	}
+	final := tracker.status()
+	final.Image = image
+	final.Status = "completed"
+	final.Message = "拉取完成"
+	final.Progress = 100
+	final.Speed = "0 B/s"
+	final.StartedAt = startedAt
+	final.UpdatedAt = time.Now()
+	emit(final)
+	return nil
+}
+
+type pullLayerProgress struct {
+	downloaded float64
+	total      float64
+	complete   bool
+}
+
+type pullProgressTracker struct {
+	layers         map[string]*pullLayerProgress
+	progress       int
+	fallback       int
+	lastDownloaded float64
+	lastAt         time.Time
+	downloaded     float64
+	total          float64
+	speed          string
+	message        string
+}
+
+func newPullProgressTracker() *pullProgressTracker {
+	return &pullProgressTracker{
+		layers:   make(map[string]*pullLayerProgress),
+		progress: 2,
+		fallback: 2,
+		lastAt:   time.Now(),
+		speed:    "0 B/s",
+		message:  "正在拉取",
+	}
+}
+
+func (t *pullProgressTracker) update(line string) ImagePullStatus {
+	t.message = pullMessage(line)
+	layerID := pullLayerID(line)
+	if layerID != "" {
+		layer := t.layers[layerID]
+		if layer == nil {
+			layer = &pullLayerProgress{}
+			t.layers[layerID] = layer
+		}
+		if strings.Contains(line, "Pull complete") || strings.Contains(line, "Already exists") || strings.Contains(line, "Download complete") {
+			layer.complete = true
+			if layer.total <= 0 {
+				layer.total = maxFloat(layer.downloaded, 1)
+			}
+			layer.downloaded = layer.total
+		}
+		if match := pullSizePattern.FindStringSubmatch(line); len(match) == 3 {
+			layer.downloaded = parsePullBytes(match[1])
+			layer.total = parsePullBytes(match[2])
+			if layer.total > 0 && layer.downloaded >= layer.total {
+				layer.complete = true
+			}
+		}
+	}
+	t.recalculate()
+	return t.status()
+}
+
+func (t *pullProgressTracker) status() ImagePullStatus {
+	return ImagePullStatus{
+		Status:     "running",
+		Message:    t.message,
+		Progress:   t.progress,
+		Downloaded: formatPullBytes(t.downloaded),
+		Total:      formatPullBytes(t.total),
+		Speed:      t.speed,
+	}
+}
+
+func (t *pullProgressTracker) recalculate() {
+	var downloaded float64
+	var total float64
+	for _, layer := range t.layers {
+		layerTotal := layer.total
+		layerDownloaded := layer.downloaded
+		if layer.complete {
+			layerTotal = maxFloat(layerTotal, layerDownloaded, 1)
+			layerDownloaded = layerTotal
+		}
+		downloaded += layerDownloaded
+		total += layerTotal
+	}
+	now := time.Now()
+	if total > 0 {
+		t.downloaded = downloaded
+		t.total = total
+		ratio := downloaded / total
+		t.progress = minInt(98, maxInt(t.progress, 4+int(ratio*94)))
+		if elapsed := now.Sub(t.lastAt).Seconds(); elapsed >= 0.5 {
+			speed := (downloaded - t.lastDownloaded) / elapsed
+			if speed >= 0 {
+				t.speed = formatPullBytes(speed) + "/s"
+			}
+			t.lastDownloaded = downloaded
+			t.lastAt = now
+		}
+		return
+	}
+	t.fallback = minInt(88, t.fallback+3)
+	t.progress = maxInt(t.progress, t.fallback)
+}
+
+func scanPullTokens(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	for i, b := range data {
+		if b == '\n' || b == '\r' {
+			return i + 1, bytes.TrimSpace(data[:i]), nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), bytes.TrimSpace(data), nil
+	}
+	return 0, nil, nil
+}
+
+func emitPullFailure(image string, startedAt time.Time, err error, emit func(ImagePullStatus)) {
+	now := time.Now()
+	emit(ImagePullStatus{
+		Image:     image,
+		Status:    "failed",
+		Message:   "拉取失败",
+		Progress:  0,
+		Error:     strings.TrimSpace(err.Error()),
+		StartedAt: startedAt,
+		UpdatedAt: now,
+	})
+}
+
+func pullLayerID(line string) string {
+	index := strings.Index(line, ":")
+	if index <= 0 {
+		return ""
+	}
+	prefix := strings.TrimSpace(line[:index])
+	if strings.ContainsAny(prefix, " \t") {
+		return ""
+	}
+	if len(prefix) < 8 || len(prefix) > 24 {
+		return ""
+	}
+	return prefix
+}
+
+func pullMessage(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "正在拉取"
+	}
+	if strings.HasPrefix(line, "Status:") {
+		return strings.TrimSpace(strings.TrimPrefix(line, "Status:"))
+	}
+	if strings.HasPrefix(line, "Digest:") {
+		return "校验镜像摘要"
+	}
+	if strings.Contains(line, "Pulling fs layer") {
+		return "正在解析镜像层"
+	}
+	if strings.Contains(line, "Downloading") {
+		return "正在下载镜像层"
+	}
+	if strings.Contains(line, "Extracting") {
+		return "正在解压镜像层"
+	}
+	if strings.Contains(line, "Pull complete") {
+		return "镜像层下载完成"
+	}
+	return line
+}
+
+func parsePullBytes(value string) float64 {
+	cleaned := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(value), " ", ""))
+	units := []struct {
+		suffix string
+		scale  float64
+	}{
+		{"TIB", 1024 * 1024 * 1024 * 1024},
+		{"TB", 1000 * 1000 * 1000 * 1000},
+		{"GIB", 1024 * 1024 * 1024},
+		{"GB", 1000 * 1000 * 1000},
+		{"MIB", 1024 * 1024},
+		{"MB", 1000 * 1000},
+		{"KIB", 1024},
+		{"KB", 1000},
+		{"B", 1},
+	}
+	for _, unit := range units {
+		if strings.HasSuffix(cleaned, unit.suffix) {
+			number := strings.TrimSuffix(cleaned, unit.suffix)
+			parsed, _ := strconv.ParseFloat(number, 64)
+			return parsed * unit.scale
+		}
+	}
+	parsed, _ := strconv.ParseFloat(cleaned, 64)
+	return parsed
+}
+
+func formatPullBytes(value float64) string {
+	if value <= 0 {
+		return "0 B"
+	}
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	size := value
+	unit := 0
+	for size >= 1024 && unit < len(units)-1 {
+		size /= 1024
+		unit++
+	}
+	if unit == 0 {
+		return fmt.Sprintf("%.0f %s", size, units[unit])
+	}
+	return fmt.Sprintf("%.1f %s", size, units[unit])
+}
+
+func maxFloat(values ...float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	max := values[0]
+	for _, value := range values[1:] {
+		if value > max {
+			max = value
+		}
+	}
+	return max
+}
+
+func liveRemoveImage(ctx context.Context, request RemoveImageRequest) error {
+	image := strings.TrimSpace(request.Image)
+	if image == "" {
+		return fmt.Errorf("docker image is required")
+	}
+	args := []string{"rmi"}
+	if request.Force {
+		args = append(args, "-f")
+	}
+	args = append(args, image)
+	_, err := runDocker(ctx, args...)
+	return err
+}
+
+func liveCreateVolume(ctx context.Context, request CreateVolumeRequest) (Volume, error) {
+	name := strings.TrimSpace(request.Name)
+	if name == "" {
+		return Volume{}, fmt.Errorf("docker volume name is required")
+	}
+	args := []string{"volume", "create"}
+	if strings.TrimSpace(request.Driver) != "" {
+		args = append(args, "--driver", strings.TrimSpace(request.Driver))
+	}
+	args = append(args, name)
+	if _, err := runDocker(ctx, args...); err != nil {
+		return Volume{}, err
+	}
+	volumes, err := liveVolumes(ctx)
+	if err != nil {
+		return Volume{Name: name, Driver: firstNonEmpty(request.Driver, "local")}, nil
+	}
+	for _, volume := range volumes {
+		if volume.Name == name {
+			return volume, nil
+		}
+	}
+	return Volume{Name: name, Driver: firstNonEmpty(request.Driver, "local")}, nil
+}
+
+func liveRemoveVolume(ctx context.Context, request RemoveVolumeRequest) error {
+	name := strings.TrimSpace(request.Name)
+	if name == "" {
+		return fmt.Errorf("docker volume name is required")
+	}
+	args := []string{"volume", "rm"}
+	if request.Force {
+		args = append(args, "-f")
+	}
+	args = append(args, name)
+	_, err := runDocker(ctx, args...)
+	return err
+}
+
+func liveCreateNetwork(ctx context.Context, request CreateNetworkRequest) (Network, error) {
+	name := strings.TrimSpace(request.Name)
+	if name == "" {
+		return Network{}, fmt.Errorf("docker network name is required")
+	}
+	args := []string{"network", "create", "--driver", firstNonEmpty(strings.TrimSpace(request.Driver), "bridge")}
+	if strings.TrimSpace(request.Subnet) != "" {
+		args = append(args, "--subnet", strings.TrimSpace(request.Subnet))
+	}
+	if strings.TrimSpace(request.Gateway) != "" {
+		args = append(args, "--gateway", strings.TrimSpace(request.Gateway))
+	}
+	if request.Attachable {
+		args = append(args, "--attachable")
+	}
+	if request.Internal {
+		args = append(args, "--internal")
+	}
+	args = append(args, name)
+	if _, err := runDocker(ctx, args...); err != nil {
+		return Network{}, err
+	}
+	networks, err := liveNetworks(ctx)
+	if err != nil {
+		return Network{Name: name, Driver: firstNonEmpty(strings.TrimSpace(request.Driver), "bridge")}, nil
+	}
+	for _, network := range networks {
+		if network.Name == name {
+			return network, nil
+		}
+	}
+	return Network{Name: name, Driver: firstNonEmpty(strings.TrimSpace(request.Driver), "bridge")}, nil
+}
+
+func liveRemoveNetwork(ctx context.Context, request RemoveNetworkRequest) error {
+	name := strings.TrimSpace(request.Name)
+	if name == "" {
+		return fmt.Errorf("docker network name is required")
+	}
+	_, err := runDocker(ctx, "network", "rm", name)
+	return err
+}
+
+func liveConnectNetwork(ctx context.Context, request NetworkConnectRequest) error {
+	network := strings.TrimSpace(request.Network)
+	container := strings.TrimSpace(request.Container)
+	if network == "" || container == "" {
+		return fmt.Errorf("docker network and container are required")
+	}
+	args := []string{"network", "connect"}
+	if strings.TrimSpace(request.Alias) != "" {
+		args = append(args, "--alias", strings.TrimSpace(request.Alias))
+	}
+	args = append(args, network, container)
+	_, err := runDocker(ctx, args...)
+	return err
+}
+
+func liveDisconnectNetwork(ctx context.Context, request NetworkDisconnectRequest) error {
+	network := strings.TrimSpace(request.Network)
+	container := strings.TrimSpace(request.Container)
+	if network == "" || container == "" {
+		return fmt.Errorf("docker network and container are required")
+	}
+	args := []string{"network", "disconnect"}
+	if request.Force {
+		args = append(args, "-f")
+	}
+	args = append(args, network, container)
+	_, err := runDocker(ctx, args...)
+	return err
+}
+
+func liveExecContainer(ctx context.Context, containerID string, request ContainerExecRequest) (ContainerExecResult, error) {
+	commandText := strings.TrimSpace(request.Command)
+	if commandText == "" {
+		return ContainerExecResult{}, fmt.Errorf("docker exec command is required")
+	}
+	command := exec.CommandContext(ctx, "docker", "exec", containerID, "sh", "-lc", commandText)
+	output, err := command.CombinedOutput()
+	result := ContainerExecResult{
+		ExitCode: 0,
+		Output:   strings.TrimRight(string(output), "\n"),
+	}
+	if err != nil {
+		if command.ProcessState != nil {
+			result.ExitCode = command.ProcessState.ExitCode()
+		} else {
+			result.ExitCode = 1
+		}
+		return result, nil
+	}
+	return result, nil
+}
+
 func liveFindContainer(ctx context.Context, containerID string) (Container, error) {
 	output, err := runDocker(ctx, "inspect", containerID)
 	if err != nil {
@@ -159,7 +836,7 @@ func liveLogs(ctx context.Context, containerID string, tail int) ([]ContainerLog
 	if tail <= 0 {
 		tail = 100
 	}
-	output, err := runDocker(ctx, "logs", "--tail", strconv.Itoa(tail), "--timestamps", containerID)
+	output, err := runDockerCombined(ctx, "logs", "--tail", strconv.Itoa(tail), "--timestamps", containerID)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +880,86 @@ func liveUpdateLimits(ctx context.Context, containerID string, limit ResourceLim
 		return Container{}, err
 	}
 	return liveFindContainer(ctx, containerID)
+}
+
+func liveCreateContainer(ctx context.Context, request CreateContainerRequest) (Container, error) {
+	image := strings.TrimSpace(request.Image)
+	if image == "" {
+		return Container{}, fmt.Errorf("docker image is required")
+	}
+	args := []string{"run", "-d", "--pull=missing"}
+	if strings.TrimSpace(request.Name) != "" {
+		args = append(args, "--name", strings.TrimSpace(request.Name))
+	}
+	if request.AutoRemove {
+		args = append(args, "--rm")
+	} else if policy := strings.TrimSpace(request.RestartPolicy); policy != "" && policy != "no" {
+		args = append(args, "--restart", policy)
+	}
+	if request.Privileged {
+		args = append(args, "--privileged")
+	}
+	if network := strings.TrimSpace(request.Network); network != "" {
+		args = append(args, "--network", network)
+	}
+	if hostname := strings.TrimSpace(request.Hostname); hostname != "" {
+		args = append(args, "--hostname", hostname)
+	}
+	if user := strings.TrimSpace(request.User); user != "" {
+		args = append(args, "--user", user)
+	}
+	if workdir := strings.TrimSpace(request.WorkingDir); workdir != "" {
+		args = append(args, "--workdir", workdir)
+	}
+	if entrypoint := strings.TrimSpace(request.Entrypoint); entrypoint != "" {
+		args = append(args, "--entrypoint", entrypoint)
+	}
+	if request.LimitCPU > 0 {
+		args = append(args, "--cpus", strconv.Itoa(request.LimitCPU))
+	}
+	if request.LimitMemory > 0 {
+		args = append(args, "--memory", fmt.Sprintf("%dm", request.LimitMemory))
+	}
+	for _, port := range cleanList(request.Ports) {
+		args = append(args, "-p", port)
+	}
+	for _, mount := range cleanList(request.Mounts) {
+		args = append(args, "-v", mount)
+	}
+	for _, env := range cleanList(request.Env) {
+		args = append(args, "-e", env)
+	}
+	for _, label := range cleanList(request.Labels) {
+		args = append(args, "--label", label)
+	}
+	for _, host := range cleanList(request.ExtraHosts) {
+		args = append(args, "--add-host", host)
+	}
+	for _, dns := range cleanList(request.DNS) {
+		args = append(args, "--dns", dns)
+	}
+	args = append(args, image)
+	if strings.TrimSpace(request.Command) != "" {
+		args = append(args, strings.Fields(request.Command)...)
+	}
+	output, err := runDocker(ctx, args...)
+	if err != nil {
+		return Container{}, err
+	}
+	return liveFindContainer(ctx, strings.TrimSpace(output))
+}
+
+func liveRemoveContainer(ctx context.Context, containerID string, request RemoveContainerRequest) error {
+	args := []string{"rm"}
+	if request.Force {
+		args = append(args, "-f")
+	}
+	if request.RemoveVolumes {
+		args = append(args, "-v")
+	}
+	args = append(args, containerID)
+	_, err := runDocker(ctx, args...)
+	return err
 }
 
 func liveStats(ctx context.Context) map[string]dockerStatsLine {
@@ -267,6 +1024,15 @@ func runDocker(ctx context.Context, args ...string) (string, error) {
 	output, err := command.Output()
 	if err != nil {
 		return "", fmt.Errorf("docker %s failed: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return string(output), nil
+}
+
+func runDockerCombined(ctx context.Context, args ...string) (string, error) {
+	command := exec.CommandContext(ctx, "docker", args...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("docker %s failed: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return string(output), nil
 }
@@ -343,6 +1109,28 @@ func safeEnv(env []string) []string {
 		return []string{"无环境变量"}
 	}
 	return out
+}
+
+func cleanList(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func nonEmptyLines(output string) []string {
+	lines := []string{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
 
 func isSecretKey(key string) bool {
@@ -458,6 +1246,11 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func dockerBool(value string) bool {
+	value = strings.TrimSpace(strings.ToLower(value))
+	return value == "true" || value == "yes" || value == "ok" || value == "[ok]" || value == "1"
 }
 
 func minInt(a int, b int) int {

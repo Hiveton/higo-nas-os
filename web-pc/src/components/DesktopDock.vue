@@ -84,7 +84,7 @@ function isPinned(id: string) {
 
 <style scoped>
 .dock {
-  position: fixed;
+  position: absolute;
   top: auto;
   right: auto;
   left: 50%;
@@ -164,23 +164,29 @@ function isPinned(id: string) {
 
 .dock--left,
 .dock--right {
-  top: calc(var(--topbar-height) + 34px);
-  bottom: max(10px, env(safe-area-inset-bottom));
-  left: max(10px, env(safe-area-inset-left));
+  top: calc(var(--topbar-height) + 56px);
+  bottom: max(32px, env(safe-area-inset-bottom));
+  left: max(14px, env(safe-area-inset-left));
   width: var(--dock-side-width, 96px);
+  height: auto;
+  max-height: none;
   max-width: none;
   transform: none;
+  align-items: center;
+  justify-content: center;
 }
 
 .dock--right {
-  right: max(10px, env(safe-area-inset-right));
+  right: max(14px, env(safe-area-inset-right));
   left: auto;
 }
 
 .dock--left .dock__scroller,
 .dock--right .dock__scroller {
   width: 100%;
-  height: 100%;
+  max-width: var(--dock-side-width, 96px);
+  height: auto;
+  max-height: 100%;
   padding-top: 0;
   margin-top: 0;
   overflow-x: visible;
@@ -195,20 +201,26 @@ function isPinned(id: string) {
   align-items: center;
   justify-content: flex-start;
   width: 100%;
-  min-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
   max-width: none;
-  padding: 12px 8px;
+  overflow: visible;
+  padding: 14px 8px;
   gap: 8px;
-  border-radius: 28px;
+  border-radius: 30px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.34);
 }
 
 .dock--style-side.dock--left .dock__surface,
 .dock--style-side.dock--right .dock__surface {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(215, 226, 255, 0.18)),
-    rgba(21, 38, 74, 0.18);
-  border-color: rgba(255, 255, 255, 0.46);
-  border-radius: 20px;
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(214, 244, 255, 0.36)),
+    rgba(255, 255, 255, 0.36);
+  border-color: rgba(255, 255, 255, 0.58);
+  border-radius: 30px;
 }
 
 .dock--style-compact .dock__surface {
@@ -243,13 +255,7 @@ function isPinned(id: string) {
 
 .dock--left .dock__surface::after,
 .dock--right .dock__surface::after {
-  top: 8%;
-  right: 8px;
-  bottom: 8%;
-  left: 8px;
-  width: auto;
-  height: auto;
-  background: radial-gradient(ellipse at center, rgba(34, 106, 123, 0.14), transparent 68%);
+  display: none;
 }
 
 .dock--left .dock__separator,

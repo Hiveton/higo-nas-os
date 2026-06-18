@@ -242,14 +242,6 @@ function startWindowResize(event: PointerEvent, direction: string) {
   height: auto !important;
 }
 
-:global(.desktop--dock-left) .desktop-window--maximized {
-  inset: calc(var(--topbar-height) + 30px) 12px 12px calc(var(--dock-side-width) + 18px) !important;
-}
-
-:global(.desktop--dock-right) .desktop-window--maximized {
-  inset: calc(var(--topbar-height) + 30px) calc(var(--dock-side-width) + 18px) 12px 12px !important;
-}
-
 .desktop-window--maximized .desktop-window__resize-handle {
   display: none;
 }

@@ -35,6 +35,11 @@ type OverviewCard = {
   percent?: number;
 };
 
+type SparklinePoint = {
+  x: number;
+  y: number;
+};
+
 type WidgetOption = {
   id: WidgetId;
   label: string;
@@ -389,7 +394,7 @@ function metricNumber(metric: Metric | undefined) {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
-function sparklinePoints(card: OverviewCard, lane: 'down' | 'up' = 'down') {
+function sparklinePointList(card: OverviewCard, lane: 'down' | 'up' = 'down'): SparklinePoint[] {
   const values = chartSeries(card, lane);
   const paired = card.id === 'network' || card.id === 'disk'
     ? [...chartSeries(card, 'down'), ...chartSeries(card, 'up')]
@@ -397,16 +402,55 @@ function sparklinePoints(card: OverviewCard, lane: 'down' | 'up' = 'down') {
   const maxValue = chartMax(card, paired);
   return values
     .map((value, index) => {
-      const x = values.length <= 1 ? 0 : Math.round((index / (values.length - 1)) * 100);
+      const x = values.length <= 1 ? 0 : (index / (values.length - 1)) * 100;
       const ratio = maxValue > 0 ? Math.min(1, value / maxValue) : 0;
-      const y = Math.round(74 - ratio * 58);
-      return `${x},${y}`;
-    })
-    .join(' ');
+      const y = 74 - ratio * 58;
+      return { x, y };
+    });
 }
 
-function sparklineArea(card: OverviewCard, lane: 'down' | 'up' = 'down') {
-  return `0,80 ${sparklinePoints(card, lane)} 100,80`;
+function sparklinePath(card: OverviewCard, lane: 'down' | 'up' = 'down') {
+  return smoothSparklinePath(sparklinePointList(card, lane));
+}
+
+function sparklineAreaPath(card: OverviewCard, lane: 'down' | 'up' = 'down') {
+  const points = sparklinePointList(card, lane);
+  const path = smoothSparklinePath(points);
+  if (!path || points.length === 0) return '';
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `${path} L ${formatChartCoord(last.x)} 80 L ${formatChartCoord(first.x)} 80 Z`;
+}
+
+function smoothSparklinePath(points: SparklinePoint[]) {
+  if (points.length === 0) return '';
+  const [first] = points;
+  if (points.length === 1) return `M ${formatChartCoord(first.x)} ${formatChartCoord(first.y)}`;
+  const segments = [`M ${formatChartCoord(first.x)} ${formatChartCoord(first.y)}`];
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const previous = points[index - 1] ?? points[index];
+    const current = points[index];
+    const next = points[index + 1];
+    const after = points[index + 2] ?? next;
+    const cp1 = {
+      x: current.x + (next.x - previous.x) / 6,
+      y: current.y + (next.y - previous.y) / 6,
+    };
+    const cp2 = {
+      x: next.x - (after.x - current.x) / 6,
+      y: next.y - (after.y - current.y) / 6,
+    };
+    segments.push(
+      `C ${formatChartCoord(cp1.x)} ${formatChartCoord(cp1.y)} ${formatChartCoord(cp2.x)} ${formatChartCoord(cp2.y)} ${formatChartCoord(next.x)} ${formatChartCoord(next.y)}`,
+    );
+  }
+
+  return segments.join(' ');
+}
+
+function formatChartCoord(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function chartSeries(card: OverviewCard, lane: 'down' | 'up') {
@@ -549,11 +593,11 @@ onUnmounted(() => {
           </div>
           <div class="overview-sparkline" aria-hidden="true">
             <svg viewBox="0 0 100 80" preserveAspectRatio="none">
-              <polygon class="spark-area spark-area--down" :points="sparklineArea(card, 'down')" />
-              <polyline class="spark-line spark-line--down" :points="sparklinePoints(card, 'down')" />
+              <path class="spark-area spark-area--down" :d="sparklineAreaPath(card, 'down')" />
+              <path class="spark-line spark-line--down" :d="sparklinePath(card, 'down')" />
               <template v-if="card.id === 'network' || card.id === 'disk'">
-                <polygon class="spark-area spark-area--up" :points="sparklineArea(card, 'up')" />
-                <polyline class="spark-line spark-line--up" :points="sparklinePoints(card, 'up')" />
+                <path class="spark-area spark-area--up" :d="sparklineAreaPath(card, 'up')" />
+                <path class="spark-line spark-line--up" :d="sparklinePath(card, 'up')" />
               </template>
             </svg>
           </div>
@@ -597,6 +641,9 @@ onUnmounted(() => {
 
 .desktop-overview--collapsed {
   width: auto;
+  height: auto;
+  max-height: none;
+  min-height: 0;
   padding: 0;
   overflow: visible;
   background: transparent;

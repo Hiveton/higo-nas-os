@@ -323,19 +323,236 @@ func (a *API) dockerStacks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) dockerContainers(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		containers, err := a.docker.Containers(r.Context())
+		if err != nil {
+			platform.WriteError(w, r, http.StatusInternalServerError, "docker_containers_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, mapDockerContainers(containers))
+	case http.MethodPost:
+		var body hdocker.CreateContainerRequest
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		container, err := a.docker.CreateContainer(r.Context(), body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "docker_container_create_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, mapDockerContainer(container))
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPost)
+	}
+}
+
+func (a *API) dockerImages(w http.ResponseWriter, r *http.Request) {
 	if !allowMethod(w, r, http.MethodGet) {
 		return
 	}
-	containers, err := a.docker.Containers(r.Context())
+	images, err := a.docker.Images(r.Context())
 	if err != nil {
-		platform.WriteError(w, r, http.StatusInternalServerError, "docker_containers_failed", err.Error())
+		platform.WriteError(w, r, http.StatusInternalServerError, "docker_images_failed", err.Error())
 		return
 	}
-	platform.WriteJSON(w, r, http.StatusOK, mapDockerContainers(containers))
+	platform.WriteJSON(w, r, http.StatusOK, images)
+}
+
+func (a *API) dockerImageSearch(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	results, err := a.docker.SearchImages(r.Context(), r.URL.Query().Get("q"))
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "docker_image_search_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, results)
+}
+
+func (a *API) dockerImagePull(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	var body hdocker.PullImageRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	task, err := a.docker.StartPullImage(r.Context(), body)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "docker_image_pull_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusAccepted, task)
+}
+
+func (a *API) dockerImagePulls(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	tasks, err := a.docker.ImagePulls(r.Context())
+	if err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "docker_image_pulls_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, tasks)
+}
+
+func (a *API) dockerImageRemove(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	var body hdocker.RemoveImageRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if err := a.docker.RemoveImage(r.Context(), body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "docker_image_remove_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, map[string]any{"removed": true})
+}
+
+func (a *API) dockerVolumes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		volumes, err := a.docker.Volumes(r.Context())
+		if err != nil {
+			platform.WriteError(w, r, http.StatusInternalServerError, "docker_volumes_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, volumes)
+	case http.MethodPost:
+		var body hdocker.CreateVolumeRequest
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		volume, err := a.docker.CreateVolume(r.Context(), body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "docker_volume_create_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, volume)
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPost)
+	}
+}
+
+func (a *API) dockerVolumeRemove(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	var body hdocker.RemoveVolumeRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if err := a.docker.RemoveVolume(r.Context(), body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "docker_volume_remove_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, map[string]any{"removed": true})
+}
+
+func (a *API) dockerNetworks(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		networks, err := a.docker.Networks(r.Context())
+		if err != nil {
+			platform.WriteError(w, r, http.StatusInternalServerError, "docker_networks_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, networks)
+	case http.MethodPost:
+		var body hdocker.CreateNetworkRequest
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		network, err := a.docker.CreateNetwork(r.Context(), body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "docker_network_create_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, network)
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPost)
+	}
+}
+
+func (a *API) dockerNetworkRemove(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	var body hdocker.RemoveNetworkRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if err := a.docker.RemoveNetwork(r.Context(), body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "docker_network_remove_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, map[string]any{"removed": true})
+}
+
+func (a *API) dockerNetworkConnect(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	var body hdocker.NetworkConnectRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if err := a.docker.ConnectNetwork(r.Context(), body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "docker_network_connect_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, map[string]any{"connected": true})
+}
+
+func (a *API) dockerNetworkDisconnect(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	var body hdocker.NetworkDisconnectRequest
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if err := a.docker.DisconnectNetwork(r.Context(), body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "docker_network_disconnect_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, map[string]any{"disconnected": true})
 }
 
 func (a *API) dockerContainerByID(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/docker/containers/"), "/"), "/")
+	if len(parts) == 1 && parts[0] != "" {
+		if !allowMethod(w, r, http.MethodDelete) {
+			return
+		}
+		var body hdocker.RemoveContainerRequest
+		if r.ContentLength != 0 {
+			if err := decodeJSON(r, &body); err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+				return
+			}
+		}
+		if err := a.docker.RemoveContainer(r.Context(), parts[0], body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "docker_container_remove_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, map[string]any{"removed": true})
+		return
+	}
 	if len(parts) < 2 {
 		platform.WriteError(w, r, http.StatusNotFound, "docker_route_not_found", "docker route not found")
 		return
@@ -354,6 +571,8 @@ func (a *API) dockerContainerByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		platform.WriteJSON(w, r, http.StatusOK, mapDockerLogMessages(logs))
+	case "terminal":
+		a.dockerContainerTerminal(w, r, id)
 	case "start", "stop", "restart", "complete-restart":
 		if !allowMethod(w, r, http.MethodPost) {
 			return
@@ -364,6 +583,21 @@ func (a *API) dockerContainerByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		platform.WriteJSON(w, r, http.StatusOK, mapDockerContainer(container))
+	case "exec":
+		if !allowMethod(w, r, http.MethodPost) {
+			return
+		}
+		var body hdocker.ContainerExecRequest
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		result, err := a.docker.Exec(r.Context(), id, body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "docker_exec_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, result)
 	case "limits":
 		if !allowMethod(w, r, http.MethodPut) {
 			return

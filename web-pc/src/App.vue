@@ -96,10 +96,10 @@ const defaultPinnedDockAppIds = [
   'ai-assistant',
   'system-settings',
 ];
-const desktopIconWidth = 82;
-const desktopIconHeight = 82;
-const desktopIconGapX = 12;
-const desktopIconGapY = 10;
+const desktopIconWidth = 94;
+const desktopIconHeight = 88;
+const desktopIconGapX = 26;
+const desktopIconGapY = 12;
 const compactBreakpointWidth = 980;
 const compactBreakpointHeight = 760;
 const windowFrameMargin = 16;
@@ -145,6 +145,7 @@ const apiDesktopWindowIds = ref<Set<string>>(new Set());
 const openWindowIds = ref<string[]>([]);
 const minimizedWindowIds = ref<string[]>([]);
 const activeWindowId = ref('');
+const windowOpenTokens = ref<Record<string, number>>({});
 const utilityAppId = ref('');
 const assistantVisible = ref(false);
 const isCompact = ref(false);
@@ -221,6 +222,13 @@ function bringWindowToFront(id: string) {
   activeWindowId.value = id;
   if (!isDesktopWindow(id)) return;
   windowLayerOrder.value = prioritizeOpenWindowOrder(openWindowIds.value, id);
+}
+
+function bumpWindowOpenToken(id: string) {
+  windowOpenTokens.value = {
+    ...windowOpenTokens.value,
+    [id]: (windowOpenTokens.value[id] ?? 0) + 1,
+  };
 }
 
 function selectNextVisibleWindow(excludedId = '') {
@@ -370,10 +378,9 @@ function applyDesktopSession(session: DesktopSession) {
   pinnedDockAppIds.value = nextPinnedDockAppIds.length
     ? nextPinnedDockAppIds
     : defaultPinnedDockAppIds.filter((id) => appIds.has(id));
-  desktopIconPositions.value = {
-    ...createDesktopIconLayout(dockApps, 'left'),
-    ...filterIconPositions(session.desktopIconPositions ?? {}, appIds),
-  };
+  const defaultIconLayout = createDesktopIconLayout(dockApps, 'left');
+  const savedIconLayout = filterIconPositions(session.desktopIconPositions ?? {}, appIds);
+  desktopIconPositions.value = isSideDock.value ? defaultIconLayout : { ...defaultIconLayout, ...savedIconLayout };
   windowGeometries.value = filterWindowGeometries(session.windowGeometries ?? {}, windowIds);
   normalizeOpenWindowGeometries();
 }
@@ -518,16 +525,20 @@ function getDesktopStageSize() {
   const viewportHeight = typeof window === 'undefined' ? 900 : window.innerHeight;
   return {
     width: viewportWidth,
-    height: Math.max(420, viewportHeight - 64 - (isSideDock.value ? 0 : parseInt(dockHeightForIconSize(uiDockIconSize.value), 10) || 96)),
+    height: Math.max(
+      420,
+      viewportHeight - (isSideDock.value ? 0 : 64 + (parseInt(dockHeightForIconSize(uiDockIconSize.value), 10) || 96)),
+    ),
   };
 }
 
 function getDesktopStageBounds() {
   const stage = getDesktopStageSize();
   const narrow = stage.width <= 900;
-  const sideInset = isSideDock.value && stage.width > compactBreakpointWidth ? dockSideWidthPx() + 24 : 0;
-  const left = (uiDockPosition.value === 'left' ? sideInset : 0) + (narrow ? 8 : 20);
-  const right = stage.width - (uiDockPosition.value === 'right' ? sideInset : 0) - (narrow ? 8 : 20);
+  const sideDockInset = isSideDock.value && stage.width > 820 ? getSideDockReservedInset() : 0;
+  const edgeInset = narrow ? 8 : 20;
+  const left = uiDockPosition.value === 'left' ? sideDockInset + edgeInset : edgeInset;
+  const right = stage.width - (uiDockPosition.value === 'right' ? sideDockInset + edgeInset : edgeInset);
   const top = narrow ? 8 : 68;
   const bottom = stage.height - 8;
   return {
@@ -536,6 +547,10 @@ function getDesktopStageBounds() {
     right: Math.max(left + desktopIconWidth, right),
     bottom: Math.max(top + desktopIconHeight, bottom),
   };
+}
+
+function getSideDockReservedInset() {
+  return dockSideWidthPx() + 36;
 }
 
 function createDesktopIconLayout(apps: typeof dockApps, mode: DesktopIconArrangeMode) {
@@ -561,10 +576,11 @@ function createDesktopIconLayout(apps: typeof dockApps, mode: DesktopIconArrange
       mode === 'left'
         ? bounds.left + column * (desktopIconWidth + desktopIconGapX)
         : bounds.right - desktopIconWidth - column * (desktopIconWidth + desktopIconGapX);
+    const y = marginY + row * (desktopIconHeight + desktopIconGapY);
 
     positions[app.id] = {
       x: Math.round(clampNumber(x, bounds.left, bounds.right - desktopIconWidth)),
-      y: Math.round(marginY + row * (desktopIconHeight + desktopIconGapY)),
+      y: Math.round(clampNumber(y, bounds.top, bounds.bottom - desktopIconHeight)),
     };
     return positions;
   }, {});
@@ -967,8 +983,10 @@ function openApp(id: string) {
     return;
   }
 
-  if (isWindow && !openWindowIds.value.includes(id)) {
+  const wasOpen = openWindowIds.value.includes(id);
+  if (isWindow && !wasOpen) {
     openWindowIds.value.push(id);
+    bumpWindowOpenToken(id);
   }
 
   if (isWindow) {
@@ -994,6 +1012,8 @@ function closeWindow(id: string) {
   openWindowIds.value = openWindowIds.value.filter((windowId) => windowId !== id);
   minimizedWindowIds.value = minimizedWindowIds.value.filter((windowId) => windowId !== id);
   windowLayerOrder.value = windowLayerOrder.value.filter((windowId) => windowId !== id);
+  const { [id]: _closedWindowToken, ...remainingWindowOpenTokens } = windowOpenTokens.value;
+  windowOpenTokens.value = remainingWindowOpenTokens;
   if (maximizedWindowId.value === id) {
     maximizedWindowId.value = '';
   }
@@ -1065,18 +1085,14 @@ function updateCompactState() {
 function handleViewportResize() {
   updateCompactState();
   normalizeOpenWindowGeometries();
-  desktopIconPositions.value = {
-    ...createDesktopIconLayout(dockApps, 'left'),
-    ...filterIconPositions(desktopIconPositions.value, new Set(dockApps.map((app) => app.id))),
-  };
+  const defaultIconLayout = createDesktopIconLayout(dockApps, 'left');
+  const currentIconLayout = filterIconPositions(desktopIconPositions.value, new Set(dockApps.map((app) => app.id)));
+  desktopIconPositions.value = isSideDock.value ? defaultIconLayout : { ...defaultIconLayout, ...currentIconLayout };
 }
 
 watch([uiDockPosition, uiDockIconSize], () => {
   normalizeOpenWindowGeometries();
-  desktopIconPositions.value = {
-    ...createDesktopIconLayout(dockApps, 'left'),
-    ...filterIconPositions(desktopIconPositions.value, new Set(dockApps.map((app) => app.id))),
-  };
+  desktopIconPositions.value = createDesktopIconLayout(dockApps, 'left');
 });
 
 watch(
@@ -1162,7 +1178,7 @@ onUnmounted(() => {
         <VideoCenterWindow v-else-if="window.id === 'video-center'" />
         <DownloadCenterWindow v-else-if="window.id === 'download-center'" />
         <AppCenterWindow v-else-if="window.id === 'app-center'" />
-        <DockerWindow v-else-if="window.id === 'docker'" />
+        <DockerWindow v-else-if="window.id === 'docker'" :open-token="windowOpenTokens[window.id] ?? 0" />
         <SecurityCenterWindow v-else-if="window.id === 'security-center'" />
         <DeviceMonitorWindow v-else-if="window.id === 'device-monitor'" />
         <SystemSettingsWindow v-else-if="window.id === 'system-settings'" />

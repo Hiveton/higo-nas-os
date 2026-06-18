@@ -215,8 +215,8 @@ onUnmounted(() => {
 
 <style scoped>
 .topbar {
-  position: fixed;
-  inset: 14px 18px auto;
+  position: absolute;
+  inset: 16px 24px auto;
   z-index: 100;
   display: grid;
   grid-template-columns: minmax(170px, 0.8fr) minmax(280px, 1.25fr) auto;
@@ -226,12 +226,15 @@ onUnmounted(() => {
   padding: 10px 12px 10px 16px;
   color: var(--text-strong);
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(238, 247, 252, 0.66)),
-    rgba(255, 255, 255, 0.54);
-  border: 1px solid rgba(255, 255, 255, 0.68);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 16px 46px rgba(23, 66, 101, 0.16);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(236, 247, 255, 0.48)),
+    rgba(255, 255, 255, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: clamp(20px, var(--radius-lg), 28px);
+  box-shadow:
+    0 18px 54px rgba(23, 66, 101, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(24px) saturate(1.3);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
 }
 
 .topbar__brand,

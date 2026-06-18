@@ -175,11 +175,21 @@ svg {
 }
 
 .desktop--dock-left .desktop__stage {
-  padding-left: max(var(--stage-pad-x), calc(var(--dock-side-width) + 18px));
+  height: 100vh;
+  padding-left: var(--stage-pad-x);
 }
 
 .desktop--dock-right .desktop__stage {
-  padding-right: max(var(--stage-pad-x), calc(var(--dock-side-width) + 18px));
+  height: 100vh;
+  padding-right: var(--stage-pad-x);
+}
+
+.desktop--dock-left .desktop-window--maximized {
+  inset: calc(var(--topbar-height) + 30px) 12px 12px calc(var(--dock-side-width) + 18px) !important;
+}
+
+.desktop--dock-right .desktop-window--maximized {
+  inset: calc(var(--topbar-height) + 30px) calc(var(--dock-side-width) + 18px) 12px 12px !important;
 }
 
 .desktop--theme-dark .desktop-window,
@@ -201,8 +211,10 @@ svg {
 .desktop--theme-dark .topbar,
 .desktop--theme-dark .desktop-topbar {
   color: var(--text) !important;
-  background: linear-gradient(180deg, rgba(12, 18, 29, 0.94), rgba(7, 11, 18, 0.86)) !important;
-  border-color: rgba(160, 184, 214, 0.18) !important;
+  background:
+    linear-gradient(135deg, rgba(14, 21, 33, 0.86), rgba(8, 13, 22, 0.68)),
+    rgba(7, 11, 18, 0.52) !important;
+  border-color: rgba(160, 184, 214, 0.22) !important;
 }
 
 .desktop--theme-dark .dock__surface,
@@ -633,9 +645,16 @@ svg {
 .desktop--theme-dark .agent-workbench__confirm,
 .desktop--theme-dark .ai-steward__governance,
 .desktop--theme-dark .ai-steward__risk-card,
-.desktop--theme-dark .docker-window__stacks,
-.desktop--theme-dark .docker-window__containers,
-.desktop--theme-dark .docker-window__summary div,
+.desktop--theme-dark .docker-window__sidebar,
+.desktop--theme-dark .docker-window__table-card,
+.desktop--theme-dark .docker-window__container-detail,
+.desktop--theme-dark .docker-window__inspector,
+.desktop--theme-dark .docker-window__topline,
+.desktop--theme-dark .docker-window__toolbar,
+.desktop--theme-dark .docker-window__quick-stats div,
+.desktop--theme-dark .docker-window__topline article,
+.desktop--theme-dark .docker-window__detail-grid article,
+.desktop--theme-dark .docker-window__create,
 .desktop--theme-dark .device-monitor__metrics,
 .desktop--theme-dark .device-monitor__hero,
 .desktop--theme-dark .device-monitor__logs,
@@ -661,7 +680,16 @@ svg {
 .desktop--theme-dark .file-manager__row--head,
 .desktop--theme-dark .video-center .search,
 .desktop--theme-dark .video-center .message,
-.desktop--theme-dark .docker-window__isolation,
+.desktop--theme-dark .docker-window__search,
+.desktop--theme-dark .docker-window__filters button,
+.desktop--theme-dark .docker-window__tabs button,
+.desktop--theme-dark .docker-window__table-head,
+.desktop--theme-dark .docker-window__row,
+.desktop--theme-dark .docker-window__overview span,
+.desktop--theme-dark .docker-window__kv-list span,
+.desktop--theme-dark .docker-window__log-list code,
+.desktop--theme-dark .docker-window__empty,
+.desktop--theme-dark .docker-window__create input,
 .desktop--theme-dark .storage-monitor__space-icon,
 .desktop--theme-dark .storage-monitor__space-main header b,
 .desktop--theme-dark .storage-monitor__space-disks span,
@@ -678,11 +706,29 @@ svg {
 .desktop--theme-dark .app-center__ports span,
 .desktop--theme-dark .backup-sync__jobs header,
 .desktop--theme-dark .backup-sync__summary article,
+.desktop--theme-dark .docker-window__scope,
 .desktop--theme-dark .docker-window__inspector-body li,
 .desktop--theme-dark .docker-window__inspector-body span {
   color: var(--text-muted) !important;
   background: var(--dark-control) !important;
   border-color: var(--dark-border) !important;
+}
+
+.desktop--theme-dark .docker-window__scope--active,
+.desktop--theme-dark .docker-window__row--active,
+.desktop--theme-dark .docker-window__filter--active,
+.desktop--theme-dark .docker-window__tab--active {
+  color: #7fc3ff !important;
+  background: rgba(19, 136, 255, 0.18) !important;
+  border-color: rgba(69, 168, 255, 0.42) !important;
+}
+
+.desktop--theme-dark .docker-window__search input {
+  color: var(--text-strong) !important;
+}
+
+.desktop--theme-dark .docker-window__search input::placeholder {
+  color: var(--text-soft) !important;
 }
 
 .desktop--theme-dark .security-center__overview div span {
@@ -863,6 +909,19 @@ svg {
   box-shadow: 0 30px 88px rgba(0, 0, 0, 0.64) !important;
 }
 
+.desktop--theme-dark .desktop-overview.desktop-overview--collapsed {
+  width: auto !important;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
 .desktop--theme-dark .overview-header {
   background: linear-gradient(180deg, rgba(9, 14, 23, 0.98), rgba(9, 14, 23, 0.82)) !important;
   border-color: rgba(160, 184, 214, 0.16) !important;
@@ -883,6 +942,13 @@ svg {
   color: var(--text-muted) !important;
   background: rgba(12, 18, 29, 0.9) !important;
   border-color: rgba(160, 184, 214, 0.18) !important;
+}
+
+.desktop--theme-dark .desktop-overview--collapsed .overview-collapsed {
+  color: var(--text) !important;
+  background: rgba(10, 16, 27, 0.94) !important;
+  border-color: rgba(160, 184, 214, 0.24) !important;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.46) !important;
 }
 
 .desktop--theme-dark .ring {
