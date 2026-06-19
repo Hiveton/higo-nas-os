@@ -206,13 +206,31 @@ func (s *Service) degrade(ctx context.Context, id, reason string) (App, error) {
 }
 
 func (s *Service) Update(ctx context.Context, id string) (App, error) {
-	return s.update(ctx, id, func(app *App) {
+	app, err := s.update(ctx, id, func(app *App) {
 		app.Installed = true
 		app.Running = true
 		app.Version = app.LatestVersion
 		app.Status = "已更新"
 		app.UpdateAvailable = false
 	})
+	if err != nil {
+		return App{}, err
+	}
+	if s.docker == nil || app.Image == "" {
+		return app, nil
+	}
+	// Best-effort recreate so the new image actually takes effect: remove the old
+	// container and create a fresh one. The user-facing "已更新" status is kept
+	// regardless (optimistic dev-fallback norm); only the bound container id moves.
+	if app.ContainerID != "" {
+		_ = s.docker.RemoveContainer(ctx, app.ContainerID, hdocker.RemoveContainerRequest{Force: true})
+	}
+	container, err := s.docker.CreateContainer(ctx, hdocker.CreateContainerRequest{Image: app.Image, Name: app.ID, Ports: app.Ports})
+	if err != nil {
+		return s.update(ctx, id, func(a *App) { a.ContainerID = "" })
+	}
+	_, _ = s.docker.Start(ctx, container.ID)
+	return s.update(ctx, id, func(a *App) { a.ContainerID = container.ID })
 }
 
 func (s *Service) Start(ctx context.Context, id string) (App, error) {

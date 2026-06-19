@@ -112,6 +112,31 @@ func TestInstallReusesExistingContainer(t *testing.T) {
 	}
 }
 
+func TestUpdateRecreatesContainerWithNewImage(t *testing.T) {
+	svc := NewService()
+	fake := &fakeDocker{}
+	svc.AttachDocker(fake)
+	ctx := context.Background()
+
+	installed, err := svc.Install(ctx, "paperless")
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	updated, err := svc.Update(ctx, "paperless")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if len(fake.removed) != 1 || fake.removed[0] != installed.ContainerID {
+		t.Fatalf("update should remove the old container, removed=%#v", fake.removed)
+	}
+	if len(fake.created) != 2 {
+		t.Fatalf("update should create a fresh container (install+update=2), got %d", len(fake.created))
+	}
+	if !updated.Running || updated.ContainerID == "" {
+		t.Fatalf("app should be running on a fresh container after update: %#v", updated)
+	}
+}
+
 func TestInstallDegradesGracefullyOnDockerError(t *testing.T) {
 	svc := NewService()
 	svc.AttachDocker(&fakeDocker{failNew: true})

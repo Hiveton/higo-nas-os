@@ -111,8 +111,16 @@ func (s *Service) vectorSearch(ctx context.Context, vec []float32, req Request, 
 
 func (s *Service) keywordSearch(ctx context.Context, query string, req Request, limit int) ([]Hit, error) {
 	where, args := filters(req)
-	args = append(args, "%"+query+"%")
-	likeArg := "$" + strconv.Itoa(len(args))
+
+	// Match if ANY query term appears, so natural-language queries like
+	// "客户A的合同" hit "客户A最终合同" (the literal whole string would not).
+	terms := tokenize(query)
+	groups := make([]string, 0, len(terms))
+	for _, t := range terms {
+		args = append(args, "%"+t+"%")
+		p := "$" + strconv.Itoa(len(args))
+		groups = append(groups, "(c.content ILIKE "+p+" OR d.title ILIKE "+p+" OR d.summary ILIKE "+p+")")
+	}
 	args = append(args, limit)
 	limArg := "$" + strconv.Itoa(len(args))
 
@@ -120,9 +128,41 @@ func (s *Service) keywordSearch(ctx context.Context, query string, req Request, 
 		SELECT d.source_uri, d.domain, d.space, d.title, d.summary, c.content, 0.0 AS score
 		FROM ai_chunks c
 		JOIN ai_documents d ON d.id = c.doc_id
-		WHERE (c.content ILIKE ` + likeArg + ` OR d.title ILIKE ` + likeArg + ` OR d.summary ILIKE ` + likeArg + `) ` + where + `
+		WHERE (` + strings.Join(groups, " OR ") + `) ` + where + `
 		LIMIT ` + limArg
 	return s.scanHits(ctx, q, args, false)
+}
+
+// tokenize splits a query into match terms: by whitespace and common Chinese
+// particles/punctuation, keeping terms of >=2 runes (plus the whole query as a
+// fallback). It lets keyword search behave less literally without a tokenizer.
+func tokenize(query string) []string {
+	query = strings.TrimSpace(query)
+	seen := map[string]bool{}
+	var terms []string
+	add := func(t string) {
+		t = strings.TrimSpace(t)
+		if len([]rune(t)) >= 2 && !seen[t] {
+			seen[t] = true
+			terms = append(terms, t)
+		}
+	}
+	add(query)
+	splitter := func(r rune) bool {
+		switch r {
+		case ' ', '\t', '\n', '的', '了', '和', '与', '在', '把', '请', '帮', '我', '找',
+			'，', ',', '。', '、', '？', '?', '！', '!', '：', ':', '；', ';':
+			return true
+		}
+		return false
+	}
+	for _, part := range strings.FieldsFunc(query, splitter) {
+		add(part)
+	}
+	if len(terms) == 0 {
+		terms = []string{query}
+	}
+	return terms
 }
 
 func (s *Service) scanHits(ctx context.Context, q string, args []any, vector bool) ([]Hit, error) {

@@ -58,3 +58,16 @@ func TestDisabledWithoutDB(t *testing.T) {
 		t.Fatal("expected error when DB not configured")
 	}
 }
+
+func TestTokenize(t *testing.T) {
+	terms := tokenize("用语义搜索找客户A的合同")
+	hasHetong := false
+	for _, x := range terms {
+		if x == "合同" {
+			hasHetong = true
+		}
+	}
+	if !hasHetong {
+		t.Fatalf("expected '合同' among terms, got %v", terms)
+	}
+}

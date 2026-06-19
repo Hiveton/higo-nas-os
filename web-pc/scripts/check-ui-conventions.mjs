@@ -18,7 +18,7 @@ const report = process.argv.includes('--report');
 
 // Baseline ceilings — LOWER these as debt is paid down; never raise them.
 const BASELINE = {
-  scopedHex: 19,
+  scopedHex: 12,
   bareZIndex: 16,
   strayBackdrop: 16,
   // Hardcoded near-white surfaces that don't adapt to dark mode. The residual
