@@ -20,7 +20,7 @@ type syncResult struct {
 // missing in target or differing by size/mtime are copied; identical files are
 // skipped. Directory structure is mirrored. This is the real work behind a
 // backup "run" — it replaces the previous state-string simulation.
-func syncTree(source, target string) (syncResult, error) {
+func syncTree(ctx context.Context, source, target string) (syncResult, error) {
 	var res syncResult
 	info, err := os.Stat(source)
 	if err != nil {
@@ -33,6 +33,11 @@ func syncTree(source, target string) (syncResult, error) {
 		return res, err
 	}
 	err = filepath.Walk(source, func(path string, fi os.FileInfo, walkErr error) error {
+		// Honor cooperative cancellation so an in-flight backup run can be
+		// aborted mid-walk by the central task runtime.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -76,7 +81,7 @@ type verifyResult struct {
 // verifyTree checks that every regular file under source exists in target with
 // identical size and content hash. It is the real work behind a backup
 // "verify", replacing the previous state-string simulation.
-func verifyTree(source, target string) (verifyResult, error) {
+func verifyTree(ctx context.Context, source, target string) (verifyResult, error) {
 	var res verifyResult
 	info, err := os.Stat(source)
 	if err != nil {
@@ -86,6 +91,9 @@ func verifyTree(source, target string) (verifyResult, error) {
 		return res, fmt.Errorf("source is not a directory: %s", source)
 	}
 	err = filepath.Walk(source, func(path string, fi os.FileInfo, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}

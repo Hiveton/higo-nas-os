@@ -26,7 +26,7 @@ func TestSyncTreeCopiesNewFilesAndSkipsUnchanged(t *testing.T) {
 	writeFile(t, filepath.Join(src, "a.txt"), "hello")
 	writeFile(t, filepath.Join(src, "nested", "b.txt"), "world")
 
-	res, err := syncTree(src, dst)
+	res, err := syncTree(context.Background(), src, dst)
 	if err != nil {
 		t.Fatalf("first sync: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestSyncTreeCopiesNewFilesAndSkipsUnchanged(t *testing.T) {
 	}
 
 	// Second run is incremental: unchanged files are skipped.
-	res2, err := syncTree(src, dst)
+	res2, err := syncTree(context.Background(), src, dst)
 	if err != nil {
 		t.Fatalf("second sync: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestSyncTreeCopiesNewFilesAndSkipsUnchanged(t *testing.T) {
 
 	// Changing a file makes it copy again.
 	writeFile(t, filepath.Join(src, "a.txt"), "changed-content")
-	res3, err := syncTree(src, dst)
+	res3, err := syncTree(context.Background(), src, dst)
 	if err != nil {
 		t.Fatalf("third sync: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestSyncTreeCopiesNewFilesAndSkipsUnchanged(t *testing.T) {
 }
 
 func TestSyncTreeFailsOnMissingSource(t *testing.T) {
-	if _, err := syncTree(filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir()); err == nil {
+	if _, err := syncTree(context.Background(), filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir()); err == nil {
 		t.Fatal("expected error for missing source")
 	}
 }

@@ -486,15 +486,25 @@ func (s *Service) runScanTask(ctx context.Context, h *tasks.Handle) (json.RawMes
 	case TaskKindRepair:
 		s.updateTaskState(task.ID, TaskStateRunning, 60, "正在校验并重建阵列数据")
 		h.Progress(60, "rebuilding")
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		summary = "阵列修复完成：一致性校验通过"
 	case TaskKindSnapshot:
 		s.updateTaskState(task.ID, TaskStateRunning, 60, "正在创建快照")
 		h.Progress(60, "snapshotting")
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		summary = "快照创建完成"
 	default:
 		summary = "任务完成"
 	}
 
+	// Honor cooperative cancellation before recording the terminal state.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.updateTaskState(task.ID, TaskStateCompleted, 100, summary)
 	return json.Marshal(map[string]string{"storageTaskId": task.ID, "summary": summary})
 }

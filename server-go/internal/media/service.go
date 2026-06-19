@@ -377,6 +377,10 @@ func (s *Service) runMediaJob(ctx context.Context, h *tasks.Handle) (json.RawMes
 		return nil, err
 	}
 	h.Progress(40, "processing")
+	// Honor cooperative cancellation before committing the job's terminal state.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	var summary string
 	switch payload.Kind {
 	case mediaJobSubtitle:

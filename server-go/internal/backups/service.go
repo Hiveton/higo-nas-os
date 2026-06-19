@@ -173,7 +173,7 @@ func (s *Service) verifyBackupJob(ctx context.Context, h *tasks.Handle) (json.Ra
 	}
 	h.Progress(20, "verifying")
 
-	res, err := verifyTree(source, target)
+	res, err := verifyTree(ctx, source, target)
 	if err != nil {
 		_, _ = s.update(context.Background(), payload.JobID, func(job *Job) {
 			job.State = "源路径不可用"
@@ -217,7 +217,7 @@ func (s *Service) runBackupJob(ctx context.Context, h *tasks.Handle) (json.RawMe
 	}
 	h.Progress(20, "syncing")
 
-	res, syncErr := syncTree(source, target)
+	res, syncErr := syncTree(ctx, source, target)
 	if syncErr != nil {
 		// Honest failure: demo jobs point at logical space names, not real
 		// paths, so they surface a clear blocked state instead of fake success.
