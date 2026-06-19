@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1",
+  "id": "tailscale",
+  "name": "Tailscale",
+  "version": "1.82.5",
+  "category": "远程访问",
+  "description": "安全组网工具，可与远程访问策略联动。",
+  "author": { "name": "Tailscale", "url": "https://tailscale.com" },
+  "risk": "low",
+  "source": "official",
+  "containers": [
+    {
+      "name": "tailscale",
+      "image": "tailscale/tailscale:latest",
+      "ports": [{ "container": 41641, "protocol": "udp" }],
+      "volumes": [{ "name": "tailscale-state", "path": "/var/lib/tailscale" }],
+      "env": [{ "key": "TS_AUTHKEY", "value": "{{config.authKey}}" }],
+      "resources": { "cpu": 1, "memoryMb": 512 },
+      "restartPolicy": "unless-stopped"
+    }
+  ],
+  "permissions": ["network.host"],
+  "config": [
+    { "key": "authKey", "label": "认证密钥 (Auth Key)", "type": "password", "secret": true }
+  ]
+}

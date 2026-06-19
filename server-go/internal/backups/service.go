@@ -171,7 +171,7 @@ func (s *Service) verifyBackupJob(ctx context.Context, h *tasks.Handle) (json.Ra
 	if !ok {
 		return nil, fmt.Errorf("backup job not found: %s", payload.JobID)
 	}
-	h.Progress(20, "verifying")
+	h.Progress(20, "校验中")
 
 	res, err := verifyTree(ctx, source, target)
 	if err != nil {
@@ -215,7 +215,7 @@ func (s *Service) runBackupJob(ctx context.Context, h *tasks.Handle) (json.RawMe
 	if !ok {
 		return nil, fmt.Errorf("backup job not found: %s", payload.JobID)
 	}
-	h.Progress(20, "syncing")
+	h.Progress(20, "同步中")
 
 	res, syncErr := syncTree(ctx, source, target)
 	if syncErr != nil {

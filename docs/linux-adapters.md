@@ -184,3 +184,17 @@ Linux dependencies:
 Devstub:
 
 - Emits deterministic metrics and alerts suitable for `web-pc/src/components/windows/DeviceMonitorWindow.vue` and `web-pc/src/components/TopBar.vue`.
+
+## Protocols adapter (`internal/protocols`)
+
+`HostAdapter` (Linux) drives the sharing-protocol stack; `DevAdapter` (Mac) is an optimistic devstub. All shell-outs go through an injectable `commandRunner` (unit-tested with a fake), and every config write is an atomic temp-file + rename of a HiGoOS-owned file.
+
+- **Status**: `systemctl list-unit-files <unit>` (installed), `systemctl is-active <unit>` (running) per protocol. A missing unit yields `Installed:false` without failing the whole list.
+- **Enable/Disable**: `systemctl enable|disable --now <unit>` (`smb`→`smbd`+`nmbd`, `nfs`→`nfs-kernel-server`, `webdav`→`higoos-webdav`, `dlna`→`minidlna`).
+- **Apply shares** (whole-file regenerate from the desired list, then reload):
+  - SMB → rewrite `/etc/samba/smb.conf.d/higoos.conf` (one `[name]` stanza per share) + `smbcontrol all reload-config`. The user's `smb.conf` is only ever appended-to once (the `include =` line).
+  - NFS → rewrite `/etc/exports.d/higoos.exports` + `exportfs -ra`. `/etc/exports` is never touched.
+  - DLNA → replace the delimited `# >>> HiGoOS media_dir >>>` block in `/etc/minidlna.conf` (user lines outside it survive) + `systemctl restart minidlna`.
+  - WebDAV → rewrite `/etc/higoos/webdav/higoos-dav.conf` + `systemctl reload higoos-webdav` (a dedicated Apache instance on port 8081).
+
+Devstub: returns success for all mutations; `Status` reports every protocol installed with `Running` tracking the desired toggle.

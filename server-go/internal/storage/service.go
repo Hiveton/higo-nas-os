@@ -28,6 +28,7 @@ type Service struct {
 	spaces    []StorageSpace
 	statePath string
 	runner    *tasks.Manager
+	zfsRunner commandRunner // shells out to zfs/zpool for ZFS maintenance tasks
 }
 
 type snapshot struct {
@@ -56,6 +57,7 @@ func NewServiceWithProvisioner(adapter Adapter, provisioner SpaceProvisioner) *S
 		now:         time.Now,
 		provisioner: provisioner,
 		tasks:       map[string]StorageTask{},
+		zfsRunner:   runCommand,
 	}
 }
 
@@ -86,9 +88,15 @@ func (s *Service) Pools(ctx context.Context) ([]StoragePool, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Snapshot managed state under a short lock so the live ZFS `zpool list`
+	// calls below run without holding the service mutex.
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, disk := range s.disks {
+	disks := cloneDisks(s.disks)
+	spaces := cloneSpaces(s.spaces)
+	runner := s.zfsRunner
+	s.mu.Unlock()
+
+	for _, disk := range disks {
 		pools = append(pools, StoragePool{
 			ID:          disk.PoolID,
 			Name:        disk.Model,
@@ -100,14 +108,23 @@ func (s *Service) Pools(ctx context.Context) ([]StoragePool, error) {
 			MountPath:   disk.MountPath,
 		})
 	}
-	for _, space := range s.spaces {
+	for _, space := range spaces {
+		used, total, health := space.UsedPercent, space.Total, space.Health
+		// For ZFS spaces, prefer live pool figures over create-time estimates.
+		if space.FileSystem == FileSystemZFS && runner != nil {
+			if stat, err := zfsPoolStatus(ctx, runner, zfsPoolName(space.Name)); err == nil && stat.SizeBytes > 0 {
+				used = int(stat.AllocBytes * 100 / stat.SizeBytes)
+				total = formatStorageBytes(stat.SizeBytes)
+				health = zfsHealthLabel(stat.Health)
+			}
+		}
 		pools = append(pools, StoragePool{
 			ID:          space.ID,
 			Name:        space.Name,
 			Type:        fmt.Sprintf("%s / %s", space.Mode, space.FileSystem),
-			UsedPercent: space.UsedPercent,
-			Total:       space.Total,
-			Health:      space.Health,
+			UsedPercent: used,
+			Total:       total,
+			Health:      health,
 			Temperature: "N/A",
 			MountPath:   space.MountPath,
 		})
@@ -465,7 +482,7 @@ func (s *Service) runScanTask(ctx context.Context, h *tasks.Handle) (json.RawMes
 	}
 
 	s.updateTaskState(task.ID, TaskStateRunning, 15, "任务执行中")
-	h.Progress(15, "running")
+	h.Progress(15, "扫描中")
 
 	var summary string
 	switch task.Kind {
@@ -484,15 +501,36 @@ func (s *Service) runScanTask(ctx context.Context, h *tasks.Handle) (json.RawMes
 		}
 		summary = fmt.Sprintf("SMART 扫描完成：%d/%d 块硬盘健康", healthy, len(reports))
 	case TaskKindRepair:
+		if pool, ok := s.zfsPoolForTarget(task.TargetPool); ok {
+			s.updateTaskState(task.ID, TaskStateRunning, 60, "正在对 ZFS 池执行 scrub 一致性校验")
+			h.Progress(60, "ZFS scrub")
+			if err := zfsScrub(ctx, s.zfsRunner, pool); err != nil {
+				s.updateTaskState(task.ID, TaskStateFailed, 100, "ZFS scrub 启动失败："+err.Error())
+				return nil, err
+			}
+			summary = fmt.Sprintf("已对 ZFS 池 %s 启动 scrub 一致性校验", pool)
+			break
+		}
 		s.updateTaskState(task.ID, TaskStateRunning, 60, "正在校验并重建阵列数据")
-		h.Progress(60, "rebuilding")
+		h.Progress(60, "重建阵列中")
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		summary = "阵列修复完成：一致性校验通过"
 	case TaskKindSnapshot:
+		if pool, ok := s.zfsPoolForTarget(task.TargetPool); ok {
+			s.updateTaskState(task.ID, TaskStateRunning, 60, "正在创建 ZFS 快照")
+			h.Progress(60, "创建快照中")
+			snap, err := zfsSnapshot(ctx, s.zfsRunner, pool, s.now())
+			if err != nil {
+				s.updateTaskState(task.ID, TaskStateFailed, 100, "ZFS 快照创建失败："+err.Error())
+				return nil, err
+			}
+			summary = "ZFS 快照已创建：" + snap
+			break
+		}
 		s.updateTaskState(task.ID, TaskStateRunning, 60, "正在创建快照")
-		h.Progress(60, "snapshotting")
+		h.Progress(60, "创建快照中")
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -523,6 +561,23 @@ func (s *Service) updateTaskState(id string, st TaskState, progress int, message
 	}
 	s.tasks[id] = task
 	_ = s.saveLocked()
+}
+
+// zfsPoolForTarget resolves a pool/space id to its ZFS pool name when the space
+// is ZFS-formatted; ok is false for non-ZFS spaces or unknown targets, so the
+// caller falls back to the staged-progress simulation.
+func (s *Service) zfsPoolForTarget(targetPool string) (string, bool) {
+	if strings.TrimSpace(targetPool) == "" {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, sp := range s.spaces {
+		if sp.ID == targetPool && sp.FileSystem == FileSystemZFS {
+			return zfsPoolName(sp.Name), true
+		}
+	}
+	return "", false
 }
 
 // completedTaskLocked records a task receipt for work that was already performed

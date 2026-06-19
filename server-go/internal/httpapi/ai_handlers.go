@@ -112,6 +112,22 @@ func (a *API) aiProviderTest(w http.ResponseWriter, r *http.Request, id string) 
 	})
 }
 
+// assistantPresets lists the built-in agent presets for the workbench.
+func (a *API) assistantPresets(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, assistant.Presets())
+}
+
+// assistantTools returns the bound MCP tool catalog metadata.
+func (a *API) assistantTools(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, a.assistant.Tools())
+}
+
 // wantsEventStream reports whether the client asked for an SSE response, either
 // via the Accept header or a ?stream=true query parameter.
 func wantsEventStream(r *http.Request) bool {

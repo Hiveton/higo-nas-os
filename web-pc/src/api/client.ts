@@ -11,7 +11,14 @@ import type {
   AccountSpaceGrant,
   AccountSummary,
   AccountUser,
+  ActivityEntry,
   AppCenterApp,
+  AppAction,
+  AppActionPreview,
+  AppActionResult,
+  AppAuditRecord,
+  AppCatalogEntry,
+  AppRegistry,
   AssistantMessage,
   AssistantThread,
   ThreadSummary,
@@ -36,6 +43,7 @@ import type {
   FileRow,
   FileShare,
   FileTreeNode,
+  HardwareInventory,
   IdentityPolicy,
   MediaItem,
   MusicAlbum,
@@ -52,6 +60,11 @@ import type {
   RecordingItem,
   RecordingTimer,
   DiagnosticResult,
+  Protocol,
+  ProtocolAuditEntry,
+  ProtocolConfirmResult,
+  ProtocolPreview,
+  ProtocolShare,
   RemoteDevice,
   RemoteLoginAlert,
   RemoteStatus,
@@ -67,8 +80,10 @@ import type {
   StoragePool,
   StorageTask,
   SystemInfo,
+  Task,
   TaskResponse,
-  AgentTemplate,
+  AgentPreset,
+  ToolCatalogEntry,
   VideoItem,
   VideoLibrary,
   VideoLibrarySettings,
@@ -209,22 +224,13 @@ export const apiClient = {
     rollbackAudit: (id: Id) => POST<TaskResponse>(`/api/v1/steward/audit/${pathId(id)}/rollback`),
   },
 
-  agents: {
-    getTemplates: () => GET<AgentTemplate[]>('/api/v1/agents/templates'),
-    createAgent: (payload: RecordPayload) => POST<RecordPayload>('/api/v1/agents', payload),
-    getTools: (id: Id) => GET<RecordPayload[]>(`/api/v1/agents/${pathId(id)}/tools`),
-    previewWorkflow: (payload: RecordPayload) => POST<RecordPayload>('/api/v1/workflows/preview', payload),
-    runWorkflow: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/workflows/runs', payload),
-    confirmWorkflowRun: (id: Id, payload?: RecordPayload) =>
-      POST<TaskResponse>(`/api/v1/workflows/runs/${pathId(id)}/confirm`, payload ?? {}),
-    cancelWorkflowRun: (id: Id) => POST<TaskResponse>(`/api/v1/workflows/runs/${pathId(id)}/cancel`),
-    streamWorkflowRun: (id: Id) => createEventStream(`/api/v1/workflows/runs/${pathId(id)}/events`),
-  },
-
   assistant: {
     semanticSearch: (payload: RecordPayload) => POST<SemanticSearchResult>('/api/v1/search/semantic', payload),
+    getPresets: () => GET<AgentPreset[]>('/api/v1/assistant/presets'),
+    getToolCatalog: () => GET<ToolCatalogEntry[]>('/api/v1/assistant/tools'),
     listThreads: () => GET<ThreadSummary[]>('/api/v1/assistant/threads'),
-    createThread: (payload?: { title?: string }) => POST<AssistantThread>('/api/v1/assistant/threads', payload ?? {}),
+    createThread: (payload?: { title?: string; presetId?: string }) =>
+      POST<AssistantThread>('/api/v1/assistant/threads', payload ?? {}),
     getThread: (id: Id) => GET<AssistantThread>(`/api/v1/assistant/threads/${pathId(id)}`),
     deleteThread: (id: Id) => DELETE<{ id: string; deleted: boolean }>(`/api/v1/assistant/threads/${pathId(id)}`),
     sendMessage: (threadId: Id, message: Pick<AssistantMessage, 'role' | 'text'>) =>
@@ -325,6 +331,23 @@ export const apiClient = {
     updateSpeedProfile: (payload: SpeedProfile) => PUT<SpeedProfile>('/api/v1/downloads/speed-profile', payload),
   },
 
+  tasks: {
+    list: async (kind?: string) =>
+      (await GET<{ tasks: Task[] }>('/api/v1/tasks', kind ? { query: { kind } } : undefined)).tasks ?? [],
+    get: (id: Id) => GET<Task>(`/api/v1/tasks/${pathId(id)}`),
+    cancel: (id: Id) => POST<Task>(`/api/v1/tasks/${pathId(id)}/cancel`),
+    /** Live SSE stream of task snapshots (one frame per task state change). */
+    stream: () => createEventStream('/api/v1/tasks/stream'),
+  },
+
+  activity: {
+    list: async (type?: string, limit?: number) =>
+      (await GET<{ entries: ActivityEntry[] }>('/api/v1/activity', { query: { type, limit } })).entries ?? [],
+    append: (entries: ActivityEntry[]) =>
+      POST<{ entries: ActivityEntry[]; count: number }>('/api/v1/activity', { entries }),
+    clear: () => DELETE<{ cleared: boolean }>('/api/v1/activity'),
+  },
+
   docker: {
     getStacks: () => GET<ComposeStack[]>('/api/v1/docker/stacks'),
     getContainers: () => GET<DockerContainer[]>('/api/v1/docker/containers'),
@@ -373,10 +396,24 @@ export const apiClient = {
 
   appCenter: {
     getApps: () => GET<AppCenterApp[]>('/api/v1/app-center/apps'),
-    installApp: (id: Id) => POST<AppCenterApp>(`/api/v1/app-center/apps/${pathId(id)}/install`),
-    updateApp: (id: Id) => POST<AppCenterApp>(`/api/v1/app-center/apps/${pathId(id)}/update`),
-    startApp: (id: Id) => POST<AppCenterApp>(`/api/v1/app-center/apps/${pathId(id)}/start`),
-    stopApp: (id: Id) => POST<AppCenterApp>(`/api/v1/app-center/apps/${pathId(id)}/stop`),
+    getCatalog: () => GET<AppCatalogEntry[]>('/api/v1/app-center/catalog'),
+    getCatalogItem: (id: Id) => GET<AppCatalogEntry>(`/api/v1/app-center/catalog/${pathId(id)}`),
+    refreshCatalog: () => POST<AppCatalogEntry[]>('/api/v1/app-center/catalog/refresh'),
+    preview: (id: Id, action: AppAction, config?: Record<string, string>) =>
+      POST<AppActionPreview>(`/api/v1/app-center/apps/${pathId(id)}/${action}`, config ? { config } : {}),
+    confirm: (id: Id, action: AppAction, confirmationId: string, actor: string, config?: Record<string, string>) =>
+      POST<AppActionResult>(`/api/v1/app-center/apps/${pathId(id)}/${action}/confirm`, {
+        confirmationId,
+        actor,
+        ...(config ? { config } : {}),
+      }),
+    getAudit: () => GET<AppAuditRecord[]>('/api/v1/app-center/audit'),
+    rollback: (auditId: Id, actor: string) =>
+      POST<AppAuditRecord>(`/api/v1/app-center/audit/${pathId(auditId)}/rollback`, { actor }),
+    getRegistries: () => GET<AppRegistry[]>('/api/v1/app-center/registries'),
+    addRegistry: (name: string, url: string) =>
+      POST<AppRegistry>('/api/v1/app-center/registries', { name, url }),
+    removeRegistry: (name: string) => DELETE<AppRegistry[]>(`/api/v1/app-center/registries/${pathId(name)}`),
   },
 
   security: {
@@ -399,6 +436,36 @@ export const apiClient = {
     deleteShare: (id: Id) => DELETE<TaskResponse>(`/api/v1/shares/${pathId(id)}`),
   },
 
+  protocols: {
+    list: () => GET<Protocol[]>('/api/v1/protocols'),
+    get: (key: string) => GET<Protocol>(`/api/v1/protocols/${pathId(key)}`),
+    getShares: (key?: string) =>
+      key
+        ? GET<ProtocolShare[]>(`/api/v1/protocols/${pathId(key)}/shares`)
+        : GET<ProtocolShare[]>('/api/v1/protocols/shares'),
+    getAudit: () => GET<ProtocolAuditEntry[]>('/api/v1/protocols/audit'),
+    updateConfig: (key: string, payload: RecordPayload) =>
+      PUT<Protocol>(`/api/v1/protocols/${pathId(key)}/config`, payload),
+    previewEnable: (key: string, payload?: RecordPayload) =>
+      POST<ProtocolPreview>(`/api/v1/protocols/${pathId(key)}/enable/preview`, payload ?? {}),
+    confirmEnable: (key: string, payload: RecordPayload) =>
+      POST<ProtocolConfirmResult>(`/api/v1/protocols/${pathId(key)}/enable/confirm`, payload),
+    previewDisable: (key: string, payload?: RecordPayload) =>
+      POST<ProtocolPreview>(`/api/v1/protocols/${pathId(key)}/disable/preview`, payload ?? {}),
+    confirmDisable: (key: string, payload: RecordPayload) =>
+      POST<ProtocolConfirmResult>(`/api/v1/protocols/${pathId(key)}/disable/confirm`, payload),
+    previewShare: (key: string, payload: RecordPayload) =>
+      POST<ProtocolPreview>(`/api/v1/protocols/${pathId(key)}/shares/preview`, payload),
+    confirmShare: (key: string, payload: RecordPayload) =>
+      POST<ProtocolConfirmResult>(`/api/v1/protocols/${pathId(key)}/shares/confirm`, payload),
+    previewDeleteShare: (id: Id, payload?: RecordPayload) =>
+      POST<ProtocolPreview>(`/api/v1/protocols/shares/${pathId(id)}/delete/preview`, payload ?? {}),
+    confirmDeleteShare: (id: Id, payload: RecordPayload) =>
+      POST<ProtocolConfirmResult>(`/api/v1/protocols/shares/${pathId(id)}/delete/confirm`, payload),
+    rollbackAudit: (id: Id, payload?: RecordPayload) =>
+      POST<ProtocolAuditEntry>(`/api/v1/protocols/audit/${pathId(id)}/rollback`, payload ?? {}),
+  },
+
   monitoring: {
     getMetricsSnapshot: () => GET<MetricsSnapshot>('/api/v1/monitoring/metrics/snapshot'),
     getCurrentMetrics: () => GET<Metric[]>('/api/v1/monitoring/metrics/current'),
@@ -409,6 +476,10 @@ export const apiClient = {
     createAlert: (payload: RecordPayload) => POST<Alert>('/api/v1/monitoring/alerts', payload),
     muteAlert: (id: Id, muted = true) => POST<Alert>(`/api/v1/monitoring/alerts/${pathId(id)}/mute`, { muted }),
     runDiagnostics: (payload?: RecordPayload) => POST<DiagnosticResult>('/api/v1/monitoring/diagnostics', payload ?? {}),
+  },
+
+  hardware: {
+    getInventory: () => GET<HardwareInventory>('/api/v1/hardware/inventory'),
   },
 
   settings: {

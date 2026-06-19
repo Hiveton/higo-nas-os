@@ -28,6 +28,9 @@ const (
 type Thread struct {
 	ID             string    `json:"id"`
 	Title          string    `json:"title"`
+	Preset         string    `json:"preset,omitempty"`
+	SystemPrompt   string    `json:"systemPrompt,omitempty"`
+	ToolScope      []string  `json:"toolScope,omitempty"`
 	Messages       []Message `json:"messages"`
 	PendingActions []Action  `json:"pendingActions"`
 	CreatedAt      time.Time `json:"createdAt"`

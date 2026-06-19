@@ -506,24 +506,52 @@ func TestBackupAndAppCenterEndpoints(t *testing.T) {
 		t.Fatalf("unexpected app center payload: %#v", appsBody.Data)
 	}
 
-	updateRec := httptest.NewRecorder()
-	updateReq := httptest.NewRequest(http.MethodPost, "/api/v1/app-center/apps/home-assistant/update", nil)
-	router.ServeHTTP(updateRec, updateReq)
-	if updateRec.Code != http.StatusOK {
-		t.Fatalf("expected app update HTTP 200, got %d: %s", updateRec.Code, updateRec.Body.String())
+	// Governed two-phase update: preview returns a confirmationId, confirm executes.
+	previewRec := httptest.NewRecorder()
+	previewReq := httptest.NewRequest(http.MethodPost, "/api/v1/app-center/apps/home-assistant/update", nil)
+	router.ServeHTTP(previewRec, previewReq)
+	if previewRec.Code != http.StatusOK {
+		t.Fatalf("expected app update preview HTTP 200, got %d: %s", previewRec.Code, previewRec.Body.String())
+	}
+	var previewBody struct {
+		Data struct {
+			ConfirmationID       string `json:"confirmationId"`
+			RequiresConfirmation bool   `json:"requiresConfirmation"`
+			Impact               string `json:"impact"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(previewRec.Body.Bytes(), &previewBody); err != nil {
+		t.Fatalf("decode app update preview: %v", err)
+	}
+	if previewBody.Data.ConfirmationID == "" || !previewBody.Data.RequiresConfirmation || previewBody.Data.Impact == "" {
+		t.Fatalf("unexpected app update preview payload: %#v", previewBody.Data)
+	}
+
+	confirmRec := httptest.NewRecorder()
+	confirmBody := `{"confirmationId":"` + previewBody.Data.ConfirmationID + `","actor":"tester"}`
+	confirmReq := httptest.NewRequest(http.MethodPost, "/api/v1/app-center/apps/home-assistant/update/confirm", strings.NewReader(confirmBody))
+	router.ServeHTTP(confirmRec, confirmReq)
+	if confirmRec.Code != http.StatusOK {
+		t.Fatalf("expected app update confirm HTTP 200, got %d: %s", confirmRec.Code, confirmRec.Body.String())
 	}
 	var updateBody struct {
 		Data struct {
-			ID              string `json:"id"`
-			Status          string `json:"status"`
-			UpdateAvailable bool   `json:"updateAvailable"`
+			App struct {
+				ID              string `json:"id"`
+				Status          string `json:"status"`
+				UpdateAvailable bool   `json:"updateAvailable"`
+			} `json:"app"`
+			AuditID string `json:"auditId"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(updateRec.Body.Bytes(), &updateBody); err != nil {
-		t.Fatalf("decode app update: %v", err)
+	if err := json.Unmarshal(confirmRec.Body.Bytes(), &updateBody); err != nil {
+		t.Fatalf("decode app update confirm: %v", err)
 	}
-	if updateBody.Data.ID != "home-assistant" || updateBody.Data.UpdateAvailable || updateBody.Data.Status != "已更新" {
+	if updateBody.Data.App.ID != "home-assistant" || updateBody.Data.App.UpdateAvailable || updateBody.Data.App.Status != "已更新" {
 		t.Fatalf("unexpected app update payload: %#v", updateBody.Data)
+	}
+	if updateBody.Data.AuditID == "" {
+		t.Fatalf("expected an audit id from confirmed update: %#v", updateBody.Data)
 	}
 }
 
@@ -620,44 +648,25 @@ func TestMediaAssistantAndAgentEndpoints(t *testing.T) {
 		t.Fatalf("unexpected assistant payload: %#v", messageBody.Data)
 	}
 
-	templatesRec := httptest.NewRecorder()
-	templatesReq := httptest.NewRequest(http.MethodGet, "/api/v1/agents/templates", nil)
-	router.ServeHTTP(templatesRec, templatesReq)
-	if templatesRec.Code != http.StatusOK {
-		t.Fatalf("expected agent templates HTTP 200, got %d: %s", templatesRec.Code, templatesRec.Body.String())
+	// Agent presets back the rebuilt Agent Workbench (the old workflow stub is gone).
+	presetsRec := httptest.NewRecorder()
+	presetsReq := httptest.NewRequest(http.MethodGet, "/api/v1/assistant/presets", nil)
+	router.ServeHTTP(presetsRec, presetsReq)
+	if presetsRec.Code != http.StatusOK {
+		t.Fatalf("expected presets HTTP 200, got %d: %s", presetsRec.Code, presetsRec.Body.String())
 	}
-	var templatesBody struct {
+	var presetsBody struct {
 		Data []struct {
-			Name  string   `json:"name"`
-			Desc  string   `json:"desc"`
-			Tools []string `json:"tools"`
-			Risk  string   `json:"risk"`
+			ID          string   `json:"id"`
+			Name        string   `json:"name"`
+			ToolDomains []string `json:"toolDomains"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(templatesRec.Body.Bytes(), &templatesBody); err != nil {
-		t.Fatalf("decode templates: %v", err)
+	if err := json.Unmarshal(presetsRec.Body.Bytes(), &presetsBody); err != nil {
+		t.Fatalf("decode presets: %v", err)
 	}
-	if len(templatesBody.Data) == 0 || templatesBody.Data[0].Desc == "" || len(templatesBody.Data[0].Tools) == 0 || templatesBody.Data[0].Risk == "" {
-		t.Fatalf("unexpected templates: %#v", templatesBody.Data)
-	}
-
-	runRec := httptest.NewRecorder()
-	runReq := httptest.NewRequest(http.MethodPost, "/api/v1/workflows/runs", bytes.NewBufferString(`{"templateId":"ops-agent","goal":"检查备份状态","scopes":["monitoring"]}`))
-	router.ServeHTTP(runRec, runReq)
-	if runRec.Code != http.StatusOK {
-		t.Fatalf("expected workflow run HTTP 200, got %d: %s", runRec.Code, runRec.Body.String())
-	}
-	var runBody struct {
-		Data struct {
-			ID    string `json:"id"`
-			State string `json:"state"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(runRec.Body.Bytes(), &runBody); err != nil {
-		t.Fatalf("decode workflow run: %v", err)
-	}
-	if runBody.Data.ID == "" || runBody.Data.State != "completed" {
-		t.Fatalf("unexpected workflow run: %#v", runBody.Data)
+	if len(presetsBody.Data) == 0 || presetsBody.Data[0].ID == "" || len(presetsBody.Data[0].ToolDomains) == 0 {
+		t.Fatalf("unexpected presets: %#v", presetsBody.Data)
 	}
 }
 

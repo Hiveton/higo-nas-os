@@ -38,14 +38,19 @@ import VideoCenterWindow from './components/windows/VideoCenterWindow.vue';
 import DownloadCenterWindow from './components/windows/DownloadCenterWindow.vue';
 import BackupSyncWindow from './components/windows/BackupSyncWindow.vue';
 import AppCenterWindow from './components/windows/AppCenterWindow.vue';
+import AppFrameWindow from './components/windows/AppFrameWindow.vue';
 import DockerWindow from './components/windows/DockerWindow.vue';
 import SecurityCenterWindow from './components/windows/SecurityCenterWindow.vue';
 import DeviceMonitorWindow from './components/windows/DeviceMonitorWindow.vue';
+import HardwareCenterWindow from './components/windows/HardwareCenterWindow.vue';
 import SystemSettingsWindow from './components/windows/SystemSettingsWindow.vue';
 import RemoteAccessWindow from './components/windows/RemoteAccessWindow.vue';
+import ProtocolsWindow from './components/windows/ProtocolsWindow.vue';
+import TaskCenterWindow from './components/windows/TaskCenterWindow.vue';
 import FeatureModuleWindow from './components/windows/FeatureModuleWindow.vue';
 import { desktopStore } from './stores/desktop';
 import { settingsStore } from './stores/settings';
+import { activityStore } from './stores/activity';
 import { setLocale } from './i18n';
 import { UiToastHost, UiConfirmHost, useToast } from './components/ui';
 import { apiClient } from './api/client';
@@ -163,6 +168,9 @@ const pinnedDockAppIds = ref([...defaultPinnedDockAppIds]);
 const desktopIconPositions = ref<Record<string, IconPosition>>(createDesktopIconLayout(dockApps, 'left'));
 const windowGeometries = ref<Record<string, Partial<WindowGeometry>>>({});
 const windowLayerOrder = ref<string[]>([]);
+// Dynamically-registered third-party app frames (id -> iframe source). Lets an
+// installed app present its own UI in a desktop window without hardcoding it.
+const appFrameSources = ref<Record<string, { src: string; name: string }>>({});
 const launchProgress = ref(0);
 const contextTarget = ref<HTMLElement | null>(null);
 const contextMenu = ref<ContextMenuState>({
@@ -174,11 +182,9 @@ const contextMenu = ref<ContextMenuState>({
   items: [],
 });
 const featureModuleByWindowId: Record<string, NasFeatureKey> = {
-  'file-protocols': 'protocols',
   'virtual-machine': 'vm',
   'sync-service': 'sync',
   'iscsi-manager': 'iscsi',
-  'hardware-center': 'hardware',
 };
 let launchTimer: number | undefined;
 let sessionSaveTimer: number | undefined;
@@ -970,6 +976,40 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') closeContextMenu();
 }
 
+// openAppFrame registers (once) a synthetic window for an installed third-party
+// app and opens it. The window renders AppFrameWindow via the dynamic branch in
+// the template — no per-app code in App.vue.
+function openAppFrame(payload: { id: string; name: string; src: string }) {
+  appFrameSources.value = {
+    ...appFrameSources.value,
+    [payload.id]: { src: payload.src, name: payload.name },
+  };
+  if (!desktopWindows.some((window) => window.id === payload.id)) {
+    desktopWindows.push({
+      id: payload.id,
+      title: payload.name,
+      subtitle: payload.src,
+      status: '运行中',
+      statusTone: 'green',
+      x: 260,
+      y: 130,
+      width: 900,
+      height: 620,
+      z: 20,
+    });
+  }
+  if (!openWindowIds.value.includes(payload.id)) {
+    openWindowIds.value.push(payload.id);
+    bumpWindowOpenToken(payload.id);
+  }
+  minimizedWindowIds.value = minimizedWindowIds.value.filter((windowId) => windowId !== payload.id);
+  windowGeometries.value = {
+    ...windowGeometries.value,
+    [payload.id]: normalizeWindowGeometry(payload.id, windowGeometries.value[payload.id]),
+  };
+  bringWindowToFront(payload.id);
+}
+
 function openApp(id: string) {
   const isWindow = desktopWindows.some((window) => window.id === id);
 
@@ -987,18 +1027,23 @@ function openApp(id: string) {
       [id]: normalizeWindowGeometry(id, windowGeometries.value[id]),
     };
     bringWindowToFront(id);
+    activityStore.recordPage(id, getWindowTitle(id));
     return;
   }
 
   if (!isWindow) {
     utilityAppId.value = id;
     startUtilityLaunch(id);
+    activityStore.record({ type: 'action', category: id, action: 'launch-utility', target: getWindowTitle(id) });
   }
 
   activeWindowId.value = id;
 }
 
 function closeWindow(id: string) {
+  if (openWindowIds.value.includes(id)) {
+    activityStore.record({ type: 'action', category: id, action: 'close-window', target: getWindowTitle(id) });
+  }
   openWindowIds.value = openWindowIds.value.filter((windowId) => windowId !== id);
   minimizedWindowIds.value = minimizedWindowIds.value.filter((windowId) => windowId !== id);
   windowLayerOrder.value = windowLayerOrder.value.filter((windowId) => windowId !== id);
@@ -1034,6 +1079,8 @@ const activeUtilityApp = computed(() =>
 
 function showToast(message: string) {
   toast.show(message);
+  // Toasts funnel most meaningful desktop actions, so mirror them to the log.
+  activityStore.record({ type: 'action', category: 'desktop', action: 'ui-action', detail: message });
 }
 
 function startUtilityLaunch(id: string) {
@@ -1194,12 +1241,20 @@ onUnmounted(() => {
         <MusicCenterWindow v-else-if="window.id === 'music-center'" />
         <VideoCenterWindow v-else-if="window.id === 'video-center'" />
         <DownloadCenterWindow v-else-if="window.id === 'download-center'" />
-        <AppCenterWindow v-else-if="window.id === 'app-center'" />
+        <AppCenterWindow v-else-if="window.id === 'app-center'" @open-frame="openAppFrame" />
+        <AppFrameWindow
+          v-else-if="appFrameSources[window.id]"
+          :src="appFrameSources[window.id].src"
+          :name="appFrameSources[window.id].name"
+        />
         <DockerWindow v-else-if="window.id === 'docker'" :open-token="windowOpenTokens[window.id] ?? 0" />
         <SecurityCenterWindow v-else-if="window.id === 'security-center'" />
         <DeviceMonitorWindow v-else-if="window.id === 'device-monitor'" />
+        <HardwareCenterWindow v-else-if="window.id === 'hardware-center'" />
         <SystemSettingsWindow v-else-if="window.id === 'system-settings'" />
+        <TaskCenterWindow v-else-if="window.id === 'task-center'" />
         <RemoteAccessWindow v-else-if="window.id === 'remote-access'" />
+        <ProtocolsWindow v-else-if="window.id === 'file-protocols'" />
         <FeatureModuleWindow
           v-else-if="featureModuleByWindowId[window.id]"
           :module-key="featureModuleByWindowId[window.id]"

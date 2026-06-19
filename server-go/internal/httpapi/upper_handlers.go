@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"higoos/server-go/internal/agents"
 	"higoos/server-go/internal/assistant"
 	"higoos/server-go/internal/files"
 	"higoos/server-go/internal/media"
@@ -180,7 +179,8 @@ func (a *API) assistantThreads(w http.ResponseWriter, r *http.Request) {
 		platform.WriteJSON(w, r, http.StatusOK, a.assistant.ListThreads(r.Context()))
 	case http.MethodPost:
 		var body struct {
-			Title string `json:"title"`
+			Title    string `json:"title"`
+			PresetID string `json:"presetId"`
 		}
 		if r.ContentLength != 0 {
 			if err := decodeJSON(r, &body); err != nil {
@@ -188,7 +188,7 @@ func (a *API) assistantThreads(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		thread, err := a.assistant.CreateThread(r.Context(), body.Title)
+		thread, err := a.assistant.CreateThreadWithPreset(r.Context(), body.Title, body.PresetID)
 		if err != nil {
 			platform.WriteError(w, r, http.StatusBadRequest, "assistant_thread_create_failed", err.Error())
 			return
@@ -292,156 +292,6 @@ func (a *API) assistantActionByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	platform.WriteJSON(w, r, http.StatusOK, mapTaskResponse(action.ID, string(action.Status), action.Impact))
-}
-
-func (a *API) agentTemplates(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodGet) {
-		return
-	}
-	platform.WriteJSON(w, r, http.StatusOK, mapAgentTemplates(a.agents.ListTemplates(r.Context())))
-}
-
-func (a *API) agentsRoot(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
-	var body struct {
-		TemplateID string   `json:"templateId"`
-		Name       string   `json:"name"`
-		Scopes     []string `json:"scopes"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
-		return
-	}
-	if strings.TrimSpace(body.TemplateID) == "" {
-		platform.WriteError(w, r, http.StatusBadRequest, "agent_template_required", "agent templateId is required")
-		return
-	}
-	tools, err := a.agents.Tools(r.Context(), body.TemplateID, body.Scopes)
-	if err != nil {
-		platform.WriteError(w, r, http.StatusNotFound, "agent_template_not_found", err.Error())
-		return
-	}
-	platform.WriteJSON(w, r, http.StatusOK, map[string]any{
-		"id":         "agent-" + body.TemplateID,
-		"templateId": body.TemplateID,
-		"name":       firstNonEmpty(body.Name, body.TemplateID),
-		"tools":      tools,
-		"scopes":     body.Scopes,
-		"state":      "ready",
-	})
-}
-
-func (a *API) agentByID(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodGet) {
-		return
-	}
-	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/agents/"), "/"), "/")
-	if len(parts) != 2 || parts[1] != "tools" {
-		platform.WriteError(w, r, http.StatusNotFound, "agent_route_not_found", "agent route not found")
-		return
-	}
-	tools, err := a.agents.Tools(r.Context(), strings.TrimPrefix(parts[0], "agent-"), splitCSV(r.URL.Query()["scopes"]))
-	if err != nil {
-		platform.WriteError(w, r, http.StatusNotFound, "agent_tools_failed", err.Error())
-		return
-	}
-	platform.WriteJSON(w, r, http.StatusOK, tools)
-}
-
-func (a *API) workflowPreview(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
-	var body agents.WorkflowPreviewRequest
-	if err := decodeJSON(r, &body); err != nil {
-		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
-		return
-	}
-	preview, err := a.agents.PreviewWorkflow(r.Context(), body)
-	if err != nil {
-		platform.WriteError(w, r, http.StatusBadRequest, "workflow_preview_failed", err.Error())
-		return
-	}
-	platform.WriteJSON(w, r, http.StatusOK, preview)
-}
-
-func (a *API) workflowRuns(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
-	var body agents.WorkflowRunRequest
-	if err := decodeJSON(r, &body); err != nil {
-		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
-		return
-	}
-	run, err := a.agents.StartRun(r.Context(), body)
-	if err != nil {
-		platform.WriteError(w, r, http.StatusBadRequest, "workflow_run_failed", err.Error())
-		return
-	}
-	platform.WriteJSON(w, r, http.StatusOK, mapWorkflowRunTask(run))
-}
-
-func (a *API) workflowRunByID(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/workflows/runs/"), "/"), "/")
-	if len(parts) != 2 {
-		platform.WriteError(w, r, http.StatusNotFound, "workflow_route_not_found", "workflow route not found")
-		return
-	}
-	switch parts[1] {
-	case "confirm":
-		if !allowMethod(w, r, http.MethodPost) {
-			return
-		}
-		var body agents.ConfirmRunRequest
-		if r.ContentLength != 0 {
-			if err := decodeJSON(r, &body); err != nil {
-				platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
-				return
-			}
-		}
-		run, err := a.agents.ConfirmRun(r.Context(), parts[0], body)
-		if err != nil {
-			platform.WriteError(w, r, http.StatusBadRequest, "workflow_confirm_failed", err.Error())
-			return
-		}
-		platform.WriteJSON(w, r, http.StatusOK, mapWorkflowRunTask(run))
-	case "cancel":
-		if !allowMethod(w, r, http.MethodPost) {
-			return
-		}
-		var body agents.CancelRunRequest
-		if r.ContentLength != 0 {
-			if err := decodeJSON(r, &body); err != nil {
-				platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
-				return
-			}
-		}
-		run, err := a.agents.CancelRun(r.Context(), parts[0], body)
-		if err != nil {
-			platform.WriteError(w, r, http.StatusBadRequest, "workflow_cancel_failed", err.Error())
-			return
-		}
-		platform.WriteJSON(w, r, http.StatusOK, mapWorkflowRunTask(run))
-	case "events":
-		if !allowMethod(w, r, http.MethodGet) {
-			return
-		}
-		events, err := a.agents.Events(r.Context(), parts[0])
-		if err != nil {
-			platform.WriteError(w, r, http.StatusNotFound, "workflow_events_failed", err.Error())
-			return
-		}
-		if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-			writeEventStream(w, events)
-			return
-		}
-		platform.WriteJSON(w, r, http.StatusOK, events)
-	default:
-		platform.WriteError(w, r, http.StatusNotFound, "workflow_route_not_found", "workflow route not found")
-	}
 }
 
 func (a *API) stewardSuggestions(w http.ResponseWriter, r *http.Request) {
@@ -778,6 +628,7 @@ func mapAssistantThread(thread assistant.Thread) map[string]any {
 	return map[string]any{
 		"id":        thread.ID,
 		"title":     thread.Title,
+		"preset":    thread.Preset,
 		"messages":  messages,
 		"createdAt": thread.CreatedAt,
 		"updatedAt": thread.UpdatedAt,
@@ -820,34 +671,6 @@ func mapSemanticSearch(result assistant.SemanticSearchResponse) map[string]any {
 		})
 	}
 	return map[string]any{"answer": result.Answer, "items": items, "citations": result.Citations}
-}
-
-func mapAgentTemplates(templates []agents.Template) []map[string]any {
-	out := make([]map[string]any, 0, len(templates))
-	for _, template := range templates {
-		toolNames := make([]string, 0, len(template.Tools))
-		for _, tool := range template.Tools {
-			toolNames = append(toolNames, tool.Name)
-		}
-		out = append(out, map[string]any{
-			"id":          template.ID,
-			"name":        template.Name,
-			"desc":        template.Description,
-			"description": template.Description,
-			"tools":       toolNames,
-			"risk":        cnRisk(string(template.DefaultRisk)),
-			"defaultRisk": template.DefaultRisk,
-		})
-	}
-	return out
-}
-
-func mapWorkflowRunTask(run agents.WorkflowRun) map[string]any {
-	message := "workflow run " + string(run.Status)
-	if run.ConfirmationID != "" {
-		message = message + "; confirmationId=" + run.ConfirmationID
-	}
-	return mapTaskResponse(run.ID, string(run.Status), message)
 }
 
 func mapStewardSuggestions(suggestions []steward.Suggestion) []map[string]any {
@@ -937,20 +760,6 @@ func mapSecurityShares(shares []security.ShareLinkRisk) []map[string]any {
 	return out
 }
 
-func writeEventStream(w http.ResponseWriter, events []agents.WorkflowEvent) {
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
-	for _, event := range events {
-		_, _ = fmt.Fprintf(w, "id: %s\n", event.ID)
-		_, _ = fmt.Fprintf(w, "event: %s\n", event.Type)
-		_, _ = fmt.Fprintf(w, "data: {\"message\":%q,\"nodeId\":%q,\"createdAt\":%q}\n\n", event.Message, event.NodeID, event.CreatedAt.Format("2006-01-02T15:04:05Z07:00"))
-	}
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
 func cnRisk(value string) string {
 	switch strings.ToLower(value) {
 	case "low":
@@ -962,16 +771,6 @@ func cnRisk(value string) string {
 	default:
 		return value
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func intFromQuery(r *http.Request, key string) int {

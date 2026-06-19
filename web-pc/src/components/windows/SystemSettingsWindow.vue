@@ -8,6 +8,7 @@ import {
   Cloud,
   EyeOff,
   History,
+  ListChecks,
   Palette,
   RefreshCw,
   RotateCcw,
@@ -29,6 +30,7 @@ import SettingsPrivacyPanel from './settings/SettingsPrivacyPanel.vue';
 import SettingsAuditPanel from './settings/SettingsAuditPanel.vue';
 import SettingsBackupPanel from './settings/SettingsBackupPanel.vue';
 import SettingsInterfacePanel from './settings/SettingsInterfacePanel.vue';
+import SettingsActivityPanel from './settings/SettingsActivityPanel.vue';
 import type {
   AccountSummary,
   AccountUser,
@@ -49,7 +51,8 @@ type CategoryId =
   | 'privacy'
   | 'audit'
   | 'backup'
-  | 'interface';
+  | 'interface'
+  | 'activity';
 
 type SettingsState = {
   role: string;
@@ -81,6 +84,8 @@ type SettingsState = {
   dockPosition: string;
   dockStyle: string;
   dockIconSize: string;
+  activityEnabled: boolean;
+  activityMaxEntries: number;
 };
 
 type Category = {
@@ -101,6 +106,7 @@ const categories: Category[] = [
   { id: 'audit', label: '审计保留', summary: '日志周期与可追溯性', icon: History },
   { id: 'backup', label: '系统备份', summary: '配置快照与恢复目标', icon: ArchiveRestore },
   { id: 'interface', label: '界面设置', summary: '主题、圆角、Dock 样式', icon: Palette },
+  { id: 'activity', label: '操作记录', summary: '记录开关与保留条数', icon: ListChecks },
 ];
 
 const modelStrategies = ['家庭混合模式', '小团队供应商模式', '企业强制本地', '按数据级别路由'];
@@ -238,6 +244,8 @@ function createDefaultSettings(): SettingsState {
     dockPosition: 'bottom',
     dockStyle: 'floating',
     dockIconSize: 'default',
+    activityEnabled: true,
+    activityMaxEntries: 2000,
   };
 }
 
@@ -262,6 +270,9 @@ function applyBackendSettings(nextSettings: ApiSettingsState) {
   settings.value.dockPosition = normalizeBackendOption(ui.dockPosition, dockPositionOptions, 'bottom');
   settings.value.dockStyle = normalizeBackendOption(ui.dockStyle, dockStyleOptions, 'floating');
   settings.value.dockIconSize = normalizeBackendOption(ui.dockIconSize, dockIconSizeOptions, 'default');
+  const activity = nextSettings.activity ?? {};
+  settings.value.activityEnabled = activity.enabled ?? true;
+  settings.value.activityMaxEntries = activity.maxEntries ?? 2000;
 }
 
 function toBackendSettings(): ApiSettingsState {
@@ -284,6 +295,10 @@ function toBackendSettings(): ApiSettingsState {
       dockPosition: settings.value.dockPosition,
       dockStyle: settings.value.dockStyle,
       dockIconSize: settings.value.dockIconSize,
+    },
+    activity: {
+      enabled: settings.value.activityEnabled,
+      maxEntries: settings.value.activityMaxEntries,
     },
   };
 }
@@ -335,6 +350,11 @@ function setPrivacyMode(mode: string) {
 function setInterfaceOption(key: 'uiTheme' | 'uiLocale' | 'windowRadius' | 'dockPosition' | 'dockStyle' | 'dockIconSize', value: string) {
   settings.value[key] = value;
   lastAudit.value = '界面设置已调整，保存后应用到桌面。';
+}
+
+function setActivityMaxEntries(value: number) {
+  settings.value.activityMaxEntries = value;
+  lastAudit.value = `操作记录保留条数已调整为 ${value} 条。`;
 }
 
 async function saveSettings() {
@@ -767,6 +787,13 @@ onMounted(async () => {
           :dock-style-options="dockStyleOptions"
           :dock-icon-size-options="dockIconSizeOptions"
           @set-option="setInterfaceOption"
+        />
+
+        <SettingsActivityPanel
+          v-else-if="activeCategoryId === 'activity'"
+          :settings="settings"
+          @toggle-enabled="settings.activityEnabled = !settings.activityEnabled"
+          @set-max-entries="setActivityMaxEntries"
         />
 
       </section>

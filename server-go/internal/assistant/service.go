@@ -129,6 +129,12 @@ func (s *Service) ListThreads(ctx context.Context) []ThreadSummary {
 
 // CreateThread starts a new, empty conversation and returns it.
 func (s *Service) CreateThread(ctx context.Context, title string) (Thread, error) {
+	return s.CreateThreadWithPreset(ctx, title, "")
+}
+
+// CreateThreadWithPreset starts a thread optionally bound to an agent preset,
+// which sets a custom system prompt and a tool-domain scope for the run.
+func (s *Service) CreateThreadWithPreset(ctx context.Context, title, presetID string) (Thread, error) {
 	if err := ctx.Err(); err != nil {
 		return Thread{}, err
 	}
@@ -137,15 +143,24 @@ func (s *Service) CreateThread(ctx context.Context, title string) (Thread, error
 	s.nextThread++
 	now := s.now().UTC()
 	title = strings.TrimSpace(title)
-	if title == "" {
-		title = "新对话"
-	}
+
 	thread := Thread{
 		ID:        fmt.Sprintf("thread-%03d", s.nextThread),
-		Title:     title,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
+	if preset, ok := PresetByID(presetID); ok {
+		thread.Preset = preset.ID
+		thread.SystemPrompt = preset.SystemPrompt
+		thread.ToolScope = append([]string(nil), preset.ToolDomains...)
+		if title == "" {
+			title = preset.Name
+		}
+	}
+	if title == "" {
+		title = "新对话"
+	}
+	thread.Title = title
 	s.threads[thread.ID] = thread
 	return cloneThread(thread), s.saveLocked()
 }
@@ -212,6 +227,7 @@ func (s *Service) AddMessageStream(ctx context.Context, threadID string, request
 	thread.UpdatedAt = s.now().UTC()
 	s.threads[threadID] = thread
 	history := chatHistoryLocked(thread)
+	preset := presetContext{systemPrompt: thread.SystemPrompt, toolScope: append([]string(nil), thread.ToolScope...)}
 	if err := s.saveLocked(); err != nil {
 		s.mu.Unlock()
 		return MessageResult{}, err
@@ -219,7 +235,7 @@ func (s *Service) AddMessageStream(ctx context.Context, threadID string, request
 	s.mu.Unlock()
 
 	// Phase 2: call the bound model (no lock held; may do network I/O).
-	res, err := s.generateReply(ctx, text, history, emit)
+	res, err := s.generateReply(ctx, text, history, preset, emit)
 	if err != nil {
 		return MessageResult{}, err
 	}
@@ -322,7 +338,13 @@ type replyResult struct {
 	Pending *pendingWrite
 }
 
-func (s *Service) generateReply(ctx context.Context, userText string, history []llm.ChatMessage, emit func(StreamEvent)) (replyResult, error) {
+// presetContext carries per-thread agent customization into a reply.
+type presetContext struct {
+	systemPrompt string
+	toolScope    []string
+}
+
+func (s *Service) generateReply(ctx context.Context, userText string, history []llm.ChatMessage, preset presetContext, emit func(StreamEvent)) (replyResult, error) {
 	s.mu.RLock()
 	store := s.llmStore
 	factory := s.llmFactory
@@ -345,7 +367,12 @@ func (s *Service) generateReply(ctx context.Context, userText string, history []
 	tools := s.tools
 	s.mu.RUnlock()
 
-	messages := append([]llm.ChatMessage{{Role: "system", Content: systemPrompt}}, history...)
+	prompt := systemPrompt
+	if strings.TrimSpace(preset.systemPrompt) != "" {
+		prompt = preset.systemPrompt
+	}
+	tools = scopeTools(tools, preset.toolScope)
+	messages := append([]llm.ChatMessage{{Role: "system", Content: prompt}}, history...)
 
 	// Tool-calling agent loop (OpenAI-compatible providers only).
 	if toolClient != nil && len(tools) > 0 && provider.Kind == llm.KindOpenAI {
@@ -373,6 +400,64 @@ func emitDelta(emit func(StreamEvent), delta string) {
 	if emit != nil && delta != "" {
 		emit(StreamEvent{Delta: delta})
 	}
+}
+
+// ToolInfo is the catalog metadata surfaced to the UI.
+type ToolInfo struct {
+	Name        string `json:"name"`
+	Domain      string `json:"domain"`
+	Description string `json:"description"`
+	ReadOnly    bool   `json:"readOnly"`
+}
+
+// Tools returns metadata for the bound MCP tool catalog (for the workbench
+// capability panel).
+func (s *Service) Tools() []ToolInfo {
+	s.mu.RLock()
+	tools := s.tools
+	s.mu.RUnlock()
+	out := make([]ToolInfo, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, ToolInfo{
+			Name:        t.Name,
+			Domain:      toolDomain(t.Name),
+			Description: t.Description,
+			ReadOnly:    !t.Write,
+		})
+	}
+	return out
+}
+
+// toolDomain extracts the domain segment from a sanitized MCP tool name
+// ("higo_storage_pools_list" -> "storage").
+func toolDomain(name string) string {
+	parts := strings.Split(name, "_")
+	if len(parts) >= 2 && parts[0] == "higo" {
+		return parts[1]
+	}
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
+}
+
+// scopeTools keeps only tools whose domain is in scope. An empty scope returns
+// all tools unchanged.
+func scopeTools(tools []agent.Tool, scope []string) []agent.Tool {
+	if len(scope) == 0 {
+		return tools
+	}
+	allowed := make(map[string]bool, len(scope))
+	for _, d := range scope {
+		allowed[d] = true
+	}
+	out := make([]agent.Tool, 0, len(tools))
+	for _, t := range tools {
+		if allowed[toolDomain(t.Name)] {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // agentReply runs the read-only tool-calling loop: it streams completions with
@@ -812,6 +897,7 @@ func scopeAllowed(scope string, allowed []string) bool {
 func cloneThread(thread Thread) Thread {
 	thread.Messages = cloneMessages(thread.Messages)
 	thread.PendingActions = cloneActions(thread.PendingActions)
+	thread.ToolScope = append([]string(nil), thread.ToolScope...)
 	return thread
 }
 

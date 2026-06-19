@@ -14,8 +14,7 @@ export type NasFeatureKey =
   | 'downloads'
   | 'apps'
   | 'docker'
-  | 'monitoring'
-  | 'hardware';
+  | 'monitoring';
 
 export type NasFeatureAction = {
   label: string;
@@ -220,17 +219,6 @@ export const nasFeatures: Record<NasFeatureKey, NasFeature[]> = {
         { label: '诊断', state: 'mock' },
         { label: '告警规则', state: 'mock' },
         { label: '日志', state: 'mock' },
-      ],
-    },
-  ],
-  hardware: [
-    {
-      title: '硬件资料',
-      detail: '覆盖 NAS 官方硬件、零刻合作机型、ARM 公测、Rockchip/Amlogic 刷机教程和兼容性说明。',
-      actions: [
-        { label: '官方硬件', state: 'mock' },
-        { label: '兼容性资料', state: 'mock' },
-        { label: '刷机教程', state: 'mock' },
       ],
     },
   ],

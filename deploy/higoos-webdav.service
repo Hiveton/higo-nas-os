@@ -1,0 +1,18 @@
+[Unit]
+Description=HiGoOS WebDAV (Apache) sharing server
+Documentation=https://github.com/higoos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+PIDFile=/run/higoos-webdav.pid
+ExecStartPre=/bin/mkdir -p /var/lib/higoos/webdav
+ExecStart=/usr/sbin/apache2 -f /etc/higoos/webdav/higoos-webdav.conf -k start
+ExecReload=/usr/sbin/apache2 -f /etc/higoos/webdav/higoos-webdav.conf -k graceful
+ExecStop=/usr/sbin/apache2 -f /etc/higoos/webdav/higoos-webdav.conf -k stop
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -541,6 +541,7 @@ func (m *Manager) run(ctx context.Context, id string) {
 		task.Status = StatusSucceeded
 		task.Progress = 100
 		task.Result = result
+		task.Message = "已完成" // replace the last in-flight progress label
 	}
 	m.tasks[id] = task
 	_ = m.saveLocked()

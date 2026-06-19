@@ -23,7 +23,14 @@ func TestStatefulAPIsPersistAcrossRouterRestart(t *testing.T) {
 	request(t, router, http.MethodPut, "/api/v1/remote/policy", `{"key":"team"}`)
 	request(t, router, http.MethodPost, "/api/v1/remote/devices/ipad/bind", `{}`)
 	request(t, router, http.MethodPost, "/api/v1/backups/jobs/family-photo/pause", `{}`)
-	request(t, router, http.MethodPost, "/api/v1/app-center/apps/paperless/install", `{}`)
+	var paperlessPreview struct {
+		Data struct {
+			ConfirmationID string `json:"confirmationId"`
+		} `json:"data"`
+	}
+	requestJSON(t, router, http.MethodPost, "/api/v1/app-center/apps/paperless/install", `{}`, &paperlessPreview)
+	request(t, router, http.MethodPost, "/api/v1/app-center/apps/paperless/install/confirm",
+		`{"confirmationId":"`+paperlessPreview.Data.ConfirmationID+`","actor":"tester"}`)
 	request(t, router, http.MethodPost, "/api/v1/monitoring/alerts", `{"metric":"cpu","range":"1H","title":"CPU persistent smoke"}`)
 	var storageTask struct {
 		Data struct {
@@ -47,12 +54,13 @@ func TestStatefulAPIsPersistAcrossRouterRestart(t *testing.T) {
 	request(t, router, http.MethodPost, "/api/v1/files/"+taggedFileID+"/tags", `{"tags":["持久化标签"]}`)
 	request(t, router, http.MethodPost, "/api/v1/media/albums", `{"name":"持久化家庭相册","type":"家庭相册","itemIds":[1]}`)
 	request(t, router, http.MethodPost, "/api/v1/assistant/threads/thread-current/messages", `{"actorId":"tester","text":"整理 下载目录 并生成计划","modelPolicy":"local-first"}`)
-	var workflowRun struct {
+	var presetThread struct {
 		Data struct {
-			ID string `json:"id"`
+			ID     string `json:"id"`
+			Preset string `json:"preset"`
 		} `json:"data"`
 	}
-	requestJSON(t, router, http.MethodPost, "/api/v1/workflows/runs", `{"templateId":"ops-agent","goal":"检查真实落盘状态","scopes":["monitoring"],"actorId":"tester"}`, &workflowRun)
+	requestJSON(t, router, http.MethodPost, "/api/v1/assistant/threads", `{"presetId":"storage-admin"}`, &presetThread)
 	var stewardPreview struct {
 		Data struct {
 			ConfirmationID string `json:"confirmationId"`
@@ -259,14 +267,14 @@ func TestStatefulAPIsPersistAcrossRouterRestart(t *testing.T) {
 		t.Fatalf("assistant thread/action state was not persisted: %#v", thread.Data)
 	}
 
-	var workflowEvents struct {
-		Data []struct {
-			RunID string `json:"runId"`
+	var presetReload struct {
+		Data struct {
+			Preset string `json:"preset"`
 		} `json:"data"`
 	}
-	getJSON(t, restarted, "/api/v1/workflows/runs/"+workflowRun.Data.ID+"/events", &workflowEvents)
-	if len(workflowEvents.Data) == 0 || workflowEvents.Data[0].RunID != workflowRun.Data.ID {
-		t.Fatalf("workflow run events were not persisted: %#v", workflowEvents.Data)
+	getJSON(t, restarted, "/api/v1/assistant/threads/"+presetThread.Data.ID, &presetReload)
+	if presetReload.Data.Preset != "storage-admin" {
+		t.Fatalf("preset thread was not persisted: %#v", presetReload.Data)
 	}
 
 	var suggestions struct {

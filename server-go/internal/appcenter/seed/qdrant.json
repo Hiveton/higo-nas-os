@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1",
+  "id": "qdrant",
+  "name": "Qdrant 向量库",
+  "version": "1.14.0",
+  "category": "AI 数据层",
+  "description": "为文件语义搜索和 Agent 检索提供本地向量索引。",
+  "author": { "name": "Qdrant", "url": "https://qdrant.tech" },
+  "risk": "medium",
+  "source": "official",
+  "containers": [
+    {
+      "name": "qdrant",
+      "image": "qdrant/qdrant:latest",
+      "ports": [{ "container": 6333, "protocol": "tcp" }],
+      "volumes": [{ "name": "qdrant-storage", "path": "/qdrant/storage" }],
+      "resources": { "cpu": 2, "memoryMb": 2048 },
+      "restartPolicy": "unless-stopped"
+    }
+  ],
+  "webEntry": { "container": "qdrant", "port": 6333, "path": "/dashboard", "display": "embed" },
+  "permissions": ["storage.write"]
+}

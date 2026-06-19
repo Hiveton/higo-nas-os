@@ -410,6 +410,18 @@ func (a *API) monitoringCurrentMetrics(w http.ResponseWriter, r *http.Request) {
 	platform.WriteJSON(w, r, http.StatusOK, snapshot.Metrics)
 }
 
+func (a *API) hardwareInventory(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	inventory, err := a.hardware.Inventory(r.Context())
+	if err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "hardware_inventory_unavailable", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, inventory)
+}
+
 func (a *API) monitoringMetricsSnapshot(w http.ResponseWriter, r *http.Request) {
 	if !allowMethod(w, r, http.MethodGet) {
 		return

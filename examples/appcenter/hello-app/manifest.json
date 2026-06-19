@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "1",
+  "id": "hello-app",
+  "name": "Hello App",
+  "version": "1.0.0",
+  "category": "示例",
+  "description": "一个最小可运行的三方应用示例：用 nginx 提供一个静态页面，并以内嵌 iframe 窗口在桌面中打开。复制本目录即可起步。",
+  "author": { "name": "HiGoOS SDK", "url": "https://higoos.local/docs/appcenter-sdk" },
+  "risk": "low",
+  "source": "third-party",
+  "containers": [
+    {
+      "name": "web",
+      "image": "nginx:stable-alpine",
+      "ports": [{ "container": 80, "host": 18900, "protocol": "tcp" }],
+      "volumes": [{ "name": "site", "path": "/usr/share/nginx/html" }],
+      "env": [{ "key": "GREETING", "value": "{{config.greeting}}" }],
+      "resources": { "cpu": 1, "memoryMb": 128 },
+      "restartPolicy": "unless-stopped"
+    }
+  ],
+  "webEntry": { "container": "web", "port": 18900, "path": "/", "display": "embed" },
+  "permissions": ["network.publish:18900"],
+  "config": [
+    { "key": "greeting", "label": "欢迎语", "type": "text", "default": "Hello from HiGoOS!" }
+  ]
+}

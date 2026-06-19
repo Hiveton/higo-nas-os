@@ -94,6 +94,65 @@ export type TrendPoint = {
   value: number;
 };
 
+export type HardwareHostInfo = {
+  hostname: string;
+  osName: string;
+  kernel: string;
+  arch: string;
+  uptime: string;
+  bootedAt?: string;
+};
+
+export type HardwareBoardInfo = {
+  vendor: string;
+  product: string;
+  serial: string;
+  bios: string;
+};
+
+export type HardwareCpuInfo = {
+  model: string;
+  physicalCores: number;
+  logicalCores: number;
+  mhz: number;
+};
+
+export type HardwareMemoryInfo = {
+  totalBytes: number;
+  usedBytes: number;
+  usedPercent: number;
+};
+
+export type HardwareNetworkInterface = {
+  name: string;
+  mac: string;
+  ipv4: string[];
+  speedMbps: number;
+  state: string;
+};
+
+export type HardwareSensorReading = {
+  label: string;
+  celsius?: number;
+  rpm?: number;
+};
+
+export type HardwareSensors = {
+  temperatures: HardwareSensorReading[];
+  fans: HardwareSensorReading[];
+};
+
+export type HardwareInventory = {
+  host: HardwareHostInfo;
+  board: HardwareBoardInfo;
+  cpu: HardwareCpuInfo;
+  memory: HardwareMemoryInfo;
+  network: HardwareNetworkInterface[];
+  sensors: HardwareSensors;
+  adapter: string;
+  collectedAt?: string;
+};
+
 export type SystemLog = {
   id: string;
   level: string;
@@ -165,6 +224,86 @@ export type FileShare = {
   downloads: number;
   risk: RiskLevel;
   active: boolean;
+};
+
+// --- network sharing protocols (SMB / NFS / WebDAV / DLNA) ------------------
+
+export type ProtocolKey = 'smb' | 'nfs' | 'webdav' | 'dlna';
+export type ProtocolAccessLevel = 'public' | 'password' | 'account' | 'readonly';
+export type ProtocolRisk = 'low' | 'medium' | 'high';
+
+export type ProtocolConfig = {
+  // SMB
+  serverName?: string;
+  workgroup?: string;
+  minProtocol?: string; // SMB2 | SMB3
+  guestAccess?: boolean;
+  // NFS
+  squash?: string; // root_squash | all_squash | no_root_squash
+  allowedNetwork?: string;
+  // WebDAV
+  httpsEnabled?: boolean;
+  // DLNA
+  friendlyName?: string;
+};
+
+export type Protocol = {
+  key: ProtocolKey;
+  displayName: string;
+  enabled: boolean;
+  running: boolean;
+  installed: boolean;
+  mountHint: string;
+  port: number;
+  compatibility: string;
+  config: ProtocolConfig;
+};
+
+export type ProtocolShare = {
+  id: string;
+  protocol: ProtocolKey;
+  name: string;
+  path: string;
+  accessLevel: ProtocolAccessLevel;
+  allowedUsers?: string[];
+  guest: boolean;
+  enabled: boolean;
+  createdAt: string;
+  createdBy?: string;
+};
+
+export type ProtocolPreview = {
+  kind: string;
+  protocol: ProtocolKey;
+  impact: string;
+  risk: ProtocolRisk;
+  riskLabel: string;
+  requiresConfirmation: boolean;
+  confirmationId?: string;
+  rollbackId?: string;
+};
+
+export type ProtocolAuditEntry = {
+  id: string;
+  event: string;
+  actor?: string;
+  risk: ProtocolRisk;
+  riskLabel: string;
+  result: string;
+  kind?: string;
+  protocol?: ProtocolKey;
+  share?: ProtocolShare;
+  confirmationId?: string;
+  rollbackId?: string;
+  reverted: boolean;
+  rollback?: string;
+  time: string;
+};
+
+export type ProtocolConfirmResult = {
+  protocol?: Protocol;
+  share?: ProtocolShare;
+  audit: ProtocolAuditEntry;
 };
 
 export type StoragePool = {
@@ -286,19 +425,23 @@ export type StewardSuggestion = {
   action: string;
 };
 
-export type AgentTemplate = {
-  id?: string;
+// AgentPreset is a specialized agent role surfaced in the Agent Workbench.
+export type AgentPreset = {
+  id: string;
   name: string;
-  desc: string;
-  tools: string[];
-  risk: string;
+  description: string;
+  icon?: string;
+  systemPrompt?: string;
+  toolDomains: string[];
+  starters: string[];
 };
 
-export type WorkflowNode = {
-  id?: string;
-  label: string;
-  value: string;
-  icon?: unknown;
+// ToolCatalogEntry is one MCP tool's metadata for the capability panel.
+export type ToolCatalogEntry = {
+  name: string;
+  domain: string;
+  description: string;
+  readOnly: boolean;
 };
 
 export type AssistantRole = 'user' | 'assistant' | 'system' | 'tool';
@@ -558,6 +701,13 @@ export type BackupJob = {
   enabled: boolean;
 };
 
+export type AppWebEntry = {
+  container?: string;
+  port: number;
+  path?: string;
+  display?: 'embed' | 'external';
+};
+
 export type AppCenterApp = {
   id: string;
   name: string;
@@ -573,6 +723,90 @@ export type AppCenterApp = {
   installed: boolean;
   running: boolean;
   updateAvailable: boolean;
+  manifestId?: string;
+  webEntry?: AppWebEntry | null;
+  permissions?: string[];
+};
+
+export type AppAction = 'install' | 'update' | 'start' | 'stop' | 'uninstall';
+
+export type AppConfigField = {
+  key: string;
+  label: string;
+  type: string;
+  default?: string;
+  required?: boolean;
+  secret?: boolean;
+};
+
+export type AppContainerSpec = {
+  name: string;
+  image: string;
+  ports?: Array<{ container: number; host?: number; protocol?: string }>;
+  resources?: { cpu?: number; memoryMb?: number };
+  restartPolicy?: string;
+};
+
+export type AppManifest = {
+  schemaVersion: string;
+  id: string;
+  name: string;
+  version: string;
+  category: string;
+  description: string;
+  author?: { name?: string; url?: string };
+  iconUrl?: string;
+  risk: string;
+  source: string;
+  containers: AppContainerSpec[];
+  webEntry?: AppWebEntry | null;
+  permissions?: string[];
+  config?: AppConfigField[];
+};
+
+export type AppCatalogEntry = {
+  manifest: AppManifest;
+  origin: string;
+  registry?: string;
+};
+
+export type AppActionPreview = {
+  appId: string;
+  action: AppAction;
+  confirmationId: string;
+  rollbackId: string;
+  risk: string;
+  impact: string;
+  requiresConfirmation: boolean;
+};
+
+export type AppActionResult = {
+  app: AppCenterApp;
+  auditId: string;
+  result: string;
+  message: string;
+};
+
+export type AppAuditRecord = {
+  id: string;
+  appId: string;
+  appName: string;
+  action: string;
+  actor: string;
+  risk: string;
+  result: string;
+  message: string;
+  rollbackId: string;
+  rollbackable: boolean;
+  createdAt: string;
+  rolledBackAt?: string | null;
+};
+
+export type AppRegistry = {
+  name: string;
+  url: string;
+  enabled: boolean;
+  addedAt?: string;
 };
 
 export type MediaItem = {
@@ -857,6 +1091,10 @@ export type SettingsState = {
     dockStyle?: 'floating' | 'side' | 'compact' | string;
     dockIconSize?: 'small' | 'default' | 'large' | string;
   };
+  activity?: {
+    enabled?: boolean;
+    maxEntries?: number;
+  };
 };
 
 export type AccessPolicy = {
@@ -923,4 +1161,36 @@ export type TaskResponse = {
   id: string;
   state: string;
   message?: string;
+};
+
+/** Status values from the central task runtime (internal/tasks). */
+export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+
+/** One recorded user activity (meaningful action or page/window visit). */
+export type ActivityEntry = {
+  id?: number;
+  at?: string;
+  actor?: string;
+  type: 'action' | 'page';
+  category?: string;
+  action: string;
+  target?: string;
+  detail?: string;
+  meta?: Record<string, string>;
+};
+
+/** A unit of background work from the central runtime (GET /api/v1/tasks). */
+export type Task = {
+  id: string;
+  kind: string;
+  status: TaskStatus;
+  progress: number;
+  message?: string;
+  result?: unknown;
+  error?: string;
+  attempts: number;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  updatedAt: string;
 };

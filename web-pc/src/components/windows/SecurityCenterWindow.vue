@@ -16,6 +16,7 @@ import {
 import { apiClient } from '../../api/client';
 import type { AiPolicy, AuditEntry, FileShare, IdentityPolicy, RiskAction, RiskLevel } from '../../api/types';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
+import ActivityLogPanel from './security/ActivityLogPanel.vue';
 import { UiBadge, UiButton, UiCheckbox, UiSegmented } from '../ui';
 import type { UiTone } from '../ui';
 
@@ -448,6 +449,16 @@ onMounted(loadSecurityState);
         </article>
       </div>
     </section>
+
+    <section class="security-center__activity" aria-label="操作记录">
+      <header>
+        <h3><History :size="15" /> 操作记录</h3>
+        <span>页面访问与有意义的操作审计</span>
+      </header>
+      <div class="security-center__activity-body">
+        <ActivityLogPanel />
+      </div>
+    </section>
     <NasFeaturePanel class="security-center__features" :modules="['security', 'files']" />
   </div>
 </template>
@@ -466,12 +477,27 @@ onMounted(loadSecurityState);
   grid-column: 1 / -1;
 }
 
+.security-center__activity {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: 360px;
+  overflow: hidden;
+}
+
+.security-center__activity-body {
+  min-height: 0;
+  padding: 10px;
+  overflow: hidden;
+}
+
 .security-center__overview,
 .security-center__risks,
 .security-center__permissions,
 .security-center__ai,
 .security-center__shares,
-.security-center__audit {
+.security-center__audit,
+.security-center__activity {
   min-height: 0;
   background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);

@@ -2,7 +2,10 @@ package accounts
 
 import (
 	"context"
+	"crypto/rand"
+	"errors"
 	"fmt"
+	"math/big"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,6 +15,14 @@ import (
 	"higoos/server-go/internal/state"
 )
 
+// ErrInvalidCredentials is returned when a username/password pair does not
+// authenticate. It is deliberately indistinguishable from "no such user".
+var ErrInvalidCredentials = errors.New("invalid username or password")
+
+// ErrAccountInactive is returned when the account exists but is disabled or
+// locked.
+var ErrAccountInactive = errors.New("account is disabled or locked")
+
 type Service struct {
 	mu        sync.RWMutex
 	seq       int
@@ -20,6 +31,7 @@ type Service struct {
 	grants    []SpaceGrant
 	now       func() time.Time
 	statePath string
+	dir       Directory
 }
 
 type snapshot struct {
@@ -31,16 +43,46 @@ type snapshot struct {
 
 func NewService() *Service {
 	service := &Service{now: time.Now}
+	dir, _ := newDevDirectory("")
+	service.dir = dir
 	service.seed()
 	return service
 }
 
 func NewServiceWithStateDir(stateDir string) (*Service, error) {
-	service := NewService()
-	if stateDir == "" {
+	return NewServiceWithConfig(Config{StateDir: stateDir})
+}
+
+// Config tunes the accounts service: where state lives and which identity
+// directory backend authenticates/provisions users.
+type Config struct {
+	StateDir   string
+	Backend    string // "system", "devstub", or "" (auto by OS)
+	UIDBase    int
+	Group      string
+	AdminGroup string
+}
+
+// NewServiceWithConfig builds the accounts service with an explicit identity
+// directory backend. The directory owns credentials and (on Linux) mirrors
+// users to real system accounts; the service owns app-level metadata.
+func NewServiceWithConfig(cfg Config) (*Service, error) {
+	dir, err := newDirectory(directoryConfig{
+		Backend:    cfg.Backend,
+		StateDir:   cfg.StateDir,
+		UIDBase:    cfg.UIDBase,
+		Group:      cfg.Group,
+		AdminGroup: cfg.AdminGroup,
+	})
+	if err != nil {
+		return nil, err
+	}
+	service := &Service{now: time.Now, dir: dir}
+	service.seed()
+	if cfg.StateDir == "" {
 		return service, nil
 	}
-	service.statePath = filepath.Join(stateDir, "accounts.json")
+	service.statePath = filepath.Join(cfg.StateDir, "accounts.json")
 	var persisted snapshot
 	if err := state.LoadJSON(service.statePath, &persisted); err != nil {
 		return nil, err
@@ -100,6 +142,17 @@ func (s *Service) CreateUser(ctx context.Context, request CreateUserRequest) (Us
 	if user.DisplayName == "" {
 		user.DisplayName = username
 	}
+	// Mirror the identity to the host directory and set its credential before
+	// committing to our own store, so a useradd/chpasswd failure doesn't leave a
+	// metadata record without a backing system account.
+	ref := IdentityRef{Username: user.Username, DisplayName: user.DisplayName, Admin: user.Role == RoleAdmin}
+	if err := s.dir.EnsureUser(ctx, ref); err != nil {
+		return User{}, err
+	}
+	if err := s.dir.SetPassword(ctx, user.Username, request.Password); err != nil {
+		_ = s.dir.RemoveUser(ctx, user.Username)
+		return User{}, err
+	}
 	s.users = append(s.users, user)
 	s.syncGroupMembershipLocked(user.ID, user.Groups)
 	return user, s.saveLocked()
@@ -137,6 +190,21 @@ func (s *Service) UpdateUser(ctx context.Context, id string, request UpdateUserR
 		user.Groups = uniqueStrings(request.Groups)
 		s.syncGroupMembershipLocked(user.ID, user.Groups)
 	}
+	// Mirror identity/credential/lock changes to the host directory.
+	if err := s.dir.EnsureUser(ctx, IdentityRef{Username: user.Username, DisplayName: user.DisplayName, Admin: user.Role == RoleAdmin}); err != nil {
+		return User{}, err
+	}
+	if request.Password != "" {
+		if err := s.dir.SetPassword(ctx, user.Username, request.Password); err != nil {
+			return User{}, err
+		}
+	}
+	if request.Status != "" {
+		locked := user.Status == StatusLocked || user.Status == StatusDisabled
+		if err := s.dir.SetLocked(ctx, user.Username, locked); err != nil {
+			return User{}, err
+		}
+	}
 	user.UpdatedAt = s.now().UTC()
 	return *user, s.saveLocked()
 }
@@ -150,6 +218,10 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	index, ok := s.findUserLocked(id)
 	if !ok {
 		return fmt.Errorf("user not found: %s", id)
+	}
+	username := s.users[index].Username
+	if err := s.dir.RemoveUser(ctx, username); err != nil {
+		return err
 	}
 	s.users = append(s.users[:index], s.users[index+1:]...)
 	for i := range s.groups {
@@ -305,6 +377,124 @@ func (s *Service) DeleteGrant(ctx context.Context, id string) error {
 	return s.saveLocked()
 }
 
+// VerifyPassword authenticates a username/password against the directory and
+// returns the matching active user. The error is intentionally generic so the
+// caller cannot distinguish "no such user" from "wrong password".
+func (s *Service) VerifyPassword(ctx context.Context, username, password string) (User, error) {
+	if err := ctx.Err(); err != nil {
+		return User{}, err
+	}
+	s.mu.RLock()
+	index, ok := s.findUserByUsernameLocked(strings.TrimSpace(username))
+	var user User
+	if ok {
+		user = s.users[index]
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return User{}, ErrInvalidCredentials
+	}
+	if user.Status != StatusActive {
+		return User{}, ErrAccountInactive
+	}
+	valid, err := s.dir.VerifyPassword(ctx, user.Username, password)
+	if err != nil {
+		return User{}, err
+	}
+	if !valid {
+		return User{}, ErrInvalidCredentials
+	}
+	return user, nil
+}
+
+// SetUserPassword updates a user's credential (used by self-service change-
+// password). It validates strength and mirrors to the directory.
+func (s *Service) SetUserPassword(ctx context.Context, userID, password string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validatePassword(password); err != nil {
+		return err
+	}
+	s.mu.RLock()
+	index, ok := s.findUserLocked(userID)
+	var username string
+	if ok {
+		username = s.users[index].Username
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+	return s.dir.SetPassword(ctx, username, password)
+}
+
+// LockUser marks a user locked (status + host lock). Used by the failed-login
+// lockout policy.
+func (s *Service) LockUser(ctx context.Context, userID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index, ok := s.findUserLocked(userID)
+	if !ok {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+	s.users[index].Status = StatusLocked
+	s.users[index].UpdatedAt = s.now().UTC()
+	username := s.users[index].Username
+	if err := s.dir.SetLocked(ctx, username, true); err != nil {
+		return err
+	}
+	return s.saveLocked()
+}
+
+// GetUser returns a user by ID.
+func (s *Service) GetUser(ctx context.Context, userID string) (User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	index, ok := s.findUserLocked(userID)
+	if !ok {
+		return User{}, false
+	}
+	return s.users[index], true
+}
+
+// BootstrapAdmin ensures the seed admin has a credential on first run. It
+// returns the freshly-generated password (to be logged once) or "" when a
+// credential already exists. A fixed password may be supplied for imaging.
+func (s *Service) BootstrapAdmin(ctx context.Context, fixed string) (string, error) {
+	s.mu.RLock()
+	var admin User
+	found := false
+	for _, u := range s.users {
+		if u.Role == RoleAdmin {
+			admin = u
+			found = true
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if !found {
+		return "", nil
+	}
+	if s.dir.HasCredential(ctx, admin.Username) {
+		return "", nil
+	}
+	password := strings.TrimSpace(fixed)
+	if password == "" {
+		password = genRandomPassword()
+	}
+	if err := s.dir.EnsureUser(ctx, IdentityRef{Username: admin.Username, DisplayName: admin.DisplayName, Admin: true}); err != nil {
+		return "", err
+	}
+	if err := s.dir.SetPassword(ctx, admin.Username, password); err != nil {
+		return "", err
+	}
+	return password, nil
+}
+
 func (s *Service) seed() {
 	now := time.Date(2026, 5, 19, 8, 0, 0, 0, time.UTC)
 	s.users = []User{
@@ -386,6 +576,24 @@ func validatePassword(password string) error {
 		return fmt.Errorf("password must include letters and digits")
 	}
 	return nil
+}
+
+// genRandomPassword returns a strong random password that satisfies
+// validatePassword (>=8 chars, letters + digits).
+func genRandomPassword() string {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+	const length = 20
+	var b strings.Builder
+	for i := 0; i < length; i++ {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		if err != nil {
+			b.WriteByte(alphabet[i%len(alphabet)])
+			continue
+		}
+		b.WriteByte(alphabet[n.Int64()])
+	}
+	// Guarantee at least one digit and one letter.
+	return "Hg9" + b.String()
 }
 
 func defaultRole(role UserRole) UserRole {

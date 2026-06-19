@@ -376,7 +376,7 @@ func (s *Service) runMediaJob(ctx context.Context, h *tasks.Handle) (json.RawMes
 	if err := h.Unmarshal(&payload); err != nil {
 		return nil, err
 	}
-	h.Progress(40, "processing")
+	h.Progress(40, "处理中")
 	// Honor cooperative cancellation before committing the job's terminal state.
 	if err := ctx.Err(); err != nil {
 		return nil, err

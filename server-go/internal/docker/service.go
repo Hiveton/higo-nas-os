@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +12,10 @@ import (
 	"time"
 
 	"higoos/server-go/internal/state"
+	"higoos/server-go/internal/tasks"
 )
+
+const pullTaskKind = "docker.pull"
 
 type DevService struct {
 	mu         sync.RWMutex
@@ -21,6 +25,9 @@ type DevService struct {
 	pulls      map[string]ImagePullStatus
 	logSeq     int
 	statePath  string
+
+	runner      *tasks.Manager
+	pullCancels map[string]context.CancelFunc // central task id -> pull cancel func
 }
 
 type snapshot struct {
@@ -75,11 +82,40 @@ func NewDevService() *DevService {
 				Isolation: "DMZ 网络 · 只读反代配置",
 			},
 		},
-		logs:  make(map[string][]ContainerLog),
-		pulls: make(map[string]ImagePullStatus),
+		logs:        make(map[string][]ContainerLog),
+		pulls:       make(map[string]ImagePullStatus),
+		pullCancels: make(map[string]context.CancelFunc),
 	}
 	service.seedLogs()
 	return service
+}
+
+// AttachTaskRunner wires the shared task runtime so image pulls are mirrored
+// into the central task ledger (kind "docker.pull") and can be cooperatively
+// canceled. A nil runner preserves the legacy standalone-pull behavior.
+func (s *DevService) AttachTaskRunner(m *tasks.Manager) {
+	if m == nil {
+		return
+	}
+	s.mu.Lock()
+	s.runner = m
+	if s.pullCancels == nil {
+		s.pullCancels = make(map[string]context.CancelFunc)
+	}
+	s.mu.Unlock()
+	m.RegisterCanceler(pullTaskKind, s.cancelPull)
+}
+
+// cancelPull aborts a running adopted pull identified by its central task id.
+// The pull goroutine, ending on a canceled context, settles the task Canceled.
+func (s *DevService) cancelPull(centralID string) error {
+	s.mu.Lock()
+	cancel := s.pullCancels[centralID]
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
 }
 
 func NewDevServiceWithStateDir(stateDir string) (*DevService, error) {
@@ -208,18 +244,81 @@ func (s *DevService) StartPullImage(ctx context.Context, request PullImageReques
 		UpdatedAt: now,
 	}
 	s.pulls[taskID] = task
+	runner := s.runner
 	s.mu.Unlock()
 
+	// Mirror the pull into the central task runtime when wired. The pull is an
+	// externally-driven (adopted) task: progress is pushed from the callback and
+	// the central record is settled when the pull reaches a terminal state.
+	var centralID string
+	if runner != nil {
+		if adopted, err := runner.Adopt(pullTaskKind, map[string]any{"image": image}); err == nil {
+			centralID = adopted.ID
+		}
+	}
+
+	// Derive a cancelable context (still bounded by the 45m timeout) so the
+	// central Cancel can abort an in-flight pull.
+	pullCtx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
+	if centralID != "" {
+		s.mu.Lock()
+		if s.pullCancels == nil {
+			s.pullCancels = make(map[string]context.CancelFunc)
+		}
+		s.pullCancels[centralID] = cancel
+		s.mu.Unlock()
+	}
+
 	go func() {
-		pullCtx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 		defer cancel()
+		defer func() {
+			if centralID != "" {
+				s.mu.Lock()
+				delete(s.pullCancels, centralID)
+				s.mu.Unlock()
+			}
+		}()
 		livePullImageProgress(pullCtx, image, func(next ImagePullStatus) {
 			next.ID = taskID
 			next.Image = image
 			s.updateImagePull(next)
+			// When the context is canceled the pull surfaces as a "failed"
+			// callback; route it to a canceled settle instead of failed.
+			if centralID != "" && pullCtx.Err() != nil {
+				runner.Settle(centralID, tasks.StatusCanceled, nil, "")
+				return
+			}
+			s.mirrorPullToCentral(runner, centralID, next)
 		})
+		// Belt-and-suspenders: if the loop exited on cancellation without a
+		// terminal callback, settle the central task as canceled so it doesn't
+		// linger in "running".
+		if centralID != "" && pullCtx.Err() != nil {
+			runner.Settle(centralID, tasks.StatusCanceled, nil, "")
+		}
 	}()
 	return task, nil
+}
+
+// mirrorPullToCentral pushes an ImagePullStatus update onto the adopted central
+// task: progress while running, terminal Settle on success/failure.
+func (s *DevService) mirrorPullToCentral(runner *tasks.Manager, centralID string, next ImagePullStatus) {
+	if runner == nil || centralID == "" {
+		return
+	}
+	switch next.Status {
+	case "succeeded", "success", "completed":
+		result, _ := json.Marshal(map[string]string{"image": next.Image})
+		runner.Settle(centralID, tasks.StatusSucceeded, result, "")
+	case "failed", "error":
+		msg := next.Error
+		if msg == "" {
+			msg = next.Message
+		}
+		runner.Settle(centralID, tasks.StatusFailed, nil, msg)
+	default:
+		runner.Update(centralID, next.Progress, next.Message)
+	}
 }
 
 func (s *DevService) ImagePulls(ctx context.Context) ([]ImagePullStatus, error) {

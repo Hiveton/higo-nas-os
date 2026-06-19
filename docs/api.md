@@ -160,11 +160,18 @@ Use first because it removes global dependency on `web-pc/src/data/higoos.ts`.
 
 | API | Purpose |
 | --- | --- |
-| `GET /api/v1/app-center/apps` | App catalog, versions, install/runtime state, ports, risk, and resource profile; dev mutations are persisted. |
-| `POST /api/v1/app-center/apps/{id}/install` | Install an app and start its service. |
-| `POST /api/v1/app-center/apps/{id}/update` | Update an app to the latest version. |
-| `POST /api/v1/app-center/apps/{id}/start` | Start an installed app. |
-| `POST /api/v1/app-center/apps/{id}/stop` | Stop a running app. |
+| `GET /api/v1/app-center/apps` | Installed + installable apps with install/runtime state, ports, risk, web entry, and resources. |
+| `GET /api/v1/app-center/catalog` | Installable app manifests across builtin / local / remote sources. |
+| `GET /api/v1/app-center/catalog/{id}` | One catalog entry including its full manifest. |
+| `POST /api/v1/app-center/catalog/refresh` | Re-fetch the configured remote registries. |
+| `GET`/`POST /api/v1/app-center/registries` | List / add a remote registry (`{name,url}`). |
+| `DELETE /api/v1/app-center/registries/{name}` | Remove a remote registry. |
+| `POST /api/v1/app-center/apps/{id}/{action}` | **Preview** a governed action (`install`/`update`/`start`/`stop`/`uninstall`): returns `confirmationId` + impact, no side effect. Optional body `{config}`. |
+| `POST /api/v1/app-center/apps/{id}/{action}/confirm` | **Execute** the previewed action; body `{confirmationId, actor, config?}`. Returns `{app, auditId, result, message}`. |
+| `GET /api/v1/app-center/audit` | App-center audit log of confirmed actions. |
+| `POST /api/v1/app-center/audit/{id}/rollback` | Reverse a previously-confirmed action. |
+
+Apps are described by a declarative `manifest.json` (see `docs/appcenter-sdk.md`). Third-party packages are dropped under `$HIGO_STATE_DIR/appcenter/apps/<id>/manifest.json` or served from a remote registry — no control-plane code change required.
 
 ## Security Center: `web-pc/src/components/windows/SecurityCenterWindow.vue`
 
@@ -220,3 +227,20 @@ Use first because it removes global dependency on `web-pc/src/data/higoos.ts`.
 | `POST /api/v1/remote/devices/{id}/unbind` | Unbind device. |
 | `GET /api/v1/remote/login-alerts` | Login alert history. |
 | `POST /api/v1/remote/share-scan` | Scan share links against public access and sensitivity rules. |
+
+## Sharing protocols (SMB / NFS / WebDAV / DLNA)
+
+Real host integration on Linux (Samba/NFS/minidlna/Apache-WebDAV), devstub on Mac. All mutations are governed (preview → confirm → rollback); see `security-governance.md`.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/protocols` | List protocols with live running/installed state. |
+| `GET /api/v1/protocols/{key}` | Single protocol by key (`smb`/`nfs`/`webdav`/`dlna`). |
+| `GET /api/v1/protocols/{key}/shares` | Shares for one protocol. |
+| `GET /api/v1/protocols/shares` | All shares across protocols. |
+| `POST /api/v1/protocols/{key}/enable/{preview\|confirm}` | Preview/confirm enabling a protocol. |
+| `POST /api/v1/protocols/{key}/disable/{preview\|confirm}` | Preview/confirm disabling a protocol. |
+| `POST /api/v1/protocols/{key}/shares/{preview\|confirm}` | Preview/confirm creating a shared directory. |
+| `POST /api/v1/protocols/shares/{id}/delete/{preview\|confirm}` | Preview/confirm removing a share. |
+| `GET /api/v1/protocols/audit` | Governance audit log (newest first). |
+| `POST /api/v1/protocols/audit/{id}/rollback` | Roll back a confirmed change. |

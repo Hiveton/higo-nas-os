@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1",
+  "id": "home-assistant",
+  "name": "Home Assistant",
+  "version": "2026.5.0",
+  "category": "智能家居",
+  "description": "家庭自动化中枢，已接入本地 MQTT 与设备监控。",
+  "author": { "name": "Home Assistant", "url": "https://www.home-assistant.io" },
+  "risk": "low",
+  "source": "official",
+  "containers": [
+    {
+      "name": "home-assistant",
+      "image": "ghcr.io/home-assistant/home-assistant:stable",
+      "ports": [{ "container": 8123, "protocol": "tcp" }],
+      "volumes": [{ "name": "ha-config", "path": "/config" }],
+      "resources": { "cpu": 1, "memoryMb": 1024 },
+      "restartPolicy": "unless-stopped"
+    }
+  ],
+  "webEntry": { "container": "home-assistant", "port": 8123, "path": "/", "display": "embed" },
+  "permissions": ["network.host", "devices.read"]
+}

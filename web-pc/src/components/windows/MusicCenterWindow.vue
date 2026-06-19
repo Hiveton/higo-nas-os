@@ -499,7 +499,7 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
 
       <template v-if="isPlayerFocusMode">
         <section class="music-player">
-          <button class="music-player__mobile-back" type="button" @click="closePlayer"><ChevronLeft :size="20" /></button>
+          <button class="music-player__mobile-back" type="button" aria-label="返回列表" @click="closePlayer"><ChevronLeft :size="20" /></button>
           <div class="music-player__mobile-tabs">
             <button type="button" :class="{ active: mobilePlayerPane === 'cover' }" @click="mobilePlayerPane = 'cover'">歌曲</button>
             <button type="button" :class="{ active: mobilePlayerPane === 'lyrics' }" @click="mobilePlayerPane = 'lyrics'">歌词</button>
@@ -508,7 +508,7 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
 
           <section class="music-player__main" :class="{ 'music-player__main--lyrics': mobilePlayerPane === 'lyrics' }">
             <div class="music-player__cover-wrap" @click="toggleMobileCoverLyrics">
-              <button class="music-player__cover" type="button">
+              <button class="music-player__cover" type="button" aria-label="切换封面与歌词">
                 <img v-if="coverUrl(selectedTrack)" :src="coverUrl(selectedTrack)" :alt="selectedTrack?.album ?? '专辑封面'" />
                 <Disc3 v-else :size="64" />
               </button>
@@ -526,9 +526,9 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
               </div>
               <p class="music-player__desc">我梦中见过你 因为我喜欢你<br />与你一起 而承担的风雨</p>
               <div class="music-player__actions">
-                <button type="button"><Heart :size="16" /></button>
-                <button type="button">+</button>
-                <button type="button"><MoreHorizontal :size="17" /></button>
+                <button type="button" aria-label="收藏"><Heart :size="16" /></button>
+                <button type="button" aria-label="添加到歌单">+</button>
+                <button type="button" aria-label="更多操作"><MoreHorizontal :size="17" /></button>
               </div>
             </div>
 
@@ -627,7 +627,7 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
 
     <section class="music-mini">
       <canvas ref="miniSpectrumRef" class="music-mini__spectrum" aria-hidden="true" />
-      <button class="music-mini__cover" type="button" @click="openPlayer">
+      <button class="music-mini__cover" type="button" aria-label="打开播放器" @click="openPlayer">
         <img v-if="coverUrl(selectedTrack)" :src="coverUrl(selectedTrack)" :alt="selectedTrack?.album ?? '专辑封面'" />
         <Disc3 v-else :size="28" />
       </button>
@@ -641,8 +641,8 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
           <span>96kHz</span>
         </div>
       </div>
-      <button type="button"><Heart :size="17" /></button>
-      <button type="button"><MoreHorizontal :size="18" /></button>
+      <button type="button" aria-label="收藏"><Heart :size="17" /></button>
+      <button type="button" aria-label="更多操作"><MoreHorizontal :size="18" /></button>
       <div class="music-mini__progress">
         <span>{{ formatTime(currentTime) }}</span>
         <input
@@ -661,12 +661,12 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
           <Shuffle v-if="playMode === 'shuffle'" :size="17" />
           <Repeat v-else :size="17" />
         </button>
-        <button type="button" @click="playPrevious"><SkipBack :size="18" /></button>
-        <button class="music-mini__play" type="button" @click="togglePlay">
+        <button type="button" aria-label="上一首" @click="playPrevious"><SkipBack :size="18" /></button>
+        <button class="music-mini__play" type="button" :aria-label="isPlaying ? '暂停' : '播放'" @click="togglePlay">
           <Pause v-if="isPlaying" :size="22" />
           <Play v-else :size="22" />
         </button>
-        <button type="button" @click="playNext"><SkipForward :size="18" /></button>
+        <button type="button" aria-label="下一首" @click="playNext"><SkipForward :size="18" /></button>
       </div>
       <div class="music-mini__side">
         <Volume2 :size="16" />

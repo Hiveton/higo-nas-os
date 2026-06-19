@@ -2,6 +2,7 @@ package downloads
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -20,7 +21,10 @@ import (
 	"time"
 
 	"higoos/server-go/internal/state"
+	"higoos/server-go/internal/tasks"
 )
+
+const downloadTaskKind = "downloads.fetch"
 
 var (
 	ErrTaskNotFound     = errors.New("download task not found")
@@ -37,6 +41,9 @@ type Service struct {
 	downloadDir string
 	active      map[int]context.CancelFunc
 	client      *http.Client
+
+	runner     *tasks.Manager
+	centralIDs map[int]string // download task id -> central task id
 }
 
 type snapshot struct {
@@ -129,6 +136,64 @@ func newService(stateDir string, downloadDir string) *Service {
 		downloadDir: downloadDir,
 		active:      make(map[int]context.CancelFunc),
 		client:      &http.Client{},
+		centralIDs:  make(map[int]string),
+	}
+}
+
+// AttachTaskRunner wires the shared task runtime so download tasks are mirrored
+// into the central task ledger (kind "downloads.fetch") and can be canceled
+// centrally. Pause/resume stay download-local and are not routed via Cancel.
+// A nil runner preserves the legacy standalone behavior.
+func (s *Service) AttachTaskRunner(m *tasks.Manager) {
+	if m == nil {
+		return
+	}
+	s.mu.Lock()
+	s.runner = m
+	if s.centralIDs == nil {
+		s.centralIDs = make(map[int]string)
+	}
+	s.mu.Unlock()
+	m.RegisterCanceler(downloadTaskKind, s.cancelDownload)
+}
+
+// cancelDownload maps a central task id back to the download and removes it,
+// which cancels any in-flight transfer and drops the task record.
+func (s *Service) cancelDownload(centralID string) error {
+	s.mu.RLock()
+	downloadID := -1
+	for id, cid := range s.centralIDs {
+		if cid == centralID {
+			downloadID = id
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if downloadID < 0 {
+		return nil
+	}
+	_, err := s.DeleteTask(context.Background(), downloadID, DeleteTaskOptions{})
+	return err
+}
+
+// mirrorToCentral pushes a download task's current progress/status onto its
+// adopted central task. Terminal download states settle the central record.
+func (s *Service) mirrorToCentral(task DownloadTask) {
+	s.mu.RLock()
+	runner := s.runner
+	centralID := s.centralIDs[task.ID]
+	s.mu.RUnlock()
+	if runner == nil || centralID == "" {
+		return
+	}
+	switch task.Status {
+	case StatusCompleted:
+		result, _ := json.Marshal(map[string]any{"name": task.Name, "filePath": task.FilePath})
+		runner.Settle(centralID, tasks.StatusSucceeded, result, "")
+	case StatusFailed:
+		runner.Settle(centralID, tasks.StatusFailed, nil, task.Error)
+	default:
+		runner.Update(centralID, task.Progress, task.Handling)
 	}
 }
 
@@ -173,8 +238,22 @@ func (s *Service) CreateTask(ctx context.Context, request CreateTaskRequest) (Do
 		s.mu.Unlock()
 		return DownloadTask{}, err
 	}
+	runner := s.runner
 	task = cloneTask(task)
 	s.mu.Unlock()
+
+	// Mirror into the central task runtime: a download is an externally-driven
+	// (adopted) task advanced by the poll/refresh loop and settled on terminus.
+	if runner != nil {
+		if adopted, err := runner.Adopt(downloadTaskKind, map[string]any{"name": task.Name, "link": task.Link}); err == nil {
+			s.mu.Lock()
+			if s.centralIDs == nil {
+				s.centralIDs = make(map[int]string)
+			}
+			s.centralIDs[task.ID] = adopted.ID
+			s.mu.Unlock()
+		}
+	}
 
 	s.startTask(ctx, task.ID)
 	return task, nil
@@ -246,6 +325,14 @@ func (s *Service) ArchiveTask(_ context.Context, id int) (TaskActionResult, erro
 	task.Archived = true
 	task.Handling = "已归档到文件管家 " + task.ArchiveRule.TargetPath
 
+	// Archiving completes the task; settle the mirrored central record.
+	if runner := s.runner; runner != nil {
+		if centralID := s.centralIDs[id]; centralID != "" {
+			result, _ := json.Marshal(map[string]any{"name": task.Name, "filePath": task.FilePath})
+			defer runner.Settle(centralID, tasks.StatusSucceeded, result, "")
+		}
+	}
+
 	return TaskActionResult{
 		Task:     cloneTask(*task),
 		Message:  "已归档：" + task.Name,
@@ -261,6 +348,14 @@ func (s *Service) DeleteTask(_ context.Context, id int, options DeleteTaskOption
 	if idx < 0 {
 		return TaskActionResult{}, ErrTaskNotFound
 	}
+	// Settle and drop the mirrored central task: deleting a download is a
+	// cancellation from the runtime's point of view (a no-op once terminal).
+	if runner := s.runner; runner != nil {
+		if centralID := s.centralIDs[id]; centralID != "" {
+			defer runner.Settle(centralID, tasks.StatusCanceled, nil, "")
+		}
+	}
+	delete(s.centralIDs, id)
 	if cancel := s.active[id]; cancel != nil {
 		cancel()
 		delete(s.active, id)
@@ -705,13 +800,18 @@ func (s *Service) failTask(id int, err error) {
 
 func (s *Service) updateTask(id int, mutate func(*DownloadTask)) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	idx := s.findTaskIndex(id)
 	if idx < 0 {
+		s.mu.Unlock()
 		return
 	}
 	mutate(&s.tasks[idx])
 	_ = s.saveLocked()
+	snapshot := cloneTask(s.tasks[idx])
+	s.mu.Unlock()
+	// Mirror the new progress/status onto the adopted central task outside the
+	// lock so a slow runtime never stalls the download loop.
+	s.mirrorToCentral(snapshot)
 }
 
 func (s *Service) deleteTaskFilesLocked(task DownloadTask) (int, error) {

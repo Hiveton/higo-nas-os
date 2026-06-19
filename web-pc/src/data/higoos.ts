@@ -4,13 +4,10 @@ import {
   Bell,
   Bot,
   CheckCircle2,
-  CircleAlert,
   Database,
-  FileSearch,
   FolderClosed,
   HardDrive,
   ShieldCheck,
-  Sparkles,
   Workflow,
 } from 'lucide-vue-next';
 
@@ -30,6 +27,7 @@ import securityCenterIcon from '../assets/higoos-dock/icons/11-security-center.p
 import deviceMonitorIcon from '../assets/higoos-dock/icons/12-device-monitor.png';
 import systemSettingsIcon from '../assets/higoos-dock/icons/13-system-settings.png';
 import remoteAccessIcon from '../assets/higoos-dock/icons/14-remote-access.png';
+import taskCenterIcon from '../assets/higoos-dock/icons/17-task-center.svg';
 
 export type DockApp = {
   id: string;
@@ -71,13 +69,6 @@ export type StewardSuggestion = {
   action: string;
 };
 
-export type AgentTemplate = {
-  name: string;
-  desc: string;
-  tools: string[];
-  risk: string;
-};
-
 export const dockApps: DockApp[] = [
   { id: 'file-manager', name: '文件管理', icon: fileManagerIcon, badge: 2 },
   { id: 'storage-monitor', name: '存储管理', icon: storageManagerIcon },
@@ -93,6 +84,7 @@ export const dockApps: DockApp[] = [
   { id: 'docker', name: 'Docker', icon: dockerIcon },
   { id: 'security-center', name: '安全中心', icon: securityCenterIcon, badge: 3 },
   { id: 'device-monitor', name: '设备监控', icon: deviceMonitorIcon },
+  { id: 'task-center', name: '任务中心', icon: taskCenterIcon },
   { id: 'system-settings', name: '系统设置', icon: systemSettingsIcon },
   { id: 'remote-access', name: '远程访问', icon: remoteAccessIcon },
   { id: 'file-protocols', name: '共享协议', icon: remoteAccessIcon },
@@ -130,7 +122,7 @@ export const desktopWindows: DesktopWindowConfig[] = [
   {
     id: 'agent-workbench',
     title: 'Agent 工作台',
-    subtitle: '工作流 / 工具权限 / 执行确认',
+    subtitle: '专业预设 / 实时运行 / 工具能力',
     status: '需要确认',
     statusTone: 'blue',
     x: 548,
@@ -260,6 +252,18 @@ export const desktopWindows: DesktopWindowConfig[] = [
     z: 13,
   },
   {
+    id: 'task-center',
+    title: '任务中心',
+    subtitle: '下载 / 转码 / 备份 / 扫描',
+    status: '实时',
+    statusTone: 'blue',
+    x: 196,
+    y: 104,
+    width: 820,
+    height: 560,
+    z: 13,
+  },
+  {
     id: 'system-settings',
     title: '系统设置',
     subtitle: '网络 / 模型 / 隐私 / 更新',
@@ -287,12 +291,12 @@ export const desktopWindows: DesktopWindowConfig[] = [
     id: 'file-protocols',
     title: '文件共享协议',
     subtitle: 'SMB / NFS / WebDAV / DLNA',
-    status: '界面就绪',
-    statusTone: 'blue',
+    status: '已接入',
+    statusTone: 'green',
     x: 260,
     y: 118,
-    width: 720,
-    height: 500,
+    width: 760,
+    height: 560,
     z: 16,
   },
   {
@@ -334,13 +338,13 @@ export const desktopWindows: DesktopWindowConfig[] = [
   {
     id: 'hardware-center',
     title: '硬件中心',
-    subtitle: '官方硬件 / 兼容性 / 刷机资料',
-    status: '资料入口',
-    statusTone: 'blue',
+    subtitle: '硬件清单 / 实时指标 / 硬盘健康',
+    status: '实时',
+    statusTone: 'green',
     x: 230,
     y: 110,
-    width: 700,
-    height: 480,
+    width: 920,
+    height: 620,
     z: 20,
   },
   {
@@ -432,33 +436,6 @@ export const auditEntries = [
   '昨天 18:36 撤销 12 个文件重命名，已恢复原路径',
 ];
 
-export const agentTemplates: AgentTemplate[] = [
-  {
-    name: '家庭资料助手',
-    desc: '整理保修单、说明书、证件和医疗资料，提供问答与提醒。',
-    tools: ['文件搜索', '摘要', '提醒', '分享'],
-    risk: '中风险',
-  },
-  {
-    name: '项目资料 Agent',
-    desc: '汇总项目文件、合同、会议纪要和素材，生成资料包。',
-    tools: ['语义搜索', '文件夹摘要', '打包', '权限检查'],
-    risk: '中风险',
-  },
-  {
-    name: '设备运维 Agent',
-    desc: '监控硬盘、备份、Docker 和网络状态，异常时建议处理。',
-    tools: ['设备监控', '备份检查', '通知', '日志读取'],
-    risk: '低风险',
-  },
-];
-
-export const workflowNodes = [
-  { label: '触发', value: '新文件进入下载目录', icon: FileSearch },
-  { label: '理解', value: 'OCR + 发票识别 + 重复检测', icon: Sparkles },
-  { label: '确认', value: '中风险，等待用户确认', icon: CircleAlert },
-  { label: '执行', value: '重命名、归档、写入审计', icon: ArchiveRestore },
-];
 
 export const assistantMessages = [
   {

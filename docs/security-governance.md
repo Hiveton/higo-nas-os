@@ -137,3 +137,23 @@ Each model call records provider, model, policy decision, data sensitivity level
 - Risk queue: `GET /api/v1/security/risk-actions`, confirm/block endpoints.
 - Shares: `GET /api/v1/shares`, `DELETE /api/v1/shares/{id}`.
 - Audit and rollback: `GET /api/v1/security/audit`, `POST /api/v1/security/audit/{id}/rollback`.
+
+## Sharing protocols (SMB / NFS / WebDAV / DLNA)
+
+The `protocols` domain manages real host sharing services and is fully governed. Every mutation is medium/high risk and follows the preview → confirm → rollback pattern (mirrors steward/security): a `*/preview` endpoint returns a `confirmationId` + impact summary with **no side effects**; the matching `*/confirm` endpoint applies the change, runs the host adapter, and writes an append-only audit entry carrying a rollback hint.
+
+Risk classification:
+
+- Enable / disable a protocol → **medium**.
+- Create a share at `account` / `readonly` access → **medium**.
+- Create a share at `public` / `password` access → **high** (more open exposure; impact summary warns to confirm no sensitive data).
+- Delete a share → **medium** (reversible — rollback re-adds the directory).
+
+`web-pc/src/components/windows/ProtocolsWindow.vue` maps to:
+
+- List + live state: `GET /api/v1/protocols`, `GET /api/v1/protocols/{key}`.
+- Enable/disable: `POST /api/v1/protocols/{key}/{enable|disable}/{preview|confirm}`.
+- Shares: `GET /api/v1/protocols/{key}/shares`, `POST /api/v1/protocols/{key}/shares/{preview|confirm}`, `POST /api/v1/protocols/shares/{id}/delete/{preview|confirm}`.
+- Audit + rollback: `GET /api/v1/protocols/audit`, `POST /api/v1/protocols/audit/{id}/rollback`.
+
+Host-config safety: the Linux adapter only ever writes files HiGoOS owns (`smb.conf.d/higoos.conf` via `include=`, `exports.d/*.exports`, a delimited block in `minidlna.conf`, a dedicated Apache WebDAV config) — the user's primary `smb.conf` / `exports` are never rewritten.

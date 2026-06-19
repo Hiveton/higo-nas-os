@@ -92,6 +92,15 @@ The 2026-06-15 UI layout deployment to `192.168.81.3` verified these packages wi
 - `pigz` `2.8-1`: parallel gzip helper installed with Docker image layer handling.
 - `ubuntu-fan` `0.12.16+24.04.1`: Ubuntu FAN networking support installed with Docker.
 
+## Sharing-protocol packages (protocols domain)
+
+The `protocols` domain (SMB / NFS / WebDAV / DLNA) drives real host services. `deploy.sh` installs these packages but leaves the services **disabled** — the protocols domain enables each on-demand through the governance confirm flow:
+
+- `samba` + `samba-common-bin`: provides `smbd`/`nmbd`/`smbcontrol`. HiGoOS owns `/etc/samba/smb.conf.d/higoos.conf`, referenced once via `include =` from the user's `smb.conf` (which is otherwise never rewritten).
+- `nfs-kernel-server`: provides `exportfs`. HiGoOS writes the drop-in `/etc/exports.d/higoos.exports`, never `/etc/exports`.
+- `minidlna`: DLNA media server. HiGoOS edits a delimited managed block inside `/etc/minidlna.conf`; lines outside the block are preserved.
+- `apache2` + `apache2-utils`: backs WebDAV via a dedicated `higoos-webdav.service` (Apache on port 8081) reading `/etc/higoos/webdav/higoos-dav.conf`.
+
 The deployment also creates:
 
 - `/opt/higoos/bin/higo-api`
@@ -103,5 +112,7 @@ The deployment also creates:
 - `/var/lib/higoos/state`
 - `/etc/systemd/system/higo-api.service`
 - `/etc/systemd/system/higo-worker.service`
+- `/etc/systemd/system/higoos-webdav.service` + `/etc/higoos/webdav/higoos-webdav.conf`
+- `/etc/samba/smb.conf.d/`, `/etc/exports.d/`, `/etc/higoos/webdav/` (HiGoOS-managed protocol config roots)
 
 `higo-api.service` now runs as `root` because storage-space creation performs controlled disk formatting, `/etc/fstab` updates, ZFS pool creation, and mount operations. The backend still rejects system disks, mounted disks, unsupported modes, and missing confirmation phrases before invoking formatting tools.

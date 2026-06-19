@@ -11,12 +11,12 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"higoos/server-go/internal/accounts"
-	"higoos/server-go/internal/agents"
-	"higoos/server-go/internal/db"
+	"higoos/server-go/internal/activity"
 	"higoos/server-go/internal/apiclient"
 	"higoos/server-go/internal/appcenter"
 	"higoos/server-go/internal/assistant"
 	"higoos/server-go/internal/backups"
+	"higoos/server-go/internal/db"
 	"higoos/server-go/internal/devstub"
 	hdocker "higoos/server-go/internal/docker"
 	"higoos/server-go/internal/downloads"
@@ -26,9 +26,11 @@ import (
 	higomcp "higoos/server-go/internal/mcp"
 	"higoos/server-go/internal/mcpclient"
 	"higoos/server-go/internal/media"
+	"higoos/server-go/internal/hardware"
 	"higoos/server-go/internal/monitoring"
 	"higoos/server-go/internal/music"
 	"higoos/server-go/internal/platform"
+	"higoos/server-go/internal/protocols"
 	"higoos/server-go/internal/remote"
 	"higoos/server-go/internal/search"
 	"higoos/server-go/internal/security"
@@ -45,6 +47,7 @@ type Dependencies struct {
 	Dev        *devstub.Store
 	Files      *files.Service
 	Monitoring *monitoring.Service
+	Hardware   *hardware.Service
 	Settings   *settings.Store
 	LLM        *llm.Store
 	Storage    *storage.Service
@@ -57,10 +60,11 @@ type Dependencies struct {
 	Music      *music.Service
 	Video      *video.Service
 	Assistant  *assistant.Service
-	Agents     *agents.Service
 	Accounts   *accounts.Service
 	Steward    *steward.Service
 	Security   *security.Service
+	Activity   *activity.Service
+	Protocols  *protocols.Service
 	Tasks      *tasks.Manager
 	Logger     *slog.Logger
 }
@@ -106,6 +110,10 @@ func NewRouter(deps Dependencies) http.Handler {
 			logger.Warn("monitoring state unavailable", slog.Any("error", err))
 			monitoringService = monitoring.NewService(nil)
 		}
+	}
+	hardwareService := deps.Hardware
+	if hardwareService == nil {
+		hardwareService = hardware.NewService(nil)
 	}
 	settingsStore := deps.Settings
 	if settingsStore == nil {
@@ -221,15 +229,6 @@ func NewRouter(deps Dependencies) http.Handler {
 	}
 	assistantService.WithLLM(llmStore, llm.NewClient)
 
-	agentsService := deps.Agents
-	if agentsService == nil {
-		var err error
-		agentsService, err = agents.NewServiceWithStateDir(cfg.StateDir)
-		if err != nil {
-			logger.Warn("agents state unavailable", slog.Any("error", err))
-			agentsService = agents.NewService()
-		}
-	}
 	accountsService := deps.Accounts
 	if accountsService == nil {
 		var err error
@@ -257,6 +256,24 @@ func NewRouter(deps Dependencies) http.Handler {
 			securityService = security.NewService()
 		}
 	}
+	activityService := deps.Activity
+	if activityService == nil {
+		var err error
+		activityService, err = activity.NewServiceWithStateDir(cfg.StateDir)
+		if err != nil {
+			logger.Warn("activity state unavailable", slog.Any("error", err))
+			activityService = activity.NewService()
+		}
+	}
+	protocolsService := deps.Protocols
+	if protocolsService == nil {
+		var err error
+		protocolsService, err = protocols.NewServiceWithStateDir(nil, cfg.StateDir)
+		if err != nil {
+			logger.Warn("protocols state unavailable", slog.Any("error", err))
+			protocolsService = protocols.NewService(nil)
+		}
+	}
 
 	taskManager := deps.Tasks
 	if taskManager == nil {
@@ -272,6 +289,8 @@ func NewRouter(deps Dependencies) http.Handler {
 	mediaService.AttachTaskRunner(taskManager)
 	backupService.AttachTaskRunner(taskManager)
 	videoService.AttachTaskRunner(taskManager)
+	dockerService.AttachTaskRunner(taskManager)
+	downloadsService.AttachTaskRunner(taskManager)
 	appCenterService.AttachDocker(dockerService)
 	if fileService != nil {
 		stewardService.AttachFiles(fileService)
@@ -283,6 +302,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		dev:        dev,
 		files:      fileService,
 		monitoring: monitoringService,
+		hardware:   hardwareService,
 		settings:   settingsStore,
 		llm:        llmStore,
 		storage:    storageService,
@@ -295,10 +315,11 @@ func NewRouter(deps Dependencies) http.Handler {
 		music:      musicService,
 		video:      videoService,
 		assistant:  assistantService,
-		agents:     agentsService,
 		accounts:   accountsService,
 		steward:    stewardService,
 		security:   securityService,
+		activity:   activityService,
+		protocols:  protocolsService,
 		tasks:      taskManager,
 		index:      index.New(deps.DB, llmStore),
 		search:     search.New(deps.DB, llmStore),
@@ -332,6 +353,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/monitoring/alerts", api.monitoringAlerts)
 	mux.HandleFunc("/api/v1/monitoring/alerts/", api.monitoringAlertByID)
 	mux.HandleFunc("/api/v1/monitoring/diagnostics", api.monitoringDiagnostics)
+	mux.HandleFunc("/api/v1/hardware/inventory", api.hardwareInventory)
 	mux.HandleFunc("/api/v1/settings", api.settingsRoot)
 	mux.HandleFunc("/api/v1/settings/defaults", api.settingsDefaults)
 	mux.HandleFunc("/api/v1/storage/pools", api.storagePools)
@@ -347,6 +369,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/tasks", api.tasksList)
 	mux.HandleFunc("/api/v1/tasks/stream", api.tasksStream)
 	mux.HandleFunc("/api/v1/tasks/", api.taskByID)
+	mux.HandleFunc("/api/v1/activity", api.activityLog)
 	mux.HandleFunc("/api/v1/downloads/tasks", api.downloadTasks)
 	mux.HandleFunc("/api/v1/downloads/tasks/", api.downloadTaskByID)
 	mux.HandleFunc("/api/v1/downloads/speed-profiles", api.downloadSpeedProfiles)
@@ -369,6 +392,12 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/backups/jobs/", api.backupJobByID)
 	mux.HandleFunc("/api/v1/app-center/apps", api.appCenterApps)
 	mux.HandleFunc("/api/v1/app-center/apps/", api.appCenterAppByID)
+	mux.HandleFunc("/api/v1/app-center/catalog", api.appCenterCatalog)
+	mux.HandleFunc("/api/v1/app-center/catalog/", api.appCenterCatalogByID)
+	mux.HandleFunc("/api/v1/app-center/registries", api.appCenterRegistries)
+	mux.HandleFunc("/api/v1/app-center/registries/", api.appCenterRegistryByName)
+	mux.HandleFunc("/api/v1/app-center/audit", api.appCenterAudit)
+	mux.HandleFunc("/api/v1/app-center/audit/", api.appCenterAuditByID)
 	mux.HandleFunc("/api/v1/remote/status", api.remoteStatus)
 	mux.HandleFunc("/api/v1/remote/channel/start", api.remoteStartChannel)
 	mux.HandleFunc("/api/v1/remote/channel/stop", api.remoteStopChannel)
@@ -418,11 +447,10 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/assistant/threads", api.assistantThreads)
 	mux.HandleFunc("/api/v1/assistant/threads/", api.assistantThreadByID)
 	mux.HandleFunc("/api/v1/assistant/actions/", api.assistantActionByID)
+	mux.HandleFunc("/api/v1/assistant/presets", api.assistantPresets)
+	mux.HandleFunc("/api/v1/assistant/tools", api.assistantTools)
 	mux.HandleFunc("/api/v1/ai/providers", api.aiProviders)
 	mux.HandleFunc("/api/v1/ai/providers/", api.aiProviderByID)
-	mux.HandleFunc("/api/v1/agents/templates", api.agentTemplates)
-	mux.HandleFunc("/api/v1/agents", api.agentsRoot)
-	mux.HandleFunc("/api/v1/agents/", api.agentByID)
 	mux.HandleFunc("/api/v1/accounts/summary", api.accountsSummary)
 	mux.HandleFunc("/api/v1/accounts/users", api.accountUsers)
 	mux.HandleFunc("/api/v1/accounts/users/", api.accountUserByID)
@@ -430,9 +458,6 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/accounts/groups/", api.accountGroupByID)
 	mux.HandleFunc("/api/v1/accounts/grants", api.accountGrants)
 	mux.HandleFunc("/api/v1/accounts/grants/", api.accountGrantByID)
-	mux.HandleFunc("/api/v1/workflows/preview", api.workflowPreview)
-	mux.HandleFunc("/api/v1/workflows/runs", api.workflowRuns)
-	mux.HandleFunc("/api/v1/workflows/runs/", api.workflowRunByID)
 	mux.HandleFunc("/api/v1/steward/suggestions", api.stewardSuggestions)
 	mux.HandleFunc("/api/v1/steward/suggestions/", api.stewardSuggestionByID)
 	mux.HandleFunc("/api/v1/steward/audit", api.stewardAudit)
@@ -448,6 +473,12 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/security/audit/", api.securityAuditByID)
 	mux.HandleFunc("/api/v1/shares", api.securityShares)
 	mux.HandleFunc("/api/v1/shares/", api.securityShareByID)
+	mux.HandleFunc("/api/v1/protocols", api.protocolsList)
+	mux.HandleFunc("/api/v1/protocols/shares", api.protocolsShares)
+	mux.HandleFunc("/api/v1/protocols/shares/", api.protocolShareByID)
+	mux.HandleFunc("/api/v1/protocols/audit", api.protocolsAudit)
+	mux.HandleFunc("/api/v1/protocols/audit/", api.protocolsAuditByID)
+	mux.HandleFunc("/api/v1/protocols/", api.protocolByKey)
 	// The assistant drives the FULL tool catalog through an in-process MCP client
 	// — the same Model Context Protocol surface external clients use. Read-only
 	// tools execute inline; mutating/destructive tools (per their MCP annotation)
@@ -508,6 +539,7 @@ type API struct {
 	dev        *devstub.Store
 	files      *files.Service
 	monitoring *monitoring.Service
+	hardware   *hardware.Service
 	settings   *settings.Store
 	llm        *llm.Store
 	storage    *storage.Service
@@ -520,10 +552,11 @@ type API struct {
 	music      *music.Service
 	video      *video.Service
 	assistant  *assistant.Service
-	agents     *agents.Service
 	accounts   *accounts.Service
 	steward    *steward.Service
 	security   *security.Service
+	activity   *activity.Service
+	protocols  *protocols.Service
 	tasks      *tasks.Manager
 	index      *index.Service
 	search     *search.Service

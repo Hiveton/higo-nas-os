@@ -41,7 +41,8 @@ INSTALL_WEB="/opt/higoos/web"
 HEALTH_URL="http://127.0.0.1:8080/healthz"
 
 RUNTIME_PKGS=(ca-certificates curl smartmontools util-linux e2fsprogs \
-  btrfs-progs lm-sensors rsync ffmpeg aria2 docker.io docker-compose-v2)
+  btrfs-progs lm-sensors rsync ffmpeg aria2 docker.io docker-compose-v2 \
+  samba samba-common-bin nfs-kernel-server minidlna apache2 apache2-utils)
 
 if [[ -z "${SSH_PASS:-}" ]]; then
   echo "ERROR: SSH_PASS env var is required (ssh/sudo password)." >&2
@@ -107,6 +108,7 @@ if [[ "$SKIP_WEB" != "1" ]]; then
 fi
 sshpass -e rsync -az -e "ssh ${SSH_OPTS[*]}" \
   "$DEPLOY_DIR/higo-api.service" "$DEPLOY_DIR/higo-worker.service" \
+  "$DEPLOY_DIR/higoos-webdav.service" "$DEPLOY_DIR/higoos-webdav.conf" \
   "$DEPLOY_DIR/server.env" "$SSH_USER@$HOST:$REMOTE_STAGE/"
 
 # --- 4. runtime packages ----------------------------------------------------
@@ -137,6 +139,14 @@ rsudo "set -e
   grep -q '^HIGO_DATABASE_URL=' /etc/higoos/server.env || echo 'HIGO_DATABASE_URL=postgres://higo:higo@127.0.0.1:5433/higo?sslmode=disable' >> /etc/higoos/server.env
   install -m 0644 $REMOTE_STAGE/higo-api.service    /etc/systemd/system/higo-api.service
   install -m 0644 $REMOTE_STAGE/higo-worker.service /etc/systemd/system/higo-worker.service
+  # Sharing-protocol scaffolding. The protocols domain enables these services
+  # on-demand through the governance flow, so we install config + units but do
+  # NOT enable them here. Guarded with '|| true' so optional bits never abort
+  # the core api/worker deploy.
+  install -d /etc/samba/smb.conf.d /etc/exports.d /etc/higoos/webdav /var/lib/higoos/webdav 2>/dev/null || true
+  a2enmod dav dav_fs >/dev/null 2>&1 || true
+  install -m 0644 $REMOTE_STAGE/higoos-webdav.conf    /etc/higoos/webdav/higoos-webdav.conf 2>/dev/null || true
+  install -m 0644 $REMOTE_STAGE/higoos-webdav.service /etc/systemd/system/higoos-webdav.service 2>/dev/null || true
   systemctl daemon-reload
   systemctl enable --now higo-api higo-worker"
 

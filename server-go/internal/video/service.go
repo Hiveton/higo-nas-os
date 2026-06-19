@@ -634,7 +634,7 @@ func (s *Service) runTranscode(ctx context.Context, h *tasks.Handle) (json.RawMe
 		return nil, err
 	}
 	output := filepath.Join(outputDir, fmt.Sprintf("%s.%dp.mp4", base, height))
-	h.Progress(20, "transcoding")
+	h.Progress(20, "转码中")
 
 	args := []string{
 		"-y", "-i", payload.Source,

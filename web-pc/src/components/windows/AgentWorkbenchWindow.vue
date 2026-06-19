@@ -1,453 +1,367 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { Component } from 'vue';
-import { ArchiveRestore, CheckCircle2, CircleAlert, FileSearch, KeyRound, Play, ShieldCheck, Sparkles } from 'lucide-vue-next';
+import { Bot, Sparkles, Wrench } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
-import type { AgentTemplate, WorkflowNode } from '../../api/types';
-import { agentTemplates as seedAgentTemplates, workflowNodes as seedWorkflowNodes } from '../../data/higoos';
-import NasFeaturePanel from '../NasFeaturePanel.vue';
-import { UiButton } from '../ui';
+import type { AgentPreset, ToolCatalogEntry } from '../../api/types';
+import { createAssistantSession } from '../../stores/assistant';
+import { UiBadge, UiButton, UiEmptyState, UiSpinner } from '../ui';
+import MessageBubble from '../ai/MessageBubble.vue';
+import Composer from '../ai/Composer.vue';
 
-type LocalWorkflowNode = WorkflowNode & { icon?: Component };
+// The workbench runs its own agent session, independent of the AI Assistant
+// window's shared singleton.
+const session = createAssistantSession();
+const { messages, sending, activeId, modelLabel } = session;
 
-const agentTemplates = ref<AgentTemplate[]>(seedAgentTemplates);
-const workflowNodes = ref<LocalWorkflowNode[]>(seedWorkflowNodes);
-const selectedTools = ref<string[]>([]);
-const selectedTemplateIndex = ref(1);
-const simulationState = ref<'idle' | 'running' | 'done'>('idle');
-const executionConfirmed = ref(false);
-const loading = ref(false);
-const actionMessage = ref('Agent 工作台正在使用本地模板，后端连接后会同步工具权限和工作流执行状态。');
-const activeRunId = ref('');
-const activeConfirmationId = ref('');
+const presets = ref<AgentPreset[]>([]);
+const catalog = ref<ToolCatalogEntry[]>([]);
+const activePresetId = ref('');
+const loading = ref(true);
+const notice = ref('');
+const scrollEl = ref<HTMLElement | null>(null);
 
-const selectedTemplate = computed(() => agentTemplates.value[selectedTemplateIndex.value] ?? agentTemplates.value[0]);
-const visibleTools = computed(() => selectedTools.value.length > 0 ? selectedTools.value : selectedTemplate.value?.tools ?? []);
+const domainLabels: Record<string, string> = {
+  storage: '存储',
+  monitoring: '监控',
+  files: '文件',
+  search: '检索',
+  steward: '文件管家',
+  docker: 'Docker',
+  downloads: '下载',
+  media: '相册',
+  security: '安全',
+  backups: '备份',
+  remote: '远程',
+  music: '音乐',
+  video: '视频',
+};
 
-async function loadAgentWorkbench() {
-  loading.value = true;
-  try {
-    agentTemplates.value = await apiClient.agents.getTemplates();
-    selectedTemplateIndex.value = Math.min(selectedTemplateIndex.value, Math.max(agentTemplates.value.length - 1, 0));
-    await loadSelectedTools();
-    actionMessage.value = 'Agent 模板和工具权限已从后端同步。';
-  } catch (error) {
-    actionMessage.value = `后端暂不可用，继续使用本地模板：${error instanceof Error ? error.message : 'unknown error'}`;
-  } finally {
-    loading.value = false;
-  }
-}
+const activePreset = computed(() => presets.value.find((p) => p.id === activePresetId.value) ?? null);
 
-async function selectTemplate(index: number) {
-  selectedTemplateIndex.value = index;
-  executionConfirmed.value = false;
-  simulationState.value = 'idle';
-  activeRunId.value = '';
-  activeConfirmationId.value = '';
-  await loadSelectedTools();
-}
+const isEmpty = computed(() => messages.value.length === 0);
 
-async function loadSelectedTools() {
-  const template = selectedTemplate.value;
-  if (!template?.id) {
-    selectedTools.value = template?.tools ?? [];
-    return;
-  }
-  try {
-    const tools = await apiClient.agents.getTools(template.id);
-    selectedTools.value = tools
-      .map((tool) => typeof tool.name === 'string' ? tool.name : '')
-      .filter(Boolean);
-  } catch {
-    selectedTools.value = template.tools ?? [];
-  }
-}
-
-async function runSimulation() {
-  const template = selectedTemplate.value;
-  if (!template?.id) return;
-
-  simulationState.value = 'running';
-  executionConfirmed.value = false;
-  activeRunId.value = '';
-  activeConfirmationId.value = '';
-  const goal = `${template.name} 试运行：检查当前空间并生成可审计执行计划`;
-
-  try {
-    const preview = await apiClient.agents.previewWorkflow({
-      templateId: template.id,
-      goal,
-      scopes: ['files', 'team', 'monitoring', 'backup'],
-    });
-    workflowNodes.value = mapPreviewNodes(preview.nodes);
-    activeConfirmationId.value = typeof preview.confirmationId === 'string' ? preview.confirmationId : '';
-
-    const run = await apiClient.agents.runWorkflow({
-      templateId: template.id,
-      goal,
-      scopes: ['files', 'team', 'monitoring', 'backup'],
-    });
-    activeRunId.value = run.id;
-    activeConfirmationId.value = confirmationFromMessage(run.message) || activeConfirmationId.value;
-    simulationState.value = run.state === 'waiting_confirmation' ? 'running' : 'done';
-    executionConfirmed.value = run.state === 'completed';
-    actionMessage.value = run.message ?? `工作流状态：${run.state}`;
-  } catch (error) {
-    simulationState.value = 'idle';
-    actionMessage.value = `工作流启动失败：${error instanceof Error ? error.message : 'unknown error'}`;
-  }
-}
-
-async function confirmExecution() {
-  if (!activeRunId.value) {
-    await runSimulation();
-    return;
-  }
-  if (!activeConfirmationId.value && !executionConfirmed.value) {
-    actionMessage.value = '当前工作流没有可用确认 ID，请重新模拟执行。';
-    return;
-  }
-  try {
-    const run = await apiClient.agents.confirmWorkflowRun(activeRunId.value, {
-      confirmationId: activeConfirmationId.value,
-    });
-    executionConfirmed.value = true;
-    simulationState.value = 'done';
-    actionMessage.value = run.message ?? '工作流已确认并完成。';
-  } catch (error) {
-    actionMessage.value = `确认失败：${error instanceof Error ? error.message : 'unknown error'}`;
-  }
-}
-
-function mapPreviewNodes(nodes: unknown): LocalWorkflowNode[] {
-  if (!Array.isArray(nodes) || nodes.length === 0) return seedWorkflowNodes;
-  const icons = [FileSearch, Sparkles, CircleAlert, ArchiveRestore];
-  return nodes.map((node, index) => {
-    const row = node as WorkflowNode;
+// Tool counts per domain for the active preset's capability panel.
+const capabilities = computed(() => {
+  const preset = activePreset.value;
+  if (!preset) return [];
+  return preset.toolDomains.map((domain) => {
+    const tools = catalog.value.filter((t) => t.domain === domain);
     return {
-      id: row.id,
-      label: row.label,
-      value: row.value,
-      icon: icons[index] ?? ShieldCheck,
+      domain,
+      label: domainLabels[domain] ?? domain,
+      total: tools.length,
+      writable: tools.filter((t) => !t.readOnly).length,
     };
+  });
+});
+
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    const el = scrollEl.value;
+    if (el) el.scrollTop = el.scrollHeight;
   });
 }
 
-function confirmationFromMessage(message?: string) {
-  return message?.match(/confirmationId=([A-Za-z0-9-]+)/)?.[1] ?? '';
+async function selectPreset(preset: AgentPreset) {
+  if (sending.value) return;
+  activePresetId.value = preset.id;
+  try {
+    await session.startPreset(preset.id, preset.name);
+    notice.value = '';
+  } catch (error) {
+    notice.value = `启动失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  }
 }
 
-onMounted(loadAgentWorkbench);
+function handleSend(text: string) {
+  session.send(text).then(scrollToBottom);
+  scrollToBottom();
+}
+
+async function confirmAction(id: string) {
+  try {
+    await apiClient.assistant.confirmAction(id, {});
+  } finally {
+    if (activeId.value) await session.switchThread(activeId.value);
+  }
+}
+
+async function cancelAction(id: string) {
+  try {
+    await apiClient.assistant.cancelAction(id, {});
+  } finally {
+    if (activeId.value) await session.switchThread(activeId.value);
+  }
+}
+
+onMounted(async () => {
+  loading.value = true;
+  try {
+    const [p, c] = await Promise.all([apiClient.assistant.getPresets(), apiClient.assistant.getToolCatalog()]);
+    presets.value = p;
+    catalog.value = c;
+    if (p.length) await selectPreset(p[0]);
+  } catch (error) {
+    notice.value = `后端暂不可用：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    loading.value = false;
+  }
+});
 </script>
 
 <template>
-  <div class="agent-workbench">
-    <section class="agent-workbench__templates" aria-label="Agent 模板">
-      <header>
-        <h3>模板</h3>
-        <span>{{ loading ? '同步中' : `${agentTemplates.length} 个可用` }}</span>
-      </header>
-      <button
-        v-for="(template, index) in agentTemplates"
-        :key="template.id ?? template.name"
-        class="agent-workbench__template"
-        :class="{ 'agent-workbench__template--active': index === selectedTemplateIndex }"
-        type="button"
-        @click="selectTemplate(index)"
-      >
-        <strong>{{ template.name }}</strong>
-        <span>{{ template.desc }}</span>
-        <small>{{ template.risk }}</small>
-      </button>
-    </section>
-
-    <section class="agent-workbench__workflow" aria-label="Workflow nodes">
-      <header>
-        <h3>Workflow nodes</h3>
-        <UiButton
-          variant="soft"
-          size="sm"
-          :icon-left="Play"
-          :disabled="simulationState === 'running' && !activeConfirmationId"
-          @click="runSimulation"
+  <div class="agent-window-shell">
+    <div class="agent-window">
+      <!-- Left: presets -->
+      <aside class="agent-window__presets">
+        <h3 class="rail-title"><Bot :size="15" /> Agent 预设</h3>
+        <UiSpinner v-if="loading && !presets.length" size="md" />
+        <button
+          v-for="preset in presets"
+          :key="preset.id"
+          type="button"
+          class="preset"
+          :class="{ 'is-active': preset.id === activePresetId }"
+          :disabled="sending"
+          @click="selectPreset(preset)"
         >
-          {{ simulationState === 'running' ? '重新模拟' : '模拟执行' }}
-        </UiButton>
-      </header>
-      <div class="agent-workbench__nodes">
-        <article
-          v-for="node in workflowNodes"
-          :key="node.label"
-          class="agent-workbench__node"
-          :class="{ 'agent-workbench__node--running': simulationState !== 'idle' }"
-        >
-          <div class="agent-workbench__node-icon">
-            <component :is="node.icon" :size="17" />
-          </div>
-          <div>
-            <strong>{{ node.label }}</strong>
-            <p>{{ node.value }}</p>
-          </div>
-        </article>
-      </div>
-    </section>
+          <strong>{{ preset.name }}</strong>
+          <span>{{ preset.description }}</span>
+        </button>
+      </aside>
 
-    <section class="agent-workbench__permissions" aria-label="工具权限">
-      <header>
-        <h3><KeyRound :size="15" /> 工具权限</h3>
-        <span>{{ selectedTemplate?.risk }}</span>
-      </header>
-      <div class="agent-workbench__tools">
-        <span v-for="tool in visibleTools" :key="tool">
-          <ShieldCheck :size="13" />
-          {{ tool }}
-        </span>
-      </div>
-    </section>
+      <!-- Center: live runner -->
+      <section class="agent-window__chat">
+        <header class="chat-head">
+          <div class="chat-head__title">
+            <Sparkles :size="16" />
+            <strong>{{ activePreset?.name ?? 'Agent 工作台' }}</strong>
+          </div>
+          <UiBadge variant="dot" tone="primary">{{ modelLabel || '加载中…' }}</UiBadge>
+        </header>
 
-    <section class="agent-workbench__confirm" aria-label="执行确认">
-      <div>
-        <strong>{{ executionConfirmed ? '执行已确认' : '等待执行确认' }}</strong>
-        <p>{{ actionMessage || `${selectedTemplate?.name} 将按最小权限执行，写入审计日志；不删除原文件。` }}</p>
-      </div>
-      <UiButton :icon-left="CheckCircle2" :disabled="simulationState === 'idle' && !activeRunId" @click="confirmExecution">
-        {{ executionConfirmed ? '已确认' : '确认执行' }}
-      </UiButton>
-    </section>
-    <NasFeaturePanel class="agent-workbench__features" :modules="['vm']" />
+        <div ref="scrollEl" class="chat-scroll">
+          <UiEmptyState
+            v-if="isEmpty"
+            :icon="Bot"
+            :title="activePreset ? `与「${activePreset.name}」对话` : '选择一个 Agent 预设'"
+            :description="activePreset?.description"
+          >
+            <div v-if="activePreset" class="starters">
+              <UiButton
+                v-for="s in activePreset.starters"
+                :key="s"
+                size="sm"
+                variant="soft"
+                tone="neutral"
+                :disabled="sending"
+                @click="handleSend(s)"
+              >
+                {{ s }}
+              </UiButton>
+            </div>
+          </UiEmptyState>
+
+          <template v-else>
+            <MessageBubble
+              v-for="(m, i) in messages"
+              :key="m.id ?? i"
+              :message="m"
+              @confirm-action="confirmAction"
+              @cancel-action="cancelAction"
+            />
+          </template>
+        </div>
+
+        <footer class="chat-foot">
+          <p v-if="notice" class="chat-notice">{{ notice }}</p>
+          <Composer :sending="sending" @send="handleSend" @stop="session.stop()" />
+        </footer>
+      </section>
+
+      <!-- Right: capabilities -->
+      <aside class="agent-window__caps">
+        <h3 class="rail-title"><Wrench :size="15" /> 可用能力</h3>
+        <p class="caps-hint">该 Agent 仅能调用以下工具域（写操作需确认）。</p>
+        <div v-for="cap in capabilities" :key="cap.domain" class="cap">
+          <div class="cap__head">
+            <strong>{{ cap.label }}</strong>
+            <span>{{ cap.total }} 个工具</span>
+          </div>
+          <div class="cap__bar">
+            <UiBadge size="sm" tone="info" variant="soft">{{ cap.total - cap.writable }} 只读</UiBadge>
+            <UiBadge v-if="cap.writable" size="sm" tone="warning" variant="soft">{{ cap.writable }} 写操作</UiBadge>
+          </div>
+        </div>
+        <div class="caps-foot">
+          当前模型：{{ modelLabel || '未绑定' }}<br />
+          在「设置 → 模型策略」中管理。
+        </div>
+      </aside>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.agent-workbench {
-  display: grid;
-  grid-template-columns: minmax(190px, 210px) minmax(320px, 1fr) minmax(170px, 190px);
-  grid-template-rows: minmax(260px, 1fr) auto auto;
-  gap: 12px;
+.agent-window-shell {
   height: 100%;
   min-height: 0;
-  overflow: auto;
-  padding-right: 2px;
+  container-type: inline-size;
+  container-name: agentwin;
 }
-
-.agent-workbench__features {
-  grid-column: 1 / -1;
-  --nas-feature-min: 260px;
-
-  width: 100%;
-  min-width: 0;
-  align-self: start;
-}
-
-.agent-workbench__templates,
-.agent-workbench__workflow,
-.agent-workbench__permissions,
-.agent-workbench__confirm {
+.agent-window {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr) 230px;
+  height: 100%;
   min-height: 0;
-  background: rgba(var(--surface-rgb), 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
 }
-
-.agent-workbench header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 11px 12px;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.14);
-}
-
-.agent-workbench h3 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.agent-workbench header span {
-  color: var(--text-soft);
-  font-size: 11px;
-}
-
-.agent-workbench__templates {
-  display: grid;
-  grid-template-rows: auto repeat(3, minmax(0, 1fr));
-  overflow: hidden;
-}
-
-.agent-workbench__template {
-  display: grid;
-  gap: 4px;
-  align-content: center;
-  padding: 10px 12px;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.12);
-}
-
-.agent-workbench__template--active {
-  background: rgba(19, 136, 255, 0.08);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.agent-workbench__template strong {
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.agent-workbench__template span {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.32;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.agent-workbench__template small {
-  color: var(--accent-orange);
-  font-size: 10px;
-  font-weight: 760;
-}
-
-.agent-workbench__workflow {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-}
-
-.agent-workbench__nodes {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  min-height: 0;
-  overflow: auto;
-  padding: 12px;
-}
-
-.agent-workbench__node {
-  display: flex;
-  gap: 10px;
-  min-height: 78px;
-  padding: 12px;
-  background: rgba(var(--surface-rgb), 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.14);
-  border-radius: var(--radius-sm);
-}
-
-.agent-workbench__node--running {
-  border-color: rgba(19, 136, 255, 0.2);
-  background: rgba(var(--surface-rgb), 0.72);
-}
-
-.agent-workbench__node-icon {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  place-items: center;
-  color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
-  border-radius: var(--radius-sm);
-}
-
-.agent-workbench__node strong {
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.agent-workbench__node p {
-  margin: 5px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.agent-workbench__permissions {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-}
-
-.agent-workbench__permissions h3 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.agent-workbench__tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: start;
-  gap: 8px;
-  min-height: 0;
-  overflow: auto;
-  padding: 12px;
-}
-
-.agent-workbench__tools span {
+.rail-title {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 8px;
-  color: var(--text-muted);
-  background: rgba(var(--surface-rgb), 0.7);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 650;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
 }
 
-.agent-workbench__confirm {
-  grid-column: 1 / -1;
+.agent-window__presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.preset {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.preset:hover {
+  background: var(--surface-glass);
+}
+.preset.is-active {
+  border-color: var(--border-strong);
+  background: var(--accent-soft, var(--surface-glass));
+}
+.preset strong {
+  font-size: var(--fs-sm);
+  color: var(--text-strong);
+}
+.preset span {
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  line-height: var(--lh-snug);
+}
+
+.agent-window__chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.chat-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  background: linear-gradient(135deg, rgba(255, 246, 227, 0.82), rgba(var(--surface-rgb), 0.78));
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
 }
-
-.agent-workbench__confirm strong {
+.chat-head__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--text-strong);
-  font-size: 13px;
 }
-
-.agent-workbench__confirm p {
-  margin: 4px 0 0;
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+.starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+  margin-top: var(--space-3);
+}
+.chat-foot {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.chat-notice {
+  margin: 0 0 var(--space-2);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
-@media (max-width: 900px) {
-  .agent-workbench {
-    grid-template-columns: minmax(180px, 0.72fr) minmax(280px, 1fr);
-    grid-template-rows: minmax(240px, 1fr) auto auto auto;
-  }
-
-  .agent-workbench__permissions {
-    grid-column: 1 / -1;
-  }
-
-  .agent-workbench__nodes {
-    grid-template-columns: 1fr;
-  }
+.agent-window__caps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+.caps-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-normal);
+}
+.cap {
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-glass);
+}
+.cap__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.cap__head strong {
+  font-size: var(--fs-sm);
+  color: var(--text-strong);
+}
+.cap__head span {
+  font-size: var(--fs-2xs);
+  color: var(--text-soft);
+}
+.cap__bar {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.caps-foot {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  color: var(--text-soft);
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-snug);
 }
 
-@media (max-width: 640px) {
-  .agent-workbench {
-    display: block;
+@container agentwin (max-width: 1000px) {
+  .agent-window {
+    grid-template-columns: 190px minmax(0, 1fr);
   }
-
-  .agent-workbench__templates,
-  .agent-workbench__workflow,
-  .agent-workbench__permissions,
-  .agent-workbench__confirm,
-  .agent-workbench__features {
-    margin-bottom: 12px;
+  .agent-window__caps {
+    display: none;
+  }
+}
+@container agentwin (max-width: 680px) {
+  .agent-window {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .agent-window__presets {
+    display: none;
   }
 }
 </style>

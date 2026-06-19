@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://higoos.local/schemas/appcenter-manifest-v1.json",
+  "title": "HiGoOS App Center Manifest",
+  "description": "Declarative package format for a third-party HiGoOS app. One manifest.json describes a containerized app: its catalog metadata, container specs, optional web UI entry, requested permissions and install-time config.",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "version", "risk", "containers"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1", "description": "Manifest schema version. Must be \"1\"." },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Unique kebab-case identifier."
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1, "description": "Published catalog version (latest available)." },
+    "category": { "type": "string" },
+    "description": { "type": "string" },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "url": { "type": "string" }
+      }
+    },
+    "iconUrl": { "type": "string" },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Governance risk level. medium/high installs and all uninstalls require explicit confirmation."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["official", "community", "third-party"],
+      "default": "third-party"
+    },
+    "containers": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/container" }
+    },
+    "webEntry": { "$ref": "#/definitions/webEntry" },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capabilities the app requests; surfaced in the install impact summary."
+    },
+    "config": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/configField" },
+      "description": "Values collected from the user at install time, available to env via {{config.KEY}}."
+    }
+  },
+  "definitions": {
+    "container": {
+      "type": "object",
+      "required": ["name", "image"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "Unique container name within the app." },
+        "image": { "type": "string", "minLength": 1, "description": "Docker image reference." },
+        "ports": { "type": "array", "items": { "$ref": "#/definitions/port" } },
+        "volumes": { "type": "array", "items": { "$ref": "#/definitions/volume" } },
+        "env": { "type": "array", "items": { "$ref": "#/definitions/env" } },
+        "command": { "type": "string" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "restartPolicy": { "type": "string", "examples": ["no", "on-failure", "unless-stopped", "always"] }
+      }
+    },
+    "port": {
+      "type": "object",
+      "required": ["container"],
+      "additionalProperties": false,
+      "properties": {
+        "container": { "type": "integer", "minimum": 1 },
+        "host": { "type": "integer", "minimum": 0 },
+        "protocol": { "type": "string", "enum": ["tcp", "udp"], "default": "tcp" }
+      }
+    },
+    "volume": {
+      "type": "object",
+      "required": ["name", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Volume name; namespaced as <appId>_<name> at runtime." },
+        "path": { "type": "string", "description": "Mount path inside the container." }
+      }
+    },
+    "env": {
+      "type": "object",
+      "required": ["key", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string" },
+        "value": { "type": "string", "description": "Supports {{config.KEY}} interpolation." }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": { "type": "integer", "minimum": 0, "description": "CPU limit (cores)." },
+        "memoryMb": { "type": "integer", "minimum": 0, "description": "Memory limit (MB)." }
+      }
+    },
+    "webEntry": {
+      "type": "object",
+      "required": ["port"],
+      "additionalProperties": false,
+      "properties": {
+        "container": { "type": "string", "description": "Which container serves the UI; defaults to the first." },
+        "port": { "type": "integer", "minimum": 1 },
+        "path": { "type": "string", "default": "/" },
+        "display": { "type": "string", "enum": ["embed", "external"], "default": "embed" }
+      }
+    },
+    "configField": {
+      "type": "object",
+      "required": ["key", "label", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string" },
+        "label": { "type": "string" },
+        "type": { "type": "string", "enum": ["text", "number", "password", "boolean"] },
+        "default": { "type": "string" },
+        "required": { "type": "boolean" },
+        "secret": { "type": "boolean" }
+      }
+    }
+  }
+}

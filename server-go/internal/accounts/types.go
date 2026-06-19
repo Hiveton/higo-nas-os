@@ -106,3 +106,16 @@ type SpaceGrantRequest struct {
 	Access      SpaceAccess `json:"access"`
 	QuotaBytes  int64       `json:"quotaBytes"`
 }
+
+// LoginRequest authenticates a username/password pair.
+type LoginRequest struct {
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	RememberDevice bool   `json:"rememberDevice"`
+}
+
+// ChangePasswordRequest updates the caller's own credential.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
