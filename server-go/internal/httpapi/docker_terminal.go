@@ -65,6 +65,10 @@ func (a *API) dockerContainerTerminal(w http.ResponseWriter, r *http.Request, co
 	}()
 	go func() {
 		defer close(done)
+		// Close the websocket when the container process exits so the read loop
+		// below unblocks; otherwise it would hang on ReadMessage until the client
+		// disconnects, leaking this goroutine and the connection.
+		defer conn.Close()
 		if err := command.Wait(); err != nil && ctx.Err() == nil {
 			write(fmt.Sprintf("\n终端已断开：%s\n", err.Error()))
 			return

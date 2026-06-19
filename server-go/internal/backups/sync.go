@@ -156,11 +156,13 @@ func copyFile(src, dest string, fi os.FileInfo) error {
 		return err
 	}
 	defer in.Close()
-	tmp := dest + ".tmp"
-	out, err := os.Create(tmp)
+	// Use a unique temp file so concurrent syncs of the same job (e.g. a
+	// double-clicked Run) can't write the same scratch path and corrupt it.
+	out, err := os.CreateTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".tmp-*")
 	if err != nil {
 		return err
 	}
+	tmp := out.Name()
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
 		_ = os.Remove(tmp)
@@ -170,6 +172,13 @@ func copyFile(src, dest string, fi os.FileInfo) error {
 		_ = os.Remove(tmp)
 		return err
 	}
+	// Preserve the source file's permissions and mtime so the backup is faithful
+	// and the incremental skip-check stays accurate.
+	_ = os.Chmod(tmp, fi.Mode().Perm())
 	_ = os.Chtimes(tmp, fi.ModTime(), fi.ModTime())
-	return os.Rename(tmp, dest)
+	if err := os.Rename(tmp, dest); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }

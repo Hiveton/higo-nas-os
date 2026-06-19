@@ -48,6 +48,8 @@ import { desktopStore } from './stores/desktop';
 import { settingsStore } from './stores/settings';
 import { setLocale } from './i18n';
 import { UiToastHost, UiConfirmHost, useToast } from './components/ui';
+import { apiClient } from './api/client';
+import { assistantStore } from './stores/assistant';
 import type { DesktopApp, DesktopSession, DesktopWindowConfig } from './api/types';
 import { desktopWindows as seedDesktopWindows, dockApps as seedDockApps } from './data/higoos';
 import type { NasFeatureKey } from './data/nasFeatures';
@@ -1049,7 +1051,42 @@ function startUtilityLaunch(id: string) {
   }, 220);
 }
 
-function handleTopbarAction(action: string) {
+async function handleTopbarAction(action: string) {
+  // Global-search actions use a "<verb>:<arg>" protocol.
+  const sep = action.indexOf(':');
+  const verb = sep >= 0 ? action.slice(0, sep) : action;
+  const arg = sep >= 0 ? action.slice(sep + 1) : '';
+
+  if (verb === 'app' && arg) {
+    openApp(arg);
+    return;
+  }
+  if (verb === 'ask' && arg) {
+    openApp('ai-assistant');
+    void assistantStore.ask(arg);
+    return;
+  }
+  if (action === 'reindex') {
+    showToast('正在重新索引文件…');
+    try {
+      const res = (await apiClient.ai.reindexFiles()) as { indexed?: number };
+      showToast(`索引完成：已处理 ${res.indexed ?? 0} 个文件。`);
+    } catch (error) {
+      showToast(`索引失败：${error instanceof Error ? error.message : '未知错误'}`);
+    }
+    return;
+  }
+  if (action === 'inspect') {
+    openApp('security-center');
+    try {
+      const risks = await apiClient.security.inspect();
+      showToast(`安全巡检完成，共 ${risks.length} 项风险。`);
+    } catch (error) {
+      showToast(`巡检失败：${error instanceof Error ? error.message : '未知错误'}`);
+    }
+    return;
+  }
+
   const messages: Record<string, string> = {
     permissions: '已打开家庭空间权限概览',
     models: '模型策略已切换到设置视图',

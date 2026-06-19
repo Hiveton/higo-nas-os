@@ -8,10 +8,10 @@ import {
   Cpu,
   Download,
   HardDrive,
-  Search,
   Upload,
 } from 'lucide-vue-next';
 import { monitoringStore } from '../stores/monitoring';
+import TopSearch from './TopSearch.vue';
 import type { Metric } from '../api/types';
 
 const fallbackMetrics = [
@@ -35,17 +35,9 @@ const modelPolicies = [
   { label: '云端模型', value: '增强', icon: Cloud },
 ];
 
-const query = ref('');
-const searchFocused = ref(false);
 const noticesOpen = ref(false);
 const accountOpen = ref(false);
 const topbarRef = ref<HTMLElement | null>(null);
-
-const searchSuggestions = [
-  '找上个月客户 A 的最终合同',
-  '检查哪些文件没有异地备份',
-  '整理下载目录里的发票',
-];
 
 const topbarMetrics = computed(() => {
   const preferred = ['cpu', 'memory', 'network', 'disk'];
@@ -78,12 +70,6 @@ const emit = defineEmits<{
   'topbar-action': [action: string];
 }>();
 
-function applySuggestion(suggestion: string) {
-  query.value = suggestion;
-  searchFocused.value = false;
-  emit('topbar-action', `search:${suggestion}`);
-}
-
 function formatMetricValue(metric: Metric) {
   if (typeof metric.value === 'number') {
     return `${metric.value}${metric.unit ?? ''}`;
@@ -94,7 +80,6 @@ function formatMetricValue(metric: Metric) {
 function closePopovers() {
   noticesOpen.value = false;
   accountOpen.value = false;
-  searchFocused.value = false;
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
@@ -125,29 +110,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <label class="topbar__search">
-      <Search :size="17" aria-hidden="true" />
-      <span class="sr-only">全局语义搜索</span>
-      <input
-        v-model="query"
-        type="search"
-        placeholder="搜索文件、照片、Agent、设备状态"
-        @focus="searchFocused = true; noticesOpen = false; accountOpen = false"
-        @blur="searchFocused = false"
-      />
-      <kbd>⌘K</kbd>
-      <div v-if="searchFocused || query" class="topbar__search-popover">
-        <p>语义搜索建议</p>
-        <button
-          v-for="suggestion in searchSuggestions"
-          :key="suggestion"
-          type="button"
-          @mousedown.prevent="applySuggestion(suggestion)"
-        >
-          {{ suggestion }}
-        </button>
-      </div>
-    </label>
+    <TopSearch @action="(a: string) => emit('topbar-action', a)" />
 
     <nav class="topbar__right" aria-label="系统状态与账户">
       <section class="topbar__metrics" aria-label="设备资源状态">

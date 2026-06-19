@@ -227,7 +227,7 @@
   min-height: 44px;
   padding: 10px 11px;
   color: var(--accent-green);
-  background: rgba(240, 253, 244, 0.72);
+  background: var(--accent-green-soft);
   border: 1px solid rgba(34, 181, 115, 0.18);
   border-radius: var(--radius-sm);
 }

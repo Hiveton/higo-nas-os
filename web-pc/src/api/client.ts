@@ -386,6 +386,7 @@ export const apiClient = {
     getAiPolicies: () => GET<AiPolicy[]>('/api/v1/security/ai-policies'),
     updateAiPolicy: (id: Id, payload: Partial<AiPolicy>) =>
       PUT<AiPolicy>(`/api/v1/security/ai-policies/${pathId(id)}`, payload),
+    inspect: () => POST<RiskAction[]>('/api/v1/security/inspect', {}),
     getRiskActions: () => GET<RiskAction[]>('/api/v1/security/risk-actions'),
     confirmRiskAction: (id: Id, payload?: RecordPayload) =>
       POST<TaskResponse>(`/api/v1/security/risk-actions/${pathId(id)}/confirm`, payload ?? {}),

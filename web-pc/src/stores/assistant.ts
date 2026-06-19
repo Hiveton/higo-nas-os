@@ -29,6 +29,7 @@ const notice = ref('');
 const modelLabel = ref('');
 
 let controller: AbortController | null = null;
+let initialized = false;
 
 export const assistantStore = {
   threads: readonly(threads),
@@ -44,6 +45,7 @@ export const assistantStore = {
   switchThread,
   deleteThread,
   send,
+  ask,
   stop,
 };
 
@@ -66,6 +68,8 @@ async function refreshThreads() {
 }
 
 async function init() {
+  if (initialized) return;
+  initialized = true;
   loading.value = true;
   try {
     await Promise.all([refreshThreads(), loadModelLabel()]);
@@ -76,10 +80,20 @@ async function init() {
     }
     notice.value = '';
   } catch (reason) {
+    initialized = false; // allow a later open to retry
     notice.value = `后端暂不可用：${errMessage(reason)}`;
   } finally {
     loading.value = false;
   }
+}
+
+// ask opens a fresh-or-current thread and sends a question. Used by the top
+// search bar to route natural-language queries into the assistant.
+async function ask(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  await init();
+  await send(trimmed);
 }
 
 async function switchThread(id: string) {
