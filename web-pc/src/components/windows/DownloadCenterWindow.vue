@@ -542,7 +542,7 @@ onBeforeUnmount(() => {
 .download-center__source--active,
 .download-center__speed-button--active,
 .download-center__category--active {
-  color: #fff;
+  color: var(--text-inverse);
   background: var(--accent);
   border-color: transparent;
 }

@@ -556,6 +556,7 @@ const transcodeTaskKind = "video.transcode"
 
 type transcodePayload struct {
 	TaskID  string `json:"taskId"`
+	ItemID  string `json:"itemId"`
 	Source  string `json:"source"`
 	Profile string `json:"profile"`
 }
@@ -598,7 +599,7 @@ func (s *Service) startTranscode(ctx context.Context, itemID, profile string) (T
 	}
 	s.mu.Unlock()
 
-	if _, err := s.runner.Enqueue(transcodeTaskKind, transcodePayload{TaskID: task.ID, Source: source, Profile: profile}); err != nil {
+	if _, err := s.runner.Enqueue(transcodeTaskKind, transcodePayload{TaskID: task.ID, ItemID: itemID, Source: source, Profile: profile}); err != nil {
 		return task, err
 	}
 	return task, nil
@@ -612,10 +613,12 @@ func (s *Service) runTranscode(ctx context.Context, h *tasks.Handle) (json.RawMe
 	}
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		s.updateTaskStatus(payload.TaskID, JobFailed, 100, "未检测到 ffmpeg，无法执行转码。")
+		s.updateItemStatus(payload.ItemID, "等待安装转码组件")
 		return nil, fmt.Errorf("ffmpeg not available")
 	}
 	if payload.Source == "" {
 		s.updateTaskStatus(payload.TaskID, JobFailed, 100, "源文件路径缺失。")
+		s.updateItemStatus(payload.ItemID, "转码失败：源文件缺失")
 		return nil, fmt.Errorf("missing source path")
 	}
 
@@ -627,6 +630,7 @@ func (s *Service) runTranscode(ctx context.Context, h *tasks.Handle) (json.RawMe
 	outputDir := filepath.Join(filepath.Dir(payload.Source), ".transcoded")
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		s.updateTaskStatus(payload.TaskID, JobFailed, 100, "无法创建转码输出目录："+err.Error())
+		s.updateItemStatus(payload.ItemID, "转码失败")
 		return nil, err
 	}
 	output := filepath.Join(outputDir, fmt.Sprintf("%s.%dp.mp4", base, height))
@@ -644,9 +648,11 @@ func (s *Service) runTranscode(ctx context.Context, h *tasks.Handle) (json.RawMe
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		s.updateTaskStatus(payload.TaskID, JobFailed, 100, "转码失败："+trimFFmpegError(stderr.String()))
+		s.updateItemStatus(payload.ItemID, "转码失败")
 		return nil, fmt.Errorf("ffmpeg transcode: %w", err)
 	}
 	s.updateTaskStatus(payload.TaskID, JobDone, 100, fmt.Sprintf("已完成 %dp 转码：%s", height, filepath.Base(output)))
+	s.updateItemStatus(payload.ItemID, fmt.Sprintf("已生成 %dp 移动端版本", height))
 	return json.Marshal(map[string]string{"taskId": payload.TaskID, "output": output})
 }
 
@@ -658,6 +664,23 @@ func (s *Service) updateTaskStatus(taskID string, status JobStatus, progress int
 			s.tasks[i].Status = status
 			s.tasks[i].Progress = progress
 			s.tasks[i].Message = message
+			_ = s.saveLocked()
+			return
+		}
+	}
+}
+
+// updateItemStatus resets the media item's status after a transcode finishes so
+// it does not stay stuck at "移动端转码中".
+func (s *Service) updateItemStatus(itemID, status string) {
+	if itemID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.items {
+		if s.items[i].ID == itemID {
+			s.items[i].Status = status
 			_ = s.saveLocked()
 			return
 		}

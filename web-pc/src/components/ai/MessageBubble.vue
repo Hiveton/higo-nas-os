@@ -83,7 +83,7 @@ const showCursor = computed(() => props.message.streaming && !props.message.text
   border-radius: var(--radius-lg);
 }
 .is-user .bubble {
-  color: #fff;
+  color: var(--text-inverse);
   background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
 }
 .is-assistant .bubble {

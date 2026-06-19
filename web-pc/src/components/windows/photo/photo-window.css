@@ -412,7 +412,7 @@
 }
 
 .photo-media__notice--warn {
-  color: #b36a00;
+  color: var(--accent-orange);
   background: rgba(255, 246, 227, 0.86);
   border-color: rgba(245, 158, 11, 0.24);
 }

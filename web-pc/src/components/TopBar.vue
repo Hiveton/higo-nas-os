@@ -505,7 +505,7 @@ onUnmounted(() => {
   width: 27px;
   height: 27px;
   place-items: center;
-  color: #fff;
+  color: var(--text-inverse);
   font-size: 13px;
   font-weight: 800;
   background: linear-gradient(135deg, #1b8cff, #24c6a8);

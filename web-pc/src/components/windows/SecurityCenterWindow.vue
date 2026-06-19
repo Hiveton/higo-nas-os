@@ -670,7 +670,7 @@ onMounted(loadSecurityState);
 }
 
 .security-center__audit-list svg {
-  color: #b36a00;
+  color: var(--accent-orange);
 }
 
 @media (max-width: 860px) {

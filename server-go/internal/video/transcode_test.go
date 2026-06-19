@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,6 +74,11 @@ func TestCreateTranscodeTaskRunsRealFFmpeg(t *testing.T) {
 				}
 				if _, err := os.Stat(output); err != nil {
 					t.Fatalf("transcoded output not produced: %v", err)
+				}
+				// The media item status must no longer be stuck at "转码中".
+				items2, _ := service.Items(ctx, "", "", "")
+				if len(items2) > 0 && strings.Contains(items2[0].Status, "转码中") {
+					t.Fatalf("item status stuck mid-transcode: %q", items2[0].Status)
 				}
 				return
 			}

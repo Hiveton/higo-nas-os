@@ -66,7 +66,7 @@
   width: 40px;
   height: 40px;
   place-items: center;
-  color: #fff;
+  color: var(--text-inverse);
   background: linear-gradient(135deg, #53c0ff, #8a61ff);
   border-radius: 12px;
   box-shadow: 0 10px 22px rgba(88, 114, 255, 0.2);
@@ -102,7 +102,7 @@
   align-items: center;
   min-height: 34px;
   padding: 0 10px;
-  color: #27364c;
+  color: var(--text-strong);
   background: transparent;
   border: 0;
   border-radius: 10px;
@@ -110,7 +110,7 @@
 }
 
 .music-app__nav button small {
-  color: #8a98ad;
+  color: var(--text-muted);
 }
 
 .music-app__nav-item--active {
@@ -166,7 +166,7 @@
   justify-content: center;
   min-height: 32px;
   padding: 0 12px;
-  color: #253348;
+  color: var(--text-strong);
   background: rgba(var(--surface-rgb), 0.68);
   border: 1px solid rgba(132, 155, 186, 0.12);
   border-radius: 10px;
@@ -188,13 +188,13 @@
 }
 
 .music-app__crumb {
-  color: #65738a;
+  color: var(--text);
   white-space: nowrap;
 }
 
 .music-app__crumb span {
   margin: 0 8px;
-  color: #a0aabd;
+  color: var(--text-soft);
 }
 
 .music-app__search {
@@ -218,7 +218,7 @@
 }
 
 .music-app__search kbd {
-  color: #8a98ad;
+  color: var(--text-muted);
   font-size: 10px;
 }
 
@@ -257,7 +257,7 @@
   place-items: center;
   overflow: hidden;
   padding: 0;
-  color: #fff;
+  color: var(--text-inverse);
   background: linear-gradient(135deg, #43c4ff, #8063ff);
   border: 0;
   line-height: 0;
@@ -314,7 +314,7 @@
 .music-mini__inline-meta span,
 .music-mini__side button small {
   padding: 3px 7px;
-  color: #526176;
+  color: var(--text);
   background: rgba(var(--surface-rgb), 0.8);
   border: 1px solid rgba(132, 155, 186, 0.12);
   border-radius: 7px;
@@ -340,7 +340,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  color: #53637a;
+  color: var(--text);
   font-size: 11px;
 }
 
@@ -391,7 +391,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #172033;
+  color: var(--text-strong);
   background: transparent;
   border: 0;
 }
@@ -399,7 +399,7 @@
 .music-library__play,
 .music-player__play,
 .music-mini__play {
-  color: #fff !important;
+  color: var(--text-inverse) !important;
   background: linear-gradient(135deg, #318dff, #8063ff) !important;
   border-radius: 50%;
   box-shadow: 0 14px 24px rgba(82, 98, 255, 0.28);
@@ -424,7 +424,7 @@
   display: grid;
   justify-items: center;
   gap: 9px;
-  color: #8a98ad;
+  color: var(--text-muted);
   text-align: center;
 }
 
@@ -461,7 +461,7 @@
   top: 0;
   z-index: 2;
   height: 34px;
-  color: #7b889b;
+  color: var(--text-muted);
   font-size: 11px;
   background: rgba(var(--surface-rgb), 0.86);
   backdrop-filter: blur(10px);
@@ -472,7 +472,7 @@
   height: 52px;
   min-height: 52px;
   margin: 2px 0;
-  color: #526176;
+  color: var(--text);
   background: transparent;
   border: 1px solid transparent;
   border-radius: 9px;
@@ -516,7 +516,7 @@
   display: none;
   margin-top: 3px;
   overflow: hidden;
-  color: #718099;
+  color: var(--text);
   font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -549,7 +549,7 @@
 .music-app__details header button {
   position: relative;
   padding: 0 0 10px;
-  color: #66758d;
+  color: var(--text);
   background: transparent;
   border: 0;
 }
@@ -592,7 +592,7 @@
 .music-app__details span,
 .music-app__details dd,
 .music-app__details article p {
-  color: #64738a;
+  color: var(--text);
 }
 
 .music-app__details dl {
@@ -603,7 +603,7 @@
 }
 
 .music-app__details dt {
-  color: #8a98ad;
+  color: var(--text-muted);
   font-size: 11px;
 }
 
@@ -628,7 +628,7 @@
   flex: 0 0 auto;
   line-height: 1.2;
   padding: 4px 8px;
-  color: #53637a;
+  color: var(--text);
   background: rgba(var(--surface-rgb), 0.8);
   border: 1px solid rgba(132, 155, 186, 0.12);
   border-radius: 8px;
@@ -659,7 +659,7 @@
   width: 34px;
   height: 34px;
   padding: 0;
-  color: #253348;
+  color: var(--text-strong);
   background: rgba(var(--surface-rgb), 0.72);
   border: 1px solid rgba(132, 155, 186, 0.12);
   border-radius: 999px;
@@ -746,7 +746,7 @@
 
 .music-player__lyrics-panel header button {
   padding: 0 0 12px;
-  color: #66758d;
+  color: var(--text);
   background: transparent;
   border: 0;
 }
@@ -763,7 +763,7 @@
   min-height: 0;
   overflow-y: auto;
   padding: 44% 0;
-  color: #9aa6b8;
+  color: var(--text-soft);
   scroll-padding-block: 44%;
   text-align: center;
 }
@@ -843,7 +843,7 @@
 }
 
 .music-mini__info > span {
-  color: #718099;
+  color: var(--text);
   font-size: 11px;
 }
 
@@ -992,7 +992,7 @@
   .music-library__mobile-tabs {
     display: flex;
     gap: 24px;
-    color: #66758d;
+    color: var(--text);
   }
 
   .music-library__mobile-tabs button {
@@ -1034,7 +1034,7 @@
     min-height: 34px;
     padding: 0 14px;
     margin-bottom: 8px;
-    color: #172033;
+    color: var(--text-strong);
     content: "▶  全部播放";
     background: rgba(var(--surface-rgb), 0.86);
     border-radius: 18px;
@@ -1190,7 +1190,7 @@
   .music-player__mobile-tabs button {
     position: relative;
     padding: 0 0 8px;
-    color: #66758d;
+    color: var(--text);
     background: transparent;
     border: 0;
   }

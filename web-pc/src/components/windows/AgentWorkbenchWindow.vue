@@ -307,7 +307,7 @@ onMounted(loadAgentWorkbench);
 }
 
 .agent-workbench__template small {
-  color: #b36a00;
+  color: var(--accent-orange);
   font-size: 10px;
   font-weight: 760;
 }

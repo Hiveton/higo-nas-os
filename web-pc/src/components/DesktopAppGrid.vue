@@ -251,7 +251,7 @@ onUnmounted(() => {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  color: #fff;
+  color: var(--text-inverse);
   font-size: 10px;
   font-weight: 800;
   line-height: 18px;

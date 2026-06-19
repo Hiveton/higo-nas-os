@@ -365,7 +365,7 @@ function startWindowResize(event: PointerEvent, direction: string) {
 }
 
 .desktop-window__status--orange {
-  color: #b36a00;
+  color: var(--accent-orange);
   background: rgba(245, 158, 11, 0.14);
   border-color: rgba(245, 158, 11, 0.25);
 }

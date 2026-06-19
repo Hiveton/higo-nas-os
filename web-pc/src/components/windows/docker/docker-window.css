@@ -111,7 +111,7 @@ body.theme-dark .docker-wizard {
 .theme-dark .docker-wizard .docker-wizard-steps button.is-active,
 .theme-dark .docker-wizard .docker-wizard-steps button.is-done,
 .theme-dark .docker-wizard .docker-choice-grid button.is-active {
-  color: #78c0ff !important;
+  color: var(--accent) !important;
   background: var(--docker-soft) !important;
   border-color: rgba(99, 170, 255, 0.42) !important;
 }
@@ -991,7 +991,7 @@ body.theme-dark .docker-wizard {
 }
 
 .docker-glyph--default {
-  color: #1687ff;
+  color: var(--accent);
 }
 
 .docker-image-main {
@@ -1088,7 +1088,7 @@ body.theme-dark .docker-wizard {
 
 .docker-wizard-steps button.is-active span,
 .docker-wizard-steps button.is-done span {
-  color: #fff;
+  color: var(--text-inverse);
   background: var(--accent);
 }
 
