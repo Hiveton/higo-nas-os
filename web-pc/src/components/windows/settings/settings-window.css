@@ -11,7 +11,7 @@
 .system-settings__content,
 .system-settings__footer {
   min-height: 0;
-  background: rgba(var(--surface-rgb),  0.5);
+  background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -111,7 +111,7 @@
   justify-content: space-between;
   gap: 14px;
   padding: 13px 14px;
-  background: linear-gradient(135deg, rgba(231, 247, 255, 0.9), rgba(var(--surface-rgb),  0.62));
+  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.9), rgba(var(--surface-rgb), 0.62));
 }
 
 .system-settings__hero p,
@@ -156,7 +156,7 @@
   gap: 8px;
   min-width: 0;
   padding: 11px;
-  background: rgba(var(--surface-rgb),  0.58);
+  background: rgba(var(--surface-rgb), 0.58);
   border: 1px solid rgba(100, 136, 166, 0.14);
   border-radius: var(--radius-sm);
 }
@@ -195,7 +195,7 @@
   gap: 7px;
   min-width: 0;
   padding: 8px;
-  background: rgba(var(--surface-rgb),  0.54);
+  background: rgba(var(--surface-rgb), 0.54);
   border: 1px solid rgba(100, 136, 166, 0.12);
   border-radius: var(--radius-sm);
 }
@@ -234,7 +234,7 @@
 
 .system-settings__metric--privacy {
   color: var(--accent);
-  background: rgba(231, 247, 255, 0.74);
+  background: rgba(var(--surface-rgb), 0.74);
   border-color: rgba(19, 136, 255, 0.18);
 }
 
@@ -254,7 +254,7 @@
 .system-settings__audit-list span {
   padding: 6px 9px;
   color: var(--text-muted);
-  background: rgba(var(--surface-rgb),  0.72);
+  background: rgba(var(--surface-rgb), 0.72);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 11px;
@@ -337,7 +337,7 @@
   padding: 12px;
   border: 1px solid rgba(90, 128, 160, 0.16);
   border-radius: var(--radius-md);
-  background: rgba(var(--surface-rgb),  0.46);
+  background: rgba(var(--surface-rgb), 0.46);
 }
 
 .provider-binding__head {
@@ -372,7 +372,7 @@
   padding: 10px;
   border: 1px solid rgba(90, 128, 160, 0.14);
   border-radius: var(--radius-sm);
-  background: rgba(var(--surface-rgb),  0.7);
+  background: rgba(var(--surface-rgb), 0.7);
 }
 
 .provider-list__info strong {

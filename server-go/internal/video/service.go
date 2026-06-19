@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"higoos/server-go/internal/state"
+	"higoos/server-go/internal/tasks"
 )
 
 var videoExtensions = map[string]string{
@@ -62,6 +63,7 @@ type Service struct {
 	statePath    string
 	activeDVR    map[string]*exec.Cmd
 	dvrOnce      sync.Once
+	runner       *tasks.Manager
 }
 
 type snapshot struct {
@@ -527,6 +529,9 @@ func (s *Service) CreateTranscodeTask(ctx context.Context, request CreateTaskReq
 	if profile == "" {
 		profile = "1080p H.264"
 	}
+	if s.runner != nil {
+		return s.startTranscode(ctx, request.ItemID, profile)
+	}
 	return s.createItemTask(ctx, "transcode", request.ItemID, profile, func(item *Item) string {
 		if _, err := exec.LookPath("ffmpeg"); err != nil {
 			item.Status = "等待安装转码组件"
@@ -535,6 +540,148 @@ func (s *Service) CreateTranscodeTask(ctx context.Context, request CreateTaskReq
 		item.Status = "转码任务已准备"
 		return fmt.Sprintf("%s 转码任务已创建。", profile)
 	})
+}
+
+// AttachTaskRunner wires the shared task runtime so transcode tasks really run
+// ffmpeg in the background instead of completing synchronously without output.
+func (s *Service) AttachTaskRunner(m *tasks.Manager) {
+	if m == nil {
+		return
+	}
+	s.runner = m
+	m.Register(transcodeTaskKind, s.runTranscode)
+}
+
+const transcodeTaskKind = "video.transcode"
+
+type transcodePayload struct {
+	TaskID  string `json:"taskId"`
+	Source  string `json:"source"`
+	Profile string `json:"profile"`
+}
+
+// startTranscode records a running transcode task and schedules the real ffmpeg
+// job. The source path is captured now so the worker has it without re-locking.
+func (s *Service) startTranscode(ctx context.Context, itemID, profile string) (Task, error) {
+	if err := ctx.Err(); err != nil {
+		return Task{}, err
+	}
+	s.mu.Lock()
+	idx := -1
+	for i := range s.items {
+		if s.items[i].ID == itemID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		s.mu.Unlock()
+		return Task{}, fmt.Errorf("video item not found: %s", itemID)
+	}
+	source := s.items[idx].Path
+	s.items[idx].Status = "移动端转码中"
+	task := Task{
+		ID:        s.nextJobIDLocked("transcode"),
+		Type:      "transcode",
+		ItemID:    itemID,
+		Title:     s.items[idx].Title,
+		Status:    JobRunning,
+		Message:   fmt.Sprintf("%s 转码中…", profile),
+		Progress:  5,
+		Profile:   profile,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	s.tasks = append([]Task{task}, s.tasks...)
+	if err := s.saveLocked(); err != nil {
+		s.mu.Unlock()
+		return Task{}, err
+	}
+	s.mu.Unlock()
+
+	if _, err := s.runner.Enqueue(transcodeTaskKind, transcodePayload{TaskID: task.ID, Source: source, Profile: profile}); err != nil {
+		return task, err
+	}
+	return task, nil
+}
+
+// runTranscode is the task handler that performs the real ffmpeg transcode.
+func (s *Service) runTranscode(ctx context.Context, h *tasks.Handle) (json.RawMessage, error) {
+	var payload transcodePayload
+	if err := h.Unmarshal(&payload); err != nil {
+		return nil, err
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		s.updateTaskStatus(payload.TaskID, JobFailed, 100, "未检测到 ffmpeg，无法执行转码。")
+		return nil, fmt.Errorf("ffmpeg not available")
+	}
+	if payload.Source == "" {
+		s.updateTaskStatus(payload.TaskID, JobFailed, 100, "源文件路径缺失。")
+		return nil, fmt.Errorf("missing source path")
+	}
+
+	height := transcodeHeight(payload.Profile)
+	// Write outputs into a dot-prefixed sibling dir so the library scanner (which
+	// skips entries starting with ".") never re-indexes a transcode as a new
+	// media item.
+	base := strings.TrimSuffix(filepath.Base(payload.Source), filepath.Ext(payload.Source))
+	outputDir := filepath.Join(filepath.Dir(payload.Source), ".transcoded")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		s.updateTaskStatus(payload.TaskID, JobFailed, 100, "无法创建转码输出目录："+err.Error())
+		return nil, err
+	}
+	output := filepath.Join(outputDir, fmt.Sprintf("%s.%dp.mp4", base, height))
+	h.Progress(20, "transcoding")
+
+	args := []string{
+		"-y", "-i", payload.Source,
+		"-vf", fmt.Sprintf("scale=-2:%d", height),
+		"-c:v", "libx264", "-preset", "ultrafast",
+		"-c:a", "aac",
+		output,
+	}
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		s.updateTaskStatus(payload.TaskID, JobFailed, 100, "转码失败："+trimFFmpegError(stderr.String()))
+		return nil, fmt.Errorf("ffmpeg transcode: %w", err)
+	}
+	s.updateTaskStatus(payload.TaskID, JobDone, 100, fmt.Sprintf("已完成 %dp 转码：%s", height, filepath.Base(output)))
+	return json.Marshal(map[string]string{"taskId": payload.TaskID, "output": output})
+}
+
+func (s *Service) updateTaskStatus(taskID string, status JobStatus, progress int, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.tasks {
+		if s.tasks[i].ID == taskID {
+			s.tasks[i].Status = status
+			s.tasks[i].Progress = progress
+			s.tasks[i].Message = message
+			_ = s.saveLocked()
+			return
+		}
+	}
+}
+
+// transcodeHeight extracts a target vertical resolution from a profile label
+// such as "720p H.264"; it defaults to 720 when none is present.
+func transcodeHeight(profile string) int {
+	for _, p := range []int{2160, 1440, 1080, 720, 480, 360} {
+		if strings.Contains(profile, strconv.Itoa(p)) {
+			return p
+		}
+	}
+	return 720
+}
+
+func trimFFmpegError(stderr string) string {
+	stderr = strings.TrimSpace(stderr)
+	lines := strings.Split(stderr, "\n")
+	if len(lines) == 0 {
+		return "ffmpeg error"
+	}
+	return lines[len(lines)-1]
 }
 
 func (s *Service) Tasks(ctx context.Context) ([]Task, error) {

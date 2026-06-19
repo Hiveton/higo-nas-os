@@ -71,7 +71,7 @@ function selectAction(label: string) {
 .feature-module__hero,
 .feature-module__state,
 .feature-module__risk {
-  background: rgba(var(--surface-rgb),  0.55);
+  background: rgba(var(--surface-rgb), 0.55);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }

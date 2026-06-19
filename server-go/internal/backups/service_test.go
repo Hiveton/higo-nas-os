@@ -105,6 +105,62 @@ func TestRunExecutesRealBackupSyncViaRunner(t *testing.T) {
 	t.Fatalf("backup run did not complete, final state=%q health=%q", jobs[0].State, jobs[0].Health)
 }
 
+func TestVerifyDetectsMatchingAndCorruptedBackups(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	writeFile(t, filepath.Join(src, "doc.txt"), "verify me")
+
+	service := NewService()
+	service.mu.Lock()
+	service.jobs[0].Source = src
+	service.jobs[0].Target = dst
+	jobID := service.jobs[0].ID
+	service.mu.Unlock()
+
+	mgr, err := tasks.NewManager("", tasks.WithWorkers(1), tasks.WithDispatchInterval(20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	service.AttachTaskRunner(mgr)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr.Start(ctx)
+	defer mgr.Stop()
+
+	// Back up, then verify: should pass.
+	if _, err := service.Run(ctx, jobID); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	waitState := func(want string) string {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			jobs, _ := service.Jobs(ctx)
+			if jobs[0].State == want {
+				return jobs[0].Health
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		jobs, _ := service.Jobs(ctx)
+		t.Fatalf("did not reach state %q, final=%q", want, jobs[0].State)
+		return ""
+	}
+	waitState("已完成")
+
+	if _, err := service.Verify(ctx, jobID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if health := waitState("已完成"); health != "校验通过" {
+		t.Fatalf("expected 校验通过, got %q", health)
+	}
+
+	// Corrupt the backup copy and verify again: should fail.
+	writeFile(t, filepath.Join(dst, "doc.txt"), "tampered!!")
+	if _, err := service.Verify(ctx, jobID); err != nil {
+		t.Fatalf("verify after corruption: %v", err)
+	}
+	waitState("校验未通过")
+}
+
 func TestRunSurfacesBlockedStateForInvalidPaths(t *testing.T) {
 	service := NewService() // default demo jobs have non-filesystem source paths
 	jobID := service.jobs[0].ID

@@ -148,7 +148,7 @@ function onClick(event: MouseEvent) {
 }
 .ui-btn--solid.ui-btn--neutral {
   color: var(--text-strong);
-  background: rgba(var(--surface-rgb),  0.72);
+  background: rgba(var(--surface-rgb), 0.72);
   border-color: var(--border);
 }
 

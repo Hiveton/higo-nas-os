@@ -27,6 +27,12 @@ type Config struct {
 	// MCPDomains is an optional comma-separated allowlist of tool domains
 	// (e.g. "files,storage,docker"). Empty means expose every domain.
 	MCPDomains string
+
+	// RemoteProbeAddr is an optional host:port the remote-access channel dials
+	// on start to measure real reachability and latency. Empty (the default)
+	// keeps the dev demo's representative estimate; real deployments set it to
+	// their relay/public endpoint.
+	RemoteProbeAddr string
 }
 
 func LoadConfig() Config {
@@ -41,8 +47,9 @@ func LoadConfig() Config {
 		StaticDir:    getenv("HIGO_STATIC_DIR", ""),
 		DatabaseURL:  getenv("HIGO_DATABASE_URL", ""),
 		Ready:        true,
-		MCPEnabled:   getenvBool("HIGO_MCP_ENABLED", true),
-		MCPDomains:   getenv("HIGO_MCP_DOMAINS", ""),
+		MCPEnabled:      getenvBool("HIGO_MCP_ENABLED", true),
+		MCPDomains:      getenv("HIGO_MCP_DOMAINS", ""),
+		RemoteProbeAddr: getenv("HIGO_REMOTE_PROBE_ADDR", ""),
 	}
 }
 

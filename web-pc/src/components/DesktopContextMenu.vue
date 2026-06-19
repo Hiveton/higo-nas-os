@@ -65,8 +65,8 @@ const emit = defineEmits<{
   overflow-y: auto;
   color: var(--text);
   background:
-    linear-gradient(180deg, rgba(var(--surface-rgb),  0.9), rgba(239, 248, 255, 0.78)),
-    rgba(248, 253, 255, 0.86);
+    linear-gradient(180deg, rgba(var(--surface-rgb), 0.9), rgba(var(--surface-rgb), 0.78)),
+    rgba(var(--surface-rgb), 0.86);
   border: 1px solid rgba(116, 151, 180, 0.28);
   border-radius: 14px;
   box-shadow:

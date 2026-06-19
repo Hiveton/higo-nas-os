@@ -155,6 +155,53 @@ func (s *Service) AttachTaskRunner(m *tasks.Manager) {
 	}
 	s.runner = m
 	m.Register(backupRunTaskKind, s.runBackupJob)
+	m.Register(backupVerifyTaskKind, s.verifyBackupJob)
+}
+
+const backupVerifyTaskKind = "backups.verify"
+
+// verifyBackupJob is the task handler that checksum-verifies a job's target
+// against its source and records the outcome on the job.
+func (s *Service) verifyBackupJob(ctx context.Context, h *tasks.Handle) (json.RawMessage, error) {
+	var payload backupRunPayload
+	if err := h.Unmarshal(&payload); err != nil {
+		return nil, err
+	}
+	source, target, ok := s.jobPaths(payload.JobID)
+	if !ok {
+		return nil, fmt.Errorf("backup job not found: %s", payload.JobID)
+	}
+	h.Progress(20, "verifying")
+
+	res, err := verifyTree(source, target)
+	if err != nil {
+		_, _ = s.update(context.Background(), payload.JobID, func(job *Job) {
+			job.State = "源路径不可用"
+			job.Health = "需要配置有效的源/目标路径"
+			job.ETA = "已暂停"
+		})
+		return nil, err
+	}
+	_, _ = s.update(context.Background(), payload.JobID, func(job *Job) {
+		job.Progress = 100
+		job.LastRun = time.Now().Format("15:04")
+		if res.Mismatch == 0 && res.Missing == 0 {
+			job.State = "已完成"
+			job.Health = "校验通过"
+			job.Speed = fmt.Sprintf("校验 %d 个文件，全部一致", res.Checked)
+			job.ETA = "等待下次计划"
+		} else {
+			job.State = "校验未通过"
+			job.Health = fmt.Sprintf("发现 %d 处不一致 / %d 个缺失", res.Mismatch, res.Missing)
+			job.ETA = "建议重新运行备份"
+		}
+	})
+	return json.Marshal(map[string]any{
+		"jobId":    payload.JobID,
+		"checked":  res.Checked,
+		"mismatch": res.Mismatch,
+		"missing":  res.Missing,
+	})
 }
 
 // runBackupJob is the task handler that executes a backup job's incremental
@@ -223,15 +270,24 @@ func (s *Service) Resume(ctx context.Context, id string) (Job, error) {
 	return s.Run(ctx, id)
 }
 
+// Verify marks a job as verifying and, when a runner is attached, schedules a
+// real checksum verification of the target against the source.
 func (s *Service) Verify(ctx context.Context, id string) (Job, error) {
-	return s.update(ctx, id, func(job *Job) {
+	job, err := s.update(ctx, id, func(job *Job) {
 		job.State = "校验中"
-		job.Progress = minInt(100, maxInt(job.Progress, 96))
 		job.Speed = "正在校验快照"
-		job.ETA = "预计 3 分钟"
+		job.ETA = "进行中"
 		job.LastRun = time.Now().Format("15:04")
-		job.Health = "校验通过"
 	})
+	if err != nil {
+		return Job{}, err
+	}
+	if s.runner != nil {
+		if _, err := s.runner.Enqueue(backupVerifyTaskKind, backupRunPayload{JobID: id}); err != nil {
+			return job, err
+		}
+	}
+	return job, nil
 }
 
 func (s *Service) update(ctx context.Context, id string, mutate func(*Job)) (Job, error) {

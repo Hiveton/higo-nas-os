@@ -13,7 +13,11 @@ import { resolve, join } from 'node:path';
 
 const dry = process.argv.includes('--dry');
 const root = resolve(process.cwd(), 'src/components');
-const WHITE = /rgba\(\s*255\s*,\s*255\s*,\s*255\s*,/g;
+// Matches an rgba() whose RGB triplet is near-white (all channels high) — pure
+// white AND the subtle blue-white tints (231,247,255 / 247,252,255 / …). The
+// alpha is preserved; only the RGB becomes the theme-driven --surface-rgb.
+const NEAR_WHITE = /rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,/g;
+const isNearWhite = (r, g, b) => r >= 226 && g >= 238 && b >= 246;
 
 async function walk(dir) {
   const out = [];
@@ -34,17 +38,17 @@ function convertCss(css) {
     const isShadowOrBorder = /box-shadow|border|inset|drop-shadow|text-shadow/.test(line);
     const active = inBackground || (startsBg && !isShadowOrBorder);
     if (active) {
-      WHITE.lastIndex = 0;
-      const hits = (line.match(WHITE) || []).length;
-      if (hits) {
-        count += hits;
-        line = line.replace(WHITE, 'rgba(var(--surface-rgb), ');
-      }
+      line = line.replace(NEAR_WHITE, (m, r, g, b) => {
+        if (isNearWhite(Number(r), Number(g), Number(b))) {
+          count += 1;
+          return 'rgba(var(--surface-rgb), ';
+        }
+        return m;
+      });
     }
     // track whether the (background) declaration continues onto the next line
     if (startsBg && !isShadowOrBorder) inBackground = !line.includes(';');
     else if (inBackground && line.includes(';')) inBackground = false;
-    WHITE.lastIndex = 0;
     return line;
   });
   return { text: lines.join('\n'), count };

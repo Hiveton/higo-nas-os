@@ -214,7 +214,7 @@ function startWindowResize(event: PointerEvent, direction: string) {
   overflow: hidden;
   color: var(--text);
   background:
-    linear-gradient(180deg, rgba(var(--surface-rgb),  0.86), rgba(247, 252, 255, 0.68)),
+    linear-gradient(180deg, rgba(var(--surface-rgb), 0.86), rgba(var(--surface-rgb), 0.68)),
     var(--surface-glass);
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: var(--radius-lg);
@@ -257,7 +257,7 @@ function startWindowResize(event: PointerEvent, direction: string) {
   gap: 12px;
   min-height: 58px;
   padding: 12px 16px 10px;
-  background: linear-gradient(180deg, rgba(var(--surface-rgb),  0.7), rgba(239, 248, 255, 0.42));
+  background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.7), rgba(var(--surface-rgb), 0.42));
   border-bottom: 1px solid rgba(111, 151, 182, 0.18);
   user-select: none;
   cursor: grab;

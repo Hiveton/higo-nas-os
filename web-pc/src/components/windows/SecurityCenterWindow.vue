@@ -473,7 +473,7 @@ onMounted(loadSecurityState);
 .security-center__shares,
 .security-center__audit {
   min-height: 0;
-  background: rgba(var(--surface-rgb),  0.5);
+  background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -492,7 +492,7 @@ onMounted(loadSecurityState);
   justify-items: center;
   padding: 10px 6px;
   color: var(--accent);
-  background: rgba(var(--surface-rgb),  0.44);
+  background: rgba(var(--surface-rgb), 0.44);
 }
 
 .security-center__overview span {
@@ -559,7 +559,7 @@ onMounted(loadSecurityState);
 .security-center__share-list article,
 .security-center__audit-list article {
   min-width: 0;
-  background: rgba(var(--surface-rgb),  0.58);
+  background: rgba(var(--surface-rgb), 0.58);
   border: 1px solid rgba(100, 136, 166, 0.12);
   border-radius: var(--radius-sm);
 }

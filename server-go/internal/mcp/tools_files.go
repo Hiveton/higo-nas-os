@@ -38,6 +38,12 @@ type FilesUploadInput struct {
 	Actor   string `json:"actor,omitempty" jsonschema:"Actor performing the operation for audit"`
 }
 
+// FilesBatchExecuteInput runs a planned batch task.
+type FilesBatchExecuteInput struct {
+	TaskID string `json:"taskId" jsonschema:"id of the planned batch task to execute"`
+	Actor  string `json:"actor,omitempty" jsonschema:"actor performing the execution"`
+}
+
 // FilesBatchInput describes a batch move/rename/delete operation.
 type FilesBatchInput struct {
 	Type        string            `json:"type,omitempty" jsonschema:"Batch operation type"`
@@ -153,6 +159,13 @@ func registerFiles(r *registry) {
 		destructive(),
 		func(ctx context.Context, c *apiclient.Client, in FilesBatchInput) (json.RawMessage, error) {
 			return c.FilesBatchDelete(ctx, in)
+		})
+
+	addTool(r, "files", "higo.files.batch.execute",
+		"Execute a previously planned batch task by id (performs the real move/rename/delete).",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, in FilesBatchExecuteInput) (json.RawMessage, error) {
+			return c.FilesBatchExecute(ctx, in)
 		})
 
 	addTool(r, "files", "higo.files.get",

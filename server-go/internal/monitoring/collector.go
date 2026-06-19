@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"time"
 )
 
@@ -34,11 +35,23 @@ func (c *DevCollector) CurrentMetrics(ctx context.Context) (MetricsSnapshot, err
 	}
 
 	now := c.now()
+
+	// Real, dependency-free host signals where the stdlib allows; the rest stay
+	// representative dev values (true system CPU%/network throughput need the
+	// Linux collector or a metrics dependency).
+	cpuDetail := fmt.Sprintf("%d 逻辑核心 · GOMAXPROCS %d", runtime.NumCPU(), runtime.GOMAXPROCS(0))
+	diskValue := 46.0
+	diskDetail := "主机卷 I/O · 812MB/s"
+	if usedPct, usedGB, totalGB, ok := hostDiskUsage("/"); ok {
+		diskValue = math.Round(usedPct)
+		diskDetail = fmt.Sprintf("根卷 %.0fGB / %.0fGB 已用", usedGB, totalGB)
+	}
+
 	metrics := []Metric{
-		{Key: "cpu", Label: "CPU", Value: 38, Unit: "%", Detail: "4C / 8T · 2.8GHz boost", Tone: "green", UpdatedAt: now},
+		{Key: "cpu", Label: "CPU", Value: 38, Unit: "%", Detail: cpuDetail, Tone: "green", UpdatedAt: now},
 		{Key: "memory", Label: "内存", Value: 62, Unit: "%", Detail: "19.8GB / 32GB · ZFS ARC 8.4GB", Tone: "blue", UpdatedAt: now},
 		{Key: "network", Label: "网络", Value: 71, Unit: "%", Detail: "2.3Gbps 下行 · 840Mbps 上行", Tone: "blue", UpdatedAt: now},
-		{Key: "disk", Label: "磁盘", Value: 46, Unit: "%", Detail: "主机卷 I/O · 812MB/s", Tone: "green", UpdatedAt: now},
+		{Key: "disk", Label: "磁盘", Value: diskValue, Unit: "%", Detail: diskDetail, Tone: toneForPercent(diskValue, 70, 90), UpdatedAt: now},
 		{Key: "temperature", Label: "温度", Value: 43, Unit: "°C", Detail: "CPU 43°C · 硬盘均值 36°C", Tone: "orange", UpdatedAt: now},
 		{Key: "fan", Label: "风扇", Value: 1280, Unit: "RPM", Detail: "静音曲线 · 双风扇同步", Tone: "green", UpdatedAt: now},
 	}

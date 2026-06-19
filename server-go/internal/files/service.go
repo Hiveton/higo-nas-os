@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,6 +36,16 @@ type MutableRepository interface {
 type Service struct {
 	repo Repository
 	now  func() time.Time
+
+	mu      sync.Mutex
+	pending map[string]pendingBatch
+}
+
+// pendingBatch keeps a planned batch task and the operation needed to execute it
+// once confirmed, completing the plan→confirm→execute governance loop.
+type pendingBatch struct {
+	task Task
+	op   BatchOperation
 }
 
 func NewService(repo Repository) (*Service, error) {
@@ -42,8 +53,9 @@ func NewService(repo Repository) (*Service, error) {
 		return nil, fmt.Errorf("files repository is required")
 	}
 	return &Service{
-		repo: repo,
-		now:  time.Now,
+		repo:    repo,
+		now:     time.Now,
+		pending: map[string]pendingBatch{},
 	}, nil
 }
 
@@ -355,6 +367,51 @@ func (s *Service) planBatch(ctx context.Context, op BatchOperation, build func(F
 			Action: "rollback_" + action,
 		})
 	}
+	s.mu.Lock()
+	s.pending[task.ID] = pendingBatch{task: task, op: op}
+	s.mu.Unlock()
+	return task, nil
+}
+
+// ExecuteBatch runs a previously planned batch task, performing the real file
+// operations (reusing the single-file Move/Rename/Delete paths). This is the
+// confirm→execute half of the batch governance loop; planning alone never
+// mutates files. The task is consumed on success.
+func (s *Service) ExecuteBatch(ctx context.Context, taskID string, actor string) (Task, error) {
+	s.mu.Lock()
+	pending, ok := s.pending[taskID]
+	s.mu.Unlock()
+	if !ok {
+		return Task{}, fmt.Errorf("planned batch task not found: %s", taskID)
+	}
+	if strings.TrimSpace(actor) == "" {
+		actor = pending.op.Actor
+	}
+	for _, fileID := range pending.op.FileIDs {
+		var err error
+		switch pending.op.Type {
+		case "move":
+			_, err = s.Move(ctx, fileID, MoveRequest{Destination: pending.op.Destination})
+		case "rename":
+			name := strings.TrimSpace(pending.op.Rename[fileID])
+			if name == "" {
+				continue
+			}
+			_, err = s.Rename(ctx, fileID, RenameRequest{Name: name})
+		case "delete":
+			_, err = s.Delete(ctx, fileID, emptyDefault(actor, "system"))
+		default:
+			return Task{}, fmt.Errorf("unsupported batch type: %s", pending.op.Type)
+		}
+		if err != nil {
+			return Task{}, fmt.Errorf("batch execute failed for %s: %w", fileID, err)
+		}
+	}
+	task := pending.task
+	task.Status = "completed"
+	s.mu.Lock()
+	delete(s.pending, taskID)
+	s.mu.Unlock()
 	return task, nil
 }
 

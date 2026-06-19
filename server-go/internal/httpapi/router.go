@@ -170,6 +170,9 @@ func NewRouter(deps Dependencies) http.Handler {
 			remoteService = remote.NewService()
 		}
 	}
+	if cfg.RemoteProbeAddr != "" {
+		remoteService.SetProbeTarget(cfg.RemoteProbeAddr)
+	}
 	mediaService := deps.Media
 	if mediaService == nil {
 		var err error
@@ -268,6 +271,11 @@ func NewRouter(deps Dependencies) http.Handler {
 	storageService.AttachTaskRunner(taskManager)
 	mediaService.AttachTaskRunner(taskManager)
 	backupService.AttachTaskRunner(taskManager)
+	videoService.AttachTaskRunner(taskManager)
+	appCenterService.AttachDocker(dockerService)
+	if fileService != nil {
+		stewardService.AttachFiles(fileService)
+	}
 	taskManager.Start(context.Background())
 
 	api := &API{
@@ -315,6 +323,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/files/batch/move", api.filesBatchMove)
 	mux.HandleFunc("/api/v1/files/batch/rename", api.filesBatchRename)
 	mux.HandleFunc("/api/v1/files/batch/delete", api.filesBatchDelete)
+	mux.HandleFunc("/api/v1/files/batch/execute", api.filesBatchExecute)
 	mux.HandleFunc("/api/v1/files/", api.fileByID)
 	mux.HandleFunc("/api/v1/monitoring/metrics/current", api.monitoringCurrentMetrics)
 	mux.HandleFunc("/api/v1/monitoring/metrics/snapshot", api.monitoringMetricsSnapshot)

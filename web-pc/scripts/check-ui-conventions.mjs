@@ -21,6 +21,10 @@ const BASELINE = {
   scopedHex: 19,
   bareZIndex: 16,
   strayBackdrop: 16,
+  // Hardcoded near-white surfaces that don't adapt to dark mode. The residual
+  // are intended white borders/edge-highlights; panel/card BACKGROUNDS should
+  // use rgba(var(--surface-rgb), A) instead. Ratchet down, never up.
+  whiteSurfaces: 35,
 };
 
 async function collectVueFiles(dir) {
@@ -66,7 +70,23 @@ for (const file of componentFiles) {
   if (!isUiLib) strayBackdrop += countBackdrop(src);
 }
 
-const results = { scopedHex, bareZIndex, strayBackdrop };
+// Near-white surfaces span both .vue <style> and the extracted *.css panel files.
+async function collectStyleFiles(dir) {
+  const out = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...(await collectStyleFiles(full)));
+    else if (entry.name.endsWith('.vue') || entry.name.endsWith('.css')) out.push(full);
+  }
+  return out;
+}
+const NEAR_WHITE = /rgba\(\s*2[2-5][0-9]\s*,\s*2[3-5][0-9]\s*,\s*2[4-5][0-9]\s*,/g;
+let whiteSurfaces = 0;
+for (const file of await collectStyleFiles(resolve(root, 'src/components'))) {
+  whiteSurfaces += ((await readFile(file, 'utf8')).match(NEAR_WHITE) ?? []).length;
+}
+
+const results = { scopedHex, bareZIndex, strayBackdrop, whiteSurfaces };
 
 if (report) {
   console.log('Current UI-convention counts:', results);
@@ -84,4 +104,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log(`UI-convention ratchet OK: hex=${scopedHex} zIndex=${bareZIndex} backdrop=${strayBackdrop} (<= baseline)`);
+console.log(`UI-convention ratchet OK: hex=${scopedHex} zIndex=${bareZIndex} backdrop=${strayBackdrop} whiteSurfaces=${whiteSurfaces} (<= baseline)`);

@@ -123,8 +123,8 @@ function isPinned(id: string) {
   padding: clamp(9px, 0.9vw, 12px) clamp(12px, 1.25vw, 18px) clamp(8px, 0.8vw, 11px);
   overflow: visible;
   background:
-    linear-gradient(180deg, rgba(var(--surface-rgb),  0.76), rgba(223, 250, 249, 0.48)),
-    rgba(246, 253, 255, 0.58);
+    linear-gradient(180deg, rgba(var(--surface-rgb), 0.76), rgba(223, 250, 249, 0.48)),
+    rgba(var(--surface-rgb), 0.58);
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: clamp(22px, 3.2vw, 34px);
   box-shadow:
@@ -141,7 +141,7 @@ function isPinned(id: string) {
   inset: 5px 8px auto;
   height: 38%;
   content: "";
-  background: linear-gradient(180deg, rgba(var(--surface-rgb),  0.74), rgba(var(--surface-rgb),  0));
+  background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.74), rgba(var(--surface-rgb), 0));
   border-radius: inherit;
   pointer-events: none;
 }
@@ -217,8 +217,8 @@ function isPinned(id: string) {
 .dock--style-side.dock--left .dock__surface,
 .dock--style-side.dock--right .dock__surface {
   background:
-    linear-gradient(135deg, rgba(var(--surface-rgb),  0.72), rgba(214, 244, 255, 0.36)),
-    rgba(var(--surface-rgb),  0.36);
+    linear-gradient(135deg, rgba(var(--surface-rgb), 0.72), rgba(214, 244, 255, 0.36)),
+    rgba(var(--surface-rgb), 0.36);
   border-color: rgba(255, 255, 255, 0.58);
   border-radius: 30px;
 }
@@ -489,7 +489,7 @@ function isPinned(id: string) {
   line-height: 1.1;
   text-align: center;
   white-space: nowrap;
-  background: rgba(var(--surface-rgb),  0.88);
+  background: rgba(var(--surface-rgb), 0.88);
   border: 1px solid rgba(100, 136, 166, 0.2);
   border-radius: 9px;
   box-shadow: 0 10px 24px rgba(24, 64, 99, 0.18);
@@ -535,8 +535,8 @@ function isPinned(id: string) {
     overflow-x: auto;
     overflow-y: hidden;
     background:
-      linear-gradient(180deg, rgba(var(--surface-rgb),  0.76), rgba(223, 250, 249, 0.48)),
-      rgba(246, 253, 255, 0.58);
+      linear-gradient(180deg, rgba(var(--surface-rgb), 0.76), rgba(223, 250, 249, 0.48)),
+      rgba(var(--surface-rgb), 0.58);
     border: 1px solid rgba(255, 255, 255, 0.78);
     border-radius: 26px;
     box-shadow:

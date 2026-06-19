@@ -236,7 +236,7 @@ onMounted(loadStewardState);
   min-height: 70px;
   padding: 14px 16px;
   color: var(--text-strong);
-  background: linear-gradient(135deg, rgba(231, 247, 255, 0.9), rgba(255, 246, 227, 0.82));
+  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.9), rgba(255, 246, 227, 0.82));
   border: 1px solid rgba(22, 199, 221, 0.22);
   border-radius: var(--radius-md);
 }
@@ -267,7 +267,7 @@ onMounted(loadStewardState);
 .ai-steward__suggestion,
 .ai-steward__governance,
 .ai-steward__audit {
-  background: rgba(var(--surface-rgb),  0.5);
+  background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -330,7 +330,7 @@ onMounted(loadStewardState);
   gap: 9px;
   min-width: 0;
   padding: 9px;
-  background: rgba(var(--surface-rgb),  0.56);
+  background: rgba(var(--surface-rgb), 0.56);
   border-radius: var(--radius-sm);
 }
 

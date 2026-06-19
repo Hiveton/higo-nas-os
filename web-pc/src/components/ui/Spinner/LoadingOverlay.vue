@@ -30,7 +30,7 @@ withDefaults(
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
-  background: rgba(var(--surface-rgb),  0.42);
+  background: rgba(var(--surface-rgb), 0.42);
   border-radius: inherit;
   z-index: 2;
 }

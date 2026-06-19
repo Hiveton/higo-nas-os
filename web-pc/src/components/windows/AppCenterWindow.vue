@@ -256,7 +256,7 @@ onMounted(loadApps);
   justify-items: center;
   padding: 12px 8px;
   color: var(--accent);
-  background: rgba(var(--surface-rgb),  0.56);
+  background: rgba(var(--surface-rgb), 0.56);
 }
 
 .app-center__summary span,
@@ -285,7 +285,7 @@ onMounted(loadApps);
 .app-center__detail,
 .app-center__audit {
   min-width: 0;
-  background: rgba(var(--surface-rgb),  0.5);
+  background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -303,7 +303,7 @@ onMounted(loadApps);
   gap: 5px;
   padding: 10px;
   text-align: left;
-  background: rgba(var(--surface-rgb),  0.58);
+  background: rgba(var(--surface-rgb), 0.58);
   border: 1px solid rgba(100, 136, 166, 0.12);
   border-radius: var(--radius-sm);
 }
@@ -369,7 +369,7 @@ onMounted(loadApps);
   min-width: 0;
   padding: 10px;
   color: var(--accent);
-  background: rgba(var(--surface-rgb),  0.58);
+  background: rgba(var(--surface-rgb), 0.58);
   border: 1px solid rgba(100, 136, 166, 0.12);
   border-radius: var(--radius-sm);
 }
@@ -384,7 +384,7 @@ onMounted(loadApps);
 .app-center__ports span {
   padding: 5px 8px;
   color: var(--text-muted);
-  background: rgba(var(--surface-rgb),  0.72);
+  background: rgba(var(--surface-rgb), 0.72);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 10px;

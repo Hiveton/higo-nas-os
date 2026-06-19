@@ -732,7 +732,7 @@ onMounted(() => {
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: rgba(var(--surface-rgb),  0.62);
+  background: rgba(var(--surface-rgb), 0.62);
 }
 
 .file-manager__sidebar {
@@ -788,7 +788,7 @@ onMounted(() => {
   gap: 5px;
   padding: 11px;
   color: var(--text-muted);
-  background: rgba(231, 247, 255, 0.76);
+  background: rgba(var(--surface-rgb), 0.76);
   border: 1px solid rgba(22, 199, 221, 0.22);
   border-radius: var(--radius-md);
   font-size: 11px;
@@ -839,7 +839,7 @@ onMounted(() => {
   min-width: 0;
   padding: 0 12px;
   color: var(--text);
-  background: rgba(var(--surface-rgb),  0.72);
+  background: rgba(var(--surface-rgb), 0.72);
   border: 1px solid rgba(100, 136, 166, 0.2);
   border-radius: 999px;
   outline: 0;
@@ -882,7 +882,7 @@ onMounted(() => {
   z-index: 1;
   min-height: 34px;
   color: var(--text-muted);
-  background: rgba(247, 252, 255, 0.92);
+  background: rgba(var(--surface-rgb), 0.92);
   font-size: 11px;
   font-weight: 780;
 }
@@ -1023,7 +1023,7 @@ onMounted(() => {
   gap: 4px;
   padding: 5px 8px;
   color: var(--text-muted);
-  background: rgba(var(--surface-rgb),  0.78);
+  background: rgba(var(--surface-rgb), 0.78);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 11px;
@@ -1040,7 +1040,7 @@ onMounted(() => {
   gap: 8px;
   padding: 12px;
   color: var(--text-muted);
-  background: rgba(247, 252, 255, 0.78);
+  background: rgba(var(--surface-rgb), 0.78);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-size: 12px;
@@ -1070,7 +1070,7 @@ onMounted(() => {
   align-content: center;
   gap: 12px;
   color: var(--accent);
-  background: rgba(231, 247, 255, 0.78);
+  background: rgba(var(--surface-rgb), 0.78);
   border: 2px dashed rgba(19, 136, 255, 0.4);
   border-radius: var(--radius-lg);
   backdrop-filter: blur(8px);

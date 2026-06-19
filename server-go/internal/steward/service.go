@@ -8,8 +8,16 @@ import (
 	"sync"
 	"time"
 
+	"higoos/server-go/internal/files"
 	"higoos/server-go/internal/state"
 )
+
+// FileExecutor is the slice of the files domain the steward needs to execute and
+// reverse structured suggestion operations. *files.Service satisfies it.
+type FileExecutor interface {
+	Delete(ctx context.Context, id string, actor string) (files.FileRow, error)
+	Restore(ctx context.Context, id string) (files.FileRow, error)
+}
 
 type Service struct {
 	mu          sync.RWMutex
@@ -21,6 +29,13 @@ type Service struct {
 	previews    map[string]SuggestionPreview
 	audit       []AuditEntry
 	statePath   string
+	files       FileExecutor
+}
+
+// AttachFiles wires the files domain so suggestions carrying structured
+// operations are really executed (and reversible) on confirm/rollback.
+func (s *Service) AttachFiles(f FileExecutor) {
+	s.files = f
 }
 
 type snapshot struct {
@@ -165,19 +180,63 @@ func (s *Service) Confirm(ctx context.Context, id string, request ConfirmRequest
 			return ConfirmResult{}, fmt.Errorf("steward confirmation mismatch")
 		}
 	}
+	// Execute structured operations for real (when a file executor is attached).
+	// Deletes move files to the recycle bin and are recorded for rollback.
+	executed, message := s.executeOperationsLocked(ctx, suggestion, request.ActorID)
+	if message == "" {
+		message = fmt.Sprintf("已确认执行：%s", suggestion.Title)
+	}
+
 	suggestion.Status = SuggestionConfirmed
 	suggestion.UpdateAt = s.now().UTC()
 	s.suggestions[id] = suggestion
 	audit := s.appendAuditLocked(AuditEntry{
-		SuggestionID:   id,
-		Message:        fmt.Sprintf("已确认执行：%s", suggestion.Title),
-		ActorID:        request.ActorID,
-		Risk:           suggestion.Risk,
-		Result:         AuditConfirmed,
-		ConfirmationID: preview.ConfirmationID,
-		RollbackID:     preview.RollbackID,
+		SuggestionID:    id,
+		Message:         message,
+		ActorID:         request.ActorID,
+		Risk:            suggestion.Risk,
+		Result:          AuditConfirmed,
+		ConfirmationID:  preview.ConfirmationID,
+		RollbackID:      preview.RollbackID,
+		ExecutedFileIDs: executed,
 	})
 	return ConfirmResult{Suggestion: suggestion, AuditEntry: audit}, s.saveLocked()
+}
+
+// executeOperationsLocked performs the suggestion's structured file operations
+// and returns the list of executed file ids (for rollback) plus an audit
+// message. A delete that fails is skipped and noted; already-executed deletes
+// remain recoverable from the recycle bin.
+func (s *Service) executeOperationsLocked(ctx context.Context, suggestion Suggestion, actor string) ([]string, string) {
+	if s.files == nil || len(suggestion.Operations) == 0 {
+		return nil, ""
+	}
+	var executed []string
+	var failures int
+	for _, op := range suggestion.Operations {
+		switch op.Type {
+		case "delete":
+			if _, err := s.files.Delete(ctx, op.FileID, emptyActor(actor)); err != nil {
+				failures++
+				continue
+			}
+			executed = append(executed, op.FileID)
+		default:
+			failures++
+		}
+	}
+	message := fmt.Sprintf("已执行：%s（删除 %d 个文件到回收站，可回滚）", suggestion.Title, len(executed))
+	if failures > 0 {
+		message = fmt.Sprintf("%s；%d 个操作未完成", message, failures)
+	}
+	return executed, message
+}
+
+func emptyActor(actor string) string {
+	if strings.TrimSpace(actor) == "" {
+		return "steward"
+	}
+	return actor
 }
 
 func (s *Service) Dismiss(ctx context.Context, id string, request DismissRequest) (Suggestion, error) {
@@ -231,6 +290,14 @@ func (s *Service) Rollback(ctx context.Context, auditID string, request Rollback
 		}
 		if s.audit[i].RollbackID == "" {
 			return AuditEntry{}, fmt.Errorf("steward audit entry has no rollback: %s", auditID)
+		}
+		// Reverse real operations: restore each deleted file from the recycle bin.
+		if len(s.audit[i].ExecutedFileIDs) > 0 && s.files != nil {
+			for _, fileID := range s.audit[i].ExecutedFileIDs {
+				if _, err := s.files.Restore(ctx, fileID); err != nil {
+					return AuditEntry{}, fmt.Errorf("steward rollback failed to restore %s: %w", fileID, err)
+				}
+			}
 		}
 		s.audit[i].Result = AuditRolledBack
 		s.audit[i].RolledBackAt = s.now().UTC()

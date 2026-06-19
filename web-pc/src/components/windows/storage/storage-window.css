@@ -14,7 +14,7 @@
 .storage-monitor__space-card,
 .storage-monitor__side section,
 .storage-monitor__cache-card {
-  background: rgba(var(--surface-rgb),  0.58);
+  background: rgba(var(--surface-rgb), 0.58);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -57,7 +57,7 @@
   justify-items: center;
   padding: 11px 8px;
   color: var(--accent);
-  background: rgba(var(--surface-rgb),  0.38);
+  background: rgba(var(--surface-rgb), 0.38);
 }
 
 .storage-monitor__stats span {
@@ -154,7 +154,7 @@
   height: 56px;
   place-items: center;
   color: var(--accent);
-  background: rgba(231, 247, 255, 0.86);
+  background: rgba(var(--surface-rgb), 0.86);
   border-radius: var(--radius-sm);
 }
 
@@ -244,7 +244,7 @@
   min-height: 30px;
   padding: 0 10px;
   color: var(--text-muted);
-  background: rgba(var(--surface-rgb),  0.74);
+  background: rgba(var(--surface-rgb), 0.74);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: 12px;
@@ -325,7 +325,7 @@
   min-width: 0;
   padding: 14px;
   cursor: pointer;
-  background: rgba(var(--surface-rgb),  0.62);
+  background: rgba(var(--surface-rgb), 0.62);
   border: 1px solid rgba(100, 136, 166, 0.18);
   border-radius: var(--radius-md);
 }
@@ -552,7 +552,7 @@
   width: 100%;
   padding: 14px 16px;
   text-align: left;
-  background: rgba(var(--surface-rgb),  0.82);
+  background: rgba(var(--surface-rgb), 0.82);
   border: 1px solid rgba(100, 136, 166, 0.18);
   border-radius: var(--radius-md);
 }
@@ -639,7 +639,7 @@
   padding: 9px 10px;
   color: var(--text-muted);
   text-align: left;
-  background: rgba(var(--surface-rgb),  0.78);
+  background: rgba(var(--surface-rgb), 0.78);
   border: 1px solid rgba(100, 136, 166, 0.16);
   border-radius: var(--radius-md);
 }
@@ -850,13 +850,13 @@
   min-height: 78px;
   padding: 12px;
   color: var(--text-strong);
-  background: rgba(var(--surface-rgb),  0.68);
+  background: rgba(var(--surface-rgb), 0.68);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
 
 .storage-monitor__scan-option--active {
-  background: rgba(231, 247, 255, 0.86);
+  background: rgba(var(--surface-rgb), 0.86);
   border-color: rgba(19, 136, 255, 0.32);
 }
 

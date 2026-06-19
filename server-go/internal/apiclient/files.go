@@ -64,6 +64,11 @@ func (c *Client) FilesBatchDelete(ctx context.Context, body any) (json.RawMessag
 	return c.Do(ctx, http.MethodPost, "/api/v1/files/batch/delete", nil, body)
 }
 
+// FilesBatchExecute runs a planned batch task (POST /api/v1/files/batch/execute).
+func (c *Client) FilesBatchExecute(ctx context.Context, body any) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/api/v1/files/batch/execute", nil, body)
+}
+
 // FilesGet returns a single file by id (GET /api/v1/files/{id}).
 func (c *Client) FilesGet(ctx context.Context, id string) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodGet, "/api/v1/files/"+url.PathEscape(id), nil, nil)

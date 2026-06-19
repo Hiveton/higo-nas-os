@@ -244,7 +244,7 @@ onMounted(loadAgentWorkbench);
 .agent-workbench__permissions,
 .agent-workbench__confirm {
   min-height: 0;
-  background: rgba(var(--surface-rgb),  0.5);
+  background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -332,14 +332,14 @@ onMounted(loadAgentWorkbench);
   gap: 10px;
   min-height: 78px;
   padding: 12px;
-  background: rgba(var(--surface-rgb),  0.58);
+  background: rgba(var(--surface-rgb), 0.58);
   border: 1px solid rgba(100, 136, 166, 0.14);
   border-radius: var(--radius-sm);
 }
 
 .agent-workbench__node--running {
   border-color: rgba(19, 136, 255, 0.2);
-  background: rgba(231, 247, 255, 0.72);
+  background: rgba(var(--surface-rgb), 0.72);
 }
 
 .agent-workbench__node-icon {
@@ -394,7 +394,7 @@ onMounted(loadAgentWorkbench);
   height: 28px;
   padding: 0 8px;
   color: var(--text-muted);
-  background: rgba(var(--surface-rgb),  0.7);
+  background: rgba(var(--surface-rgb), 0.7);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 11px;
@@ -408,7 +408,7 @@ onMounted(loadAgentWorkbench);
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, rgba(255, 246, 227, 0.82), rgba(231, 247, 255, 0.78));
+  background: linear-gradient(135deg, rgba(255, 246, 227, 0.82), rgba(var(--surface-rgb), 0.78));
 }
 
 .agent-workbench__confirm strong {

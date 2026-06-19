@@ -227,7 +227,7 @@ onMounted(loadBackupJobs);
   justify-items: center;
   padding: 12px 8px;
   color: var(--accent);
-  background: rgba(var(--surface-rgb),  0.56);
+  background: rgba(var(--surface-rgb), 0.56);
 }
 
 .backup-sync__summary span,
@@ -255,7 +255,7 @@ onMounted(loadBackupJobs);
 .backup-sync__detail,
 .backup-sync__audit {
   min-width: 0;
-  background: rgba(var(--surface-rgb),  0.5);
+  background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -278,7 +278,7 @@ onMounted(loadBackupJobs);
   position: sticky;
   top: 0;
   z-index: 1;
-  background: rgba(247, 252, 255, 0.92);
+  background: rgba(var(--surface-rgb), 0.92);
 }
 
 .backup-sync h3 {
@@ -354,7 +354,7 @@ onMounted(loadBackupJobs);
   gap: 5px;
   min-width: 0;
   padding: 10px;
-  background: rgba(var(--surface-rgb),  0.58);
+  background: rgba(var(--surface-rgb), 0.58);
   border: 1px solid rgba(100, 136, 166, 0.12);
   border-radius: var(--radius-sm);
 }
@@ -367,7 +367,7 @@ onMounted(loadBackupJobs);
   margin: 0 14px 12px;
   padding: 9px 10px;
   color: var(--text-muted);
-  background: rgba(231, 247, 255, 0.62);
+  background: rgba(var(--surface-rgb), 0.62);
   border: 1px solid rgba(19, 136, 255, 0.12);
   border-radius: var(--radius-sm);
   font-size: 11px;

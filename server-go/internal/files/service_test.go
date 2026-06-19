@@ -357,6 +357,66 @@ func TestRootRepositoryCreatesMovesRenamesDeletesAndDownloads(t *testing.T) {
 	}
 }
 
+func TestExecuteBatchPerformsRealMoveAfterPlanning(t *testing.T) {
+	root := t.TempDir()
+	repo, err := NewRootRepository(root)
+	if err != nil {
+		t.Fatalf("root repo: %v", err)
+	}
+	service, err := NewService(repo)
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	ctx := context.Background()
+
+	if _, err := service.CreateFolder(ctx, CreateFolderRequest{Space: "家庭空间", Name: "documents"}); err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	file, err := service.CreateFile(ctx, CreateFileRequest{Path: "家庭空间/documents", Name: "note.md", Content: "hi"})
+	if err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+
+	// Plan a batch move — planning alone must not move the file.
+	task, err := service.BatchMove(ctx, BatchOperation{FileIDs: []string{file.ID}, Destination: "下载目录", Actor: "tester"})
+	if err != nil {
+		t.Fatalf("batch move plan: %v", err)
+	}
+	if task.Status != "planned" {
+		t.Fatalf("expected planned status, got %q", task.Status)
+	}
+	stillThere, err := service.Get(ctx, file.ID)
+	if err != nil || stillThere.Space != "家庭空间" {
+		t.Fatalf("planning must not move the file yet: %#v err=%v", stillThere, err)
+	}
+
+	// Execute the plan — now the file is really moved.
+	done, err := service.ExecuteBatch(ctx, task.ID, "tester")
+	if err != nil {
+		t.Fatalf("execute batch: %v", err)
+	}
+	if done.Status != "completed" {
+		t.Fatalf("expected completed status, got %q", done.Status)
+	}
+	// A real move re-keys the file by its new path, so the original id is gone
+	// and the file now lives under 下载目录.
+	if _, err := service.Get(ctx, file.ID); err == nil {
+		t.Fatalf("original id should no longer exist after a real move")
+	}
+	downloads, err := service.Tree(ctx, "下载目录")
+	if err != nil {
+		t.Fatalf("tree: %v", err)
+	}
+	if !treeContainsPath(downloads, "/下载目录/note.md") {
+		t.Fatalf("moved file not found under 下载目录: %#v", downloads)
+	}
+
+	// The task is consumed; a second execute fails.
+	if _, err := service.ExecuteBatch(ctx, task.ID, "tester"); err == nil {
+		t.Fatalf("second execute should fail, task already consumed")
+	}
+}
+
 func TestRootRepositoryRestoreReturnsDeletedFileToOriginalLocation(t *testing.T) {
 	root := t.TempDir()
 	repo, err := NewRootRepository(root)

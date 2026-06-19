@@ -469,7 +469,7 @@ onBeforeUnmount(() => {
 .download-center__task,
 .download-center__automation,
 .download-center__log {
-  background: rgba(var(--surface-rgb),  0.5);
+  background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -532,7 +532,7 @@ onBeforeUnmount(() => {
   min-height: 28px;
   padding: 0 9px;
   color: var(--accent);
-  background: rgba(231, 247, 255, 0.72);
+  background: rgba(var(--surface-rgb), 0.72);
   border: 1px solid rgba(19, 136, 255, 0.16);
   border-radius: 999px;
   font-size: 11px;
@@ -556,7 +556,7 @@ onBeforeUnmount(() => {
 
 .download-center__limits div {
   padding: 8px;
-  background: rgba(var(--surface-rgb),  0.58);
+  background: rgba(var(--surface-rgb), 0.58);
   border-radius: var(--radius-sm);
 }
 
@@ -594,7 +594,7 @@ onBeforeUnmount(() => {
 
 .download-center__task--active {
   border-color: rgba(19, 136, 255, 0.28);
-  background: rgba(231, 247, 255, 0.72);
+  background: rgba(var(--surface-rgb), 0.72);
 }
 
 .download-center__task-head,
@@ -659,7 +659,7 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 10px;
   padding: 11px;
-  background: linear-gradient(135deg, rgba(231, 247, 255, 0.9), rgba(255, 246, 227, 0.72));
+  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.9), rgba(255, 246, 227, 0.72));
   border: 1px solid rgba(22, 199, 221, 0.22);
   border-radius: var(--radius-md);
 }
@@ -671,7 +671,7 @@ onBeforeUnmount(() => {
   flex: 0 0 38px;
   place-items: center;
   color: var(--accent);
-  background: rgba(var(--surface-rgb),  0.72);
+  background: rgba(var(--surface-rgb), 0.72);
   border-radius: var(--radius-sm);
 }
 

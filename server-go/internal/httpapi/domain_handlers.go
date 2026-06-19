@@ -372,6 +372,32 @@ func (a *API) filesBatch(w http.ResponseWriter, r *http.Request, kind string) {
 	platform.WriteJSON(w, r, http.StatusOK, task)
 }
 
+// filesBatchExecute runs a previously planned batch task (the confirm→execute
+// half of the batch governance loop).
+func (a *API) filesBatchExecute(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	if a.files == nil {
+		platform.WriteError(w, r, http.StatusServiceUnavailable, "files_unavailable", "files service is unavailable")
+		return
+	}
+	var body struct {
+		TaskID string `json:"taskId"`
+		Actor  string `json:"actor"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	task, err := a.files.ExecuteBatch(r.Context(), body.TaskID, body.Actor)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "files_batch_execute_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, task)
+}
+
 func (a *API) monitoringCurrentMetrics(w http.ResponseWriter, r *http.Request) {
 	if !allowMethod(w, r, http.MethodGet) {
 		return
