@@ -15,8 +15,10 @@ import (
 // FileExecutor is the slice of the files domain the steward needs to execute and
 // reverse structured suggestion operations. *files.Service satisfies it.
 type FileExecutor interface {
+	Get(ctx context.Context, id string) (files.FileRow, error)
 	Delete(ctx context.Context, id string, actor string) (files.FileRow, error)
 	Restore(ctx context.Context, id string) (files.FileRow, error)
+	Move(ctx context.Context, id string, request files.MoveRequest) (files.FileRow, error)
 }
 
 type Service struct {
@@ -181,10 +183,19 @@ func (s *Service) Confirm(ctx context.Context, id string, request ConfirmRequest
 		}
 	}
 	// Execute structured operations for real (when a file executor is attached).
-	// Deletes move files to the recycle bin and are recorded for rollback.
-	executed, message := s.executeOperationsLocked(ctx, suggestion, request.ActorID)
+	// Deletes move files to the recycle bin; moves relocate them. Both are
+	// recorded for rollback.
+	executedOps, message := s.executeOperationsLocked(ctx, suggestion, request.ActorID)
 	if message == "" {
 		message = fmt.Sprintf("已确认执行：%s", suggestion.Title)
+	}
+
+	// Anything that actually ran must be reversible, even low-risk suggestions
+	// that skipped the preview step (where confirmation/rollback ids are minted).
+	rollbackID := preview.RollbackID
+	if rollbackID == "" && len(executedOps) > 0 {
+		s.nextPreview++
+		rollbackID = fmt.Sprintf("steward-rollback-%03d", s.nextPreview)
 	}
 
 	suggestion.Status = SuggestionConfirmed
@@ -197,22 +208,25 @@ func (s *Service) Confirm(ctx context.Context, id string, request ConfirmRequest
 		Risk:            suggestion.Risk,
 		Result:          AuditConfirmed,
 		ConfirmationID:  preview.ConfirmationID,
-		RollbackID:      preview.RollbackID,
-		ExecutedFileIDs: executed,
+		RollbackID:      rollbackID,
+		ExecutedFileIDs: deletedFileIDs(executedOps),
+		ExecutedOps:     executedOps,
 	})
 	return ConfirmResult{Suggestion: suggestion, AuditEntry: audit}, s.saveLocked()
 }
 
 // executeOperationsLocked performs the suggestion's structured file operations
-// and returns the list of executed file ids (for rollback) plus an audit
-// message. A delete that fails is skipped and noted; already-executed deletes
-// remain recoverable from the recycle bin.
-func (s *Service) executeOperationsLocked(ctx context.Context, suggestion Suggestion, actor string) ([]string, string) {
+// and returns the executed operations (for rollback) plus an audit message.
+// A failed operation is skipped and counted; already-executed deletes/moves
+// remain reversible. For a move we capture the file's original parent directory
+// before relocating so rollback can put it back; ids are path-derived, so a
+// move yields a new id which we record for the reverse move.
+func (s *Service) executeOperationsLocked(ctx context.Context, suggestion Suggestion, actor string) ([]ExecutedOp, string) {
 	if s.files == nil || len(suggestion.Operations) == 0 {
 		return nil, ""
 	}
-	var executed []string
-	var failures int
+	var executed []ExecutedOp
+	var deleted, moved, failures int
 	for _, op := range suggestion.Operations {
 		switch op.Type {
 		case "delete":
@@ -220,16 +234,68 @@ func (s *Service) executeOperationsLocked(ctx context.Context, suggestion Sugges
 				failures++
 				continue
 			}
-			executed = append(executed, op.FileID)
+			executed = append(executed, ExecutedOp{Type: "delete", FileID: op.FileID})
+			deleted++
+		case "move":
+			if op.Dest == "" {
+				failures++
+				continue
+			}
+			origin, err := s.files.Get(ctx, op.FileID)
+			if err != nil {
+				failures++
+				continue
+			}
+			row, err := s.files.Move(ctx, op.FileID, files.MoveRequest{Destination: op.Dest, Actor: emptyActor(actor)})
+			if err != nil {
+				failures++
+				continue
+			}
+			executed = append(executed, ExecutedOp{Type: "move", FileID: row.ID, FromPath: parentDir(origin.Path), ToPath: op.Dest})
+			moved++
 		default:
 			failures++
 		}
 	}
-	message := fmt.Sprintf("已执行：%s（删除 %d 个文件到回收站，可回滚）", suggestion.Title, len(executed))
+	message := summarizeExecution(suggestion.Title, deleted, moved)
 	if failures > 0 {
 		message = fmt.Sprintf("%s；%d 个操作未完成", message, failures)
 	}
 	return executed, message
+}
+
+// summarizeExecution builds the audit message for a confirmed suggestion.
+func summarizeExecution(title string, deleted, moved int) string {
+	switch {
+	case deleted > 0 && moved > 0:
+		return fmt.Sprintf("已执行：%s（删除 %d 个到回收站、归档 %d 个，可回滚）", title, deleted, moved)
+	case moved > 0:
+		return fmt.Sprintf("已执行：%s（归档 %d 个文件，可回滚）", title, moved)
+	default:
+		return fmt.Sprintf("已执行：%s（删除 %d 个文件到回收站，可回滚）", title, deleted)
+	}
+}
+
+// parentDir returns the directory holding the given file path, which a reverse
+// move targets. Paths use "/" separators and space display names.
+func parentDir(p string) string {
+	trimmed := strings.Trim(p, "/")
+	if idx := strings.LastIndex(trimmed, "/"); idx >= 0 {
+		return trimmed[:idx]
+	}
+	return trimmed
+}
+
+// deletedFileIDs extracts the recycled file ids so legacy ExecutedFileIDs stays
+// populated for delete operations.
+func deletedFileIDs(ops []ExecutedOp) []string {
+	var out []string
+	for _, op := range ops {
+		if op.Type == "delete" {
+			out = append(out, op.FileID)
+		}
+	}
+	return out
 }
 
 func emptyActor(actor string) string {
@@ -291,11 +357,27 @@ func (s *Service) Rollback(ctx context.Context, auditID string, request Rollback
 		if s.audit[i].RollbackID == "" {
 			return AuditEntry{}, fmt.Errorf("steward audit entry has no rollback: %s", auditID)
 		}
-		// Reverse real operations: restore each deleted file from the recycle bin.
-		if len(s.audit[i].ExecutedFileIDs) > 0 && s.files != nil {
-			for _, fileID := range s.audit[i].ExecutedFileIDs {
-				if _, err := s.files.Restore(ctx, fileID); err != nil {
-					return AuditEntry{}, fmt.Errorf("steward rollback failed to restore %s: %w", fileID, err)
+		// Reverse real operations: restore deleted files from the recycle bin
+		// and move relocated files back to their original directory.
+		if s.files != nil {
+			ops := s.audit[i].ExecutedOps
+			if len(ops) == 0 {
+				// Back-compat: entries persisted before ExecutedOps only carry
+				// recycled file ids, which were all deletes.
+				for _, fileID := range s.audit[i].ExecutedFileIDs {
+					ops = append(ops, ExecutedOp{Type: "delete", FileID: fileID})
+				}
+			}
+			for _, op := range ops {
+				switch op.Type {
+				case "move":
+					if _, err := s.files.Move(ctx, op.FileID, files.MoveRequest{Destination: op.FromPath, Actor: emptyActor(request.ActorID)}); err != nil {
+						return AuditEntry{}, fmt.Errorf("steward rollback failed to move %s back: %w", op.FileID, err)
+					}
+				default:
+					if _, err := s.files.Restore(ctx, op.FileID); err != nil {
+						return AuditEntry{}, fmt.Errorf("steward rollback failed to restore %s: %w", op.FileID, err)
+					}
 				}
 			}
 		}
@@ -367,6 +449,25 @@ func (s *Service) appendAuditLocked(entry AuditEntry) AuditEntry {
 }
 
 func impactForSuggestion(suggestion Suggestion) string {
+	// Operation-bearing suggestions describe exactly what confirming will do.
+	var deletes, moves int
+	for _, op := range suggestion.Operations {
+		switch op.Type {
+		case "delete":
+			deletes++
+		case "move":
+			moves++
+		}
+	}
+	switch {
+	case deletes > 0 && moves > 0:
+		return fmt.Sprintf("确认后将删除 %d 个文件到回收站、归档 %d 个文件，均可一键回滚。", deletes, moves)
+	case moves > 0:
+		return fmt.Sprintf("确认后将把 %d 个文件移动到「备份归档」空间，可一键移回原位。", moves)
+	case deletes > 0:
+		return fmt.Sprintf("确认后将把 %d 个文件移动到回收站（可还原），原文件保留可恢复。", deletes)
+	}
+	// Fallback for suggestions without structured operations.
 	switch suggestion.ID {
 	case "download-cleanup":
 		return "将预览移动、重命名和重复项处理计划，确认前不移动文件。"

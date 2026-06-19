@@ -55,9 +55,115 @@ func (a *API) storageSpaces(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) storageSpaceByID(w http.ResponseWriter, r *http.Request) {
-	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/storage/spaces/"), "/")
-	if id == "" {
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/storage/spaces/"), "/")
+	if rest == "" {
 		platform.WriteError(w, r, http.StatusNotFound, "storage_space_route_not_found", "storage space id is required")
+		return
+	}
+	parts := strings.Split(rest, "/")
+	id := parts[0]
+	// GET /api/v1/storage/spaces/{id}/snapshots — list a ZFS space's snapshots.
+	if len(parts) == 2 && parts[1] == "snapshots" {
+		if !allowMethod(w, r, http.MethodGet) {
+			return
+		}
+		snaps, err := a.storage.ListSnapshots(r.Context(), id)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "storage_snapshots_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, map[string]any{"snapshots": snaps})
+		return
+	}
+	// GET /api/v1/storage/spaces/{id}/zfs — rich ZFS pool efficiency/health.
+	if len(parts) == 2 && parts[1] == "zfs" {
+		if !allowMethod(w, r, http.MethodGet) {
+			return
+		}
+		detail, err := a.storage.PoolDetail(r.Context(), id)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "storage_zfs_detail_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, detail)
+		return
+	}
+	// GET/PUT /api/v1/storage/spaces/{id}/snapshot-schedule — auto-snapshot policy.
+	if len(parts) == 2 && parts[1] == "snapshot-schedule" {
+		switch r.Method {
+		case http.MethodGet:
+			for _, sc := range a.storage.SnapshotSchedules(r.Context()) {
+				if sc.PoolID == id {
+					platform.WriteJSON(w, r, http.StatusOK, sc)
+					return
+				}
+			}
+			platform.WriteJSON(w, r, http.StatusOK, storage.SnapshotSchedule{PoolID: id})
+		case http.MethodPut:
+			var sched storage.SnapshotSchedule
+			if err := decodeJSON(r, &sched); err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+				return
+			}
+			sched.PoolID = id
+			saved, err := a.storage.SetSnapshotSchedule(r.Context(), sched)
+			if err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "storage_snapshot_schedule_failed", err.Error())
+				return
+			}
+			platform.WriteJSON(w, r, http.StatusOK, saved)
+		default:
+			platform.WriteError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+		return
+	}
+	// POST /api/v1/storage/spaces/{id}/delete/{preview|confirm} — governed
+	// two-phase deletion: preview returns a single-use confirmationId + impact
+	// summary (no side effect); confirm validates the token and executes.
+	if len(parts) == 3 && parts[1] == "delete" {
+		if !allowMethod(w, r, http.MethodPost) {
+			return
+		}
+		switch parts[2] {
+		case "preview":
+			var body struct {
+				Actor string `json:"actor"`
+			}
+			if r.ContentLength != 0 {
+				if err := decodeJSON(r, &body); err != nil {
+					platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+					return
+				}
+			}
+			preview, err := a.storage.PreviewDeleteSpace(r.Context(), id, body.Actor)
+			if err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "storage_space_delete_preview_failed", err.Error())
+				return
+			}
+			platform.WriteJSON(w, r, http.StatusOK, preview)
+		case "confirm":
+			var body storage.ConfirmDeleteRequest
+			if err := decodeJSON(r, &body); err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+				return
+			}
+			task, err := a.storage.ConfirmDeleteSpace(r.Context(), body)
+			if err != nil {
+				platform.WriteError(w, r, http.StatusBadRequest, "storage_space_delete_failed", err.Error())
+				return
+			}
+			if _, err := a.accounts.DeleteSpaceGrants(r.Context(), id); err != nil {
+				platform.WriteError(w, r, http.StatusInternalServerError, "storage_space_grants_cleanup_failed", err.Error())
+				return
+			}
+			platform.WriteJSON(w, r, http.StatusOK, task)
+		default:
+			platform.WriteError(w, r, http.StatusNotFound, "storage_space_route_not_found", "storage space route not found")
+		}
+		return
+	}
+	if len(parts) != 1 {
+		platform.WriteError(w, r, http.StatusNotFound, "storage_space_route_not_found", "storage space route not found")
 		return
 	}
 	if !allowMethod(w, r, http.MethodDelete) {
@@ -172,6 +278,26 @@ func (a *API) storageRepair(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) storageSnapshot(w http.ResponseWriter, r *http.Request) {
 	a.storageTask(w, r, "snapshot")
+}
+
+// storageSnapshotRollback rolls a managed ZFS pool back to a named snapshot.
+func (a *API) storageSnapshotRollback(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	var body struct {
+		Snapshot string `json:"snapshot"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	snap, err := a.storage.RollbackSnapshot(r.Context(), body.Snapshot)
+	if err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "storage_snapshot_rollback_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, snap)
 }
 
 func (a *API) storageTask(w http.ResponseWriter, r *http.Request, kind string) {

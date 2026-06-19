@@ -15,6 +15,13 @@ func registerSystem(r *registry) {
 			return c.SystemInfo(ctx)
 		})
 
+	addTool(r, "system", "higo.system.identity",
+		"Get the unauthenticated device fingerprint (deviceId, model, version, hostname, addresses) used by LAN discovery.",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.SystemIdentity(ctx)
+		})
+
 	addTool(r, "system", "higo.system.updates.status",
 		"Get the current system software update availability and status.",
 		readOnly(),

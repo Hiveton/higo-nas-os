@@ -11,6 +11,7 @@ import {
   Upload,
 } from 'lucide-vue-next';
 import { monitoringStore } from '../stores/monitoring';
+import { authStore } from '../stores/auth';
 import TopSearch from './TopSearch.vue';
 import type { Metric } from '../api/types';
 
@@ -38,6 +39,24 @@ const modelPolicies = [
 const noticesOpen = ref(false);
 const accountOpen = ref(false);
 const topbarRef = ref<HTMLElement | null>(null);
+
+const displayName = computed(
+  () => authStore.currentUser.value?.displayName || authStore.currentUser.value?.username || '用户',
+);
+const avatarText = computed(() => (displayName.value.trim()[0] ?? 'H').toUpperCase());
+const roleLabel = computed(() => {
+  switch (authStore.role.value) {
+    case 'admin':
+      return '管理员';
+    case 'user':
+      return '成员';
+    case 'guest':
+      return '访客';
+    default:
+      return authStore.role.value;
+  }
+});
+const canManageSecurity = authStore.canManageSecurity;
 
 const topbarMetrics = computed(() => {
   const preferred = ['cpu', 'memory', 'network', 'disk'];
@@ -150,7 +169,7 @@ onUnmounted(() => {
         aria-label="打开用户菜单"
         @click="accountOpen = !accountOpen; noticesOpen = false"
       >
-        <span>H</span>
+        <span>{{ avatarText }}</span>
         <ChevronDown :size="14" aria-hidden="true" />
       </button>
 
@@ -167,8 +186,12 @@ onUnmounted(() => {
       </section>
 
       <section v-if="accountOpen" class="topbar__popover topbar__popover--account" aria-label="用户菜单">
-        <strong>Hiveton</strong>
-        <button type="button" @click="emit('topbar-action', 'permissions')">家庭空间权限</button>
+        <strong>{{ displayName }}</strong>
+        <span class="topbar__account-role">{{ roleLabel }}</span>
+        <button type="button" @click="emit('topbar-action', 'profile')">用户中心</button>
+        <button v-if="canManageSecurity" type="button" @click="emit('topbar-action', 'inspect')">
+          安全中心
+        </button>
         <button type="button" @click="emit('topbar-action', 'models')">模型策略设置</button>
         <button type="button" @click="emit('topbar-action', 'logout')">退出桌面</button>
       </section>

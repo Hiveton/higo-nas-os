@@ -14,6 +14,8 @@ The HiGoOS Go backend deployment installed or verified these Ubuntu packages on 
 - `zfs-zed` `2.2.2-0ubuntu9.4`: ZFS event daemon installed with Ubuntu ZFS tooling.
 - `lm-sensors` `1:3.6.0-9build1`: host temperature sensor probing when hardware exposes it.
 - `rsync` `3.2.7-1ubuntu1.2`: future file copy, backup, and sync workflows.
+- `acl`: per-space POSIX ACLs for `SpaceGrant`s via `setfacl`/`getfacl` (account/file provisioner).
+- `quota`: best-effort per-user storage quotas via `setquota`. Quotas only take effect when the NAS-root filesystem is mounted with `usrquota`/`grpquota` (or XFS `prjquota`); otherwise `setquota` fails and is ignored. The user/group personal folders and ACLs work regardless.
 
 The 2026-06-03 deployment to the freshly installed Ubuntu host verified or installed these packages:
 
@@ -116,3 +118,5 @@ The deployment also creates:
 - `/etc/samba/smb.conf.d/`, `/etc/exports.d/`, `/etc/higoos/webdav/` (HiGoOS-managed protocol config roots)
 
 `higo-api.service` now runs as `root` because storage-space creation performs controlled disk formatting, `/etc/fstab` updates, ZFS pool creation, and mount operations. The backend still rejects system disks, mounted disks, unsupported modes, and missing confirmation phrases before invoking formatting tools.
+
+Running as `root` is also required for the real authentication / user-center layer: the `system` accounts backend manages Linux system users (`useradd`/`usermod`/`userdel`/`chpasswd`) and verifies passwords by reading `/etc/shadow`, both of which need root. The deploy unit already sets `User=root`, so no extra change is needed. Controlled accounts created by HiGoOS use primary group `higoos`, UID ≥ 3000, and shell `/usr/sbin/nologin`; the `admin` role is membership in the `higoos-admins` group. HiGoOS creates these groups on demand and never alters unmanaged system accounts (UID < 3000 / outside the `higoos` group). Passwords are stored as SHA-512 `$6$` shadow hashes. On first start a seed `admin` user is given a random password printed once to the journal (`WARN initial admin password generated`) unless `HIGO_ADMIN_BOOTSTRAP_PASSWORD` is set in `server.env`.

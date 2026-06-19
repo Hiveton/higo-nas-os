@@ -26,6 +26,19 @@ type StorageDeleteSpaceInput struct {
 	Confirm bool   `json:"confirm" jsonschema:"confirm the delete operation"`
 }
 
+// StorageDeleteSpacePreviewInput is the input for higo.storage.spaces.delete.preview.
+type StorageDeleteSpacePreviewInput struct {
+	ID    string `json:"id" jsonschema:"storage space id"`
+	Actor string `json:"actor" jsonschema:"actor performing the action"`
+}
+
+// StorageDeleteSpaceConfirmInput is the input for higo.storage.spaces.delete.confirm.
+type StorageDeleteSpaceConfirmInput struct {
+	ID             string `json:"id" jsonschema:"storage space id"`
+	ConfirmationID string `json:"confirmationId" jsonschema:"single-use confirmation id from the delete preview"`
+	Actor          string `json:"actor" jsonschema:"actor performing the action"`
+}
+
 // StorageAddDiskInput is the input for higo.storage.disks.add.
 type StorageAddDiskInput struct {
 	Name      string `json:"name" jsonschema:"disk name"`
@@ -61,6 +74,24 @@ type StorageTaskInput struct {
 	ID string `json:"id" jsonschema:"storage task id"`
 }
 
+// StorageSnapshotsInput is the input for higo.storage.snapshots.list.
+type StorageSnapshotsInput struct {
+	SpaceID string `json:"spaceId" jsonschema:"storage space (pool) id"`
+}
+
+// StorageSnapshotRollbackInput is the input for higo.storage.snapshots.rollback.
+type StorageSnapshotRollbackInput struct {
+	Snapshot string `json:"snapshot" jsonschema:"snapshot name to roll back to (pool@snapshot)"`
+}
+
+// StorageSnapshotScheduleInput is the input for higo.storage.snapshots.schedule.set.
+type StorageSnapshotScheduleInput struct {
+	SpaceID       string `json:"spaceId" jsonschema:"storage space (pool) id"`
+	Enabled       bool   `json:"enabled" jsonschema:"whether automatic snapshots are enabled"`
+	IntervalHours int    `json:"intervalHours" jsonschema:"hours between automatic snapshots"`
+	Keep          int    `json:"keep" jsonschema:"number of snapshots to retain"`
+}
+
 func registerStorage(r *registry) {
 	addTool(r, "storage", "higo.storage.pools.list",
 		"List storage pools with capacity and health.",
@@ -88,6 +119,20 @@ func registerStorage(r *registry) {
 		destructive(),
 		func(ctx context.Context, c *apiclient.Client, in StorageDeleteSpaceInput) (json.RawMessage, error) {
 			return c.StorageDeleteSpace(ctx, in.ID, map[string]any{"actor": in.Actor, "confirm": in.Confirm})
+		})
+
+	addTool(r, "storage", "higo.storage.spaces.delete.preview",
+		"Preview deleting a storage space: returns a single-use confirmationId and impact summary, with no side effect.",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, in StorageDeleteSpacePreviewInput) (json.RawMessage, error) {
+			return c.StoragePreviewDeleteSpace(ctx, in.ID, map[string]any{"actor": in.Actor})
+		})
+
+	addTool(r, "storage", "higo.storage.spaces.delete.confirm",
+		"Confirm a previewed storage space deletion (HIGH RISK; destroys data). Requires the confirmationId from the preview.",
+		destructive(),
+		func(ctx context.Context, c *apiclient.Client, in StorageDeleteSpaceConfirmInput) (json.RawMessage, error) {
+			return c.StorageConfirmDeleteSpace(ctx, in.ID, map[string]any{"confirmationId": in.ConfirmationID, "actor": in.Actor})
 		})
 
 	addTool(r, "storage", "higo.storage.disks.list",
@@ -156,5 +201,44 @@ func registerStorage(r *registry) {
 		readOnly(),
 		func(ctx context.Context, c *apiclient.Client, in StorageTaskInput) (json.RawMessage, error) {
 			return c.StorageTask(ctx, in.ID)
+		})
+
+	addTool(r, "storage", "higo.storage.snapshots.list",
+		"List the ZFS snapshots of a storage space (pool).",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, in StorageSnapshotsInput) (json.RawMessage, error) {
+			return c.StorageSnapshots(ctx, in.SpaceID)
+		})
+
+	addTool(r, "storage", "higo.storage.zfs.detail",
+		"Get a ZFS storage space's efficiency/health figures (compression, fragmentation, dedup, capacity).",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, in StorageSnapshotsInput) (json.RawMessage, error) {
+			return c.StorageZFSDetail(ctx, in.SpaceID)
+		})
+
+	addTool(r, "storage", "higo.storage.snapshots.schedule.get",
+		"Get a ZFS space's automatic-snapshot policy.",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, in StorageSnapshotsInput) (json.RawMessage, error) {
+			return c.StorageSnapshotSchedule(ctx, in.SpaceID)
+		})
+
+	addTool(r, "storage", "higo.storage.snapshots.schedule.set",
+		"Configure a ZFS space's automatic-snapshot policy (interval + retention).",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, in StorageSnapshotScheduleInput) (json.RawMessage, error) {
+			return c.StorageSetSnapshotSchedule(ctx, in.SpaceID, map[string]any{
+				"enabled":       in.Enabled,
+				"intervalHours": in.IntervalHours,
+				"keep":          in.Keep,
+			})
+		})
+
+	addTool(r, "storage", "higo.storage.snapshots.rollback",
+		"Roll a managed ZFS pool back to a snapshot (destructive: discards changes since the snapshot).",
+		destructive(),
+		func(ctx context.Context, c *apiclient.Client, in StorageSnapshotRollbackInput) (json.RawMessage, error) {
+			return c.StorageSnapshotRollback(ctx, in)
 		})
 }

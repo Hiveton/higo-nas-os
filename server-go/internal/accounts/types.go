@@ -107,10 +107,12 @@ type SpaceGrantRequest struct {
 	QuotaBytes  int64       `json:"quotaBytes"`
 }
 
-// LoginRequest authenticates a username/password pair.
+// LoginRequest authenticates a username/password pair, plus an optional TOTP
+// code when the account has MFA enabled.
 type LoginRequest struct {
 	Username       string `json:"username"`
 	Password       string `json:"password"`
+	Code           string `json:"code"`
 	RememberDevice bool   `json:"rememberDevice"`
 }
 

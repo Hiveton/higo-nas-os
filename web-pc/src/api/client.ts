@@ -1,6 +1,11 @@
 import { DELETE, GET, POST, PUT, buildApiUrl, createEventStream, streamSSE } from './runtime';
 import type { ChatStreamHandlers } from './runtime';
 import type {
+  AiAnalysisDomain,
+  AiAnalysisRecordPage,
+  AiAnalysisReanalyzePayload,
+  AiAnalysisState,
+  AiAnalysisStatus,
   AiPolicy,
   AiProvider,
   AiProviderInput,
@@ -11,6 +16,12 @@ import type {
   AccountSpaceGrant,
   AccountSummary,
   AccountUser,
+  AuthAuditEntry,
+  AuthSession,
+  ChangePasswordInput,
+  CurrentUser,
+  LoginInput,
+  MfaSetup,
   ActivityEntry,
   AppCenterApp,
   AppAction,
@@ -77,8 +88,12 @@ import type {
   SpeedProfile,
   StewardSuggestion,
   StorageSpace,
+  StorageDeletePreview,
   StoragePool,
   StorageTask,
+  ZfsSnapshot,
+  ZfsPoolDetail,
+  ZfsSnapshotSchedule,
   SystemInfo,
   Task,
   TaskResponse,
@@ -185,6 +200,10 @@ export const apiClient = {
     createSpace: (payload: RecordPayload) => POST<StorageSpace>('/api/v1/storage/spaces', payload),
     deleteSpace: (id: Id, payload?: RecordPayload) =>
       DELETE<StorageTask>(`/api/v1/storage/spaces/${pathId(id)}`, { body: payload ?? {} }),
+    previewDeleteSpace: (id: Id, actor = 'storage-manager') =>
+      POST<StorageDeletePreview>(`/api/v1/storage/spaces/${pathId(id)}/delete/preview`, { actor }),
+    confirmDeleteSpace: (id: Id, payload: { confirmationId: string; actor?: string }) =>
+      POST<StorageTask>(`/api/v1/storage/spaces/${pathId(id)}/delete/confirm`, payload),
     getDisks: () => GET<Disk[]>('/api/v1/storage/disks'),
     addDisk: (payload: RecordPayload) => POST<Disk>('/api/v1/storage/disks', payload),
     removeDisk: (slot: Id, payload?: RecordPayload) =>
@@ -196,6 +215,29 @@ export const apiClient = {
     startRepair: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/storage/tasks/repair', payload),
     createSnapshot: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/storage/tasks/snapshot', payload),
     getTask: (id: Id) => GET<StorageTask>(`/api/v1/storage/tasks/${pathId(id)}`),
+    getSnapshots: (id: Id) => GET<{ snapshots: ZfsSnapshot[] }>(`/api/v1/storage/spaces/${pathId(id)}/snapshots`),
+    rollbackSnapshot: (snapshot: string) =>
+      POST<ZfsSnapshot>('/api/v1/storage/snapshots/rollback', { snapshot }),
+    getZfsDetail: (id: Id) => GET<ZfsPoolDetail>(`/api/v1/storage/spaces/${pathId(id)}/zfs`),
+    getSnapshotSchedule: (id: Id) =>
+      GET<ZfsSnapshotSchedule>(`/api/v1/storage/spaces/${pathId(id)}/snapshot-schedule`),
+    setSnapshotSchedule: (id: Id, payload: { enabled: boolean; intervalHours: number; keep: number }) =>
+      PUT<ZfsSnapshotSchedule>(`/api/v1/storage/spaces/${pathId(id)}/snapshot-schedule`, payload),
+  },
+
+  auth: {
+    me: () => GET<CurrentUser>('/api/v1/auth/me'),
+    login: (payload: LoginInput) => POST<CurrentUser>('/api/v1/auth/login', payload),
+    logout: () => POST<void>('/api/v1/auth/logout', {}, { parseAs: 'void' }),
+    changePassword: (payload: ChangePasswordInput) =>
+      POST<void>('/api/v1/auth/password', payload, { parseAs: 'void' }),
+    listSessions: (userId?: Id) =>
+      GET<AuthSession[]>('/api/v1/auth/sessions', userId ? { query: { userId: String(userId) } } : undefined),
+    revokeSession: (id: Id) => DELETE<TaskResponse>(`/api/v1/auth/sessions/${pathId(id)}`),
+    audit: () => GET<AuthAuditEntry[]>('/api/v1/auth/audit'),
+    mfaSetup: () => POST<MfaSetup>('/api/v1/auth/mfa/setup', {}),
+    mfaEnable: (code: string) => POST<void>('/api/v1/auth/mfa/enable', { code }, { parseAs: 'void' }),
+    mfaDisable: (password: string) => POST<void>('/api/v1/auth/mfa/disable', { password }, { parseAs: 'void' }),
   },
 
   accounts: {
@@ -252,6 +294,18 @@ export const apiClient = {
     indexStatus: () => GET<RecordPayload>('/api/v1/ai/index/status'),
     reindexFiles: (payload?: { space?: string }) => POST<RecordPayload>('/api/v1/ai/index/files', payload ?? {}),
     reindexMedia: () => POST<RecordPayload>('/api/v1/ai/index/media', {}),
+  },
+
+  aiAnalysis: {
+    getStatus: () => GET<AiAnalysisStatus>('/api/v1/ai-analysis/status'),
+    listRecords: (query?: { domain?: AiAnalysisDomain; state?: AiAnalysisState; page?: number; size?: number }) =>
+      GET<AiAnalysisRecordPage>('/api/v1/ai-analysis/records', { query }),
+    reanalyze: (payload: AiAnalysisReanalyzePayload) => POST<AiAnalysisStatus>('/api/v1/ai-analysis/reanalyze', payload),
+    rescan: () => POST<AiAnalysisStatus>('/api/v1/ai-analysis/rescan', {}),
+    pause: () => POST<AiAnalysisStatus>('/api/v1/ai-analysis/pause', {}),
+    resume: () => POST<AiAnalysisStatus>('/api/v1/ai-analysis/resume', {}),
+    /** Live SSE stream of aggregate analysis status snapshots. */
+    streamProgress: () => createEventStream('/api/v1/ai-analysis/progress/stream'),
   },
 
   media: {
@@ -392,6 +446,8 @@ export const apiClient = {
     pauseJob: (id: Id) => POST<BackupJob>(`/api/v1/backups/jobs/${pathId(id)}/pause`),
     resumeJob: (id: Id) => POST<BackupJob>(`/api/v1/backups/jobs/${pathId(id)}/resume`),
     verifyJob: (id: Id) => POST<BackupJob>(`/api/v1/backups/jobs/${pathId(id)}/verify`),
+    setSchedule: (id: Id, payload: { enabled: boolean; intervalHours: number }) =>
+      POST<BackupJob>(`/api/v1/backups/jobs/${pathId(id)}/schedule`, payload),
   },
 
   appCenter: {

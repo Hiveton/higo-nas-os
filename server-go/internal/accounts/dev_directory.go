@@ -119,6 +119,23 @@ func (d *DevDirectory) SetLocked(ctx context.Context, username string, locked bo
 	return d.saveLocked()
 }
 
+// List returns no OS identities — the dev backend is sidecar-authoritative, so
+// the accounts service keeps using its own user list on non-Linux hosts.
+func (d *DevDirectory) List(ctx context.Context) ([]SystemIdentity, error) {
+	return nil, ctx.Err()
+}
+
+// Lookup never resolves OS identities on the dev backend.
+func (d *DevDirectory) Lookup(ctx context.Context, username string) (SystemIdentity, bool, error) {
+	return SystemIdentity{}, false, ctx.Err()
+}
+
+// EnsureGroup / SetGroupMembers are no-ops on the dev backend.
+func (d *DevDirectory) EnsureGroup(ctx context.Context, _ string) error { return ctx.Err() }
+func (d *DevDirectory) SetGroupMembers(ctx context.Context, _ string, _ []string) error {
+	return ctx.Err()
+}
+
 func (d *DevDirectory) HasCredential(ctx context.Context, username string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()

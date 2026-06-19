@@ -23,6 +23,9 @@ var ErrInvalidCredentials = errors.New("invalid username or password")
 // locked.
 var ErrAccountInactive = errors.New("account is disabled or locked")
 
+// ErrInvalidMFACode is returned when a TOTP code does not match.
+var ErrInvalidMFACode = errors.New("invalid verification code")
+
 type Service struct {
 	mu        sync.RWMutex
 	seq       int
@@ -32,6 +35,9 @@ type Service struct {
 	now       func() time.Time
 	statePath string
 	dir       Directory
+	mfa       *mfaStore
+	prov      Provisioner
+	nasRoot   string
 }
 
 type snapshot struct {
@@ -45,6 +51,8 @@ func NewService() *Service {
 	service := &Service{now: time.Now}
 	dir, _ := newDevDirectory("")
 	service.dir = dir
+	service.mfa, _ = newMFAStore("")
+	service.prov = DevProvisioner{}
 	service.seed()
 	return service
 }
@@ -61,6 +69,7 @@ type Config struct {
 	UIDBase    int
 	Group      string
 	AdminGroup string
+	NASRoot    string // file storage root; personal/group folders live under it
 }
 
 // NewServiceWithConfig builds the accounts service with an explicit identity
@@ -77,22 +86,37 @@ func NewServiceWithConfig(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	service := &Service{now: time.Now, dir: dir}
-	service.seed()
-	if cfg.StateDir == "" {
-		return service, nil
-	}
-	service.statePath = filepath.Join(cfg.StateDir, "accounts.json")
-	var persisted snapshot
-	if err := state.LoadJSON(service.statePath, &persisted); err != nil {
+	mfa, err := newMFAStore(cfg.StateDir)
+	if err != nil {
 		return nil, err
 	}
-	if len(persisted.Users) > 0 || len(persisted.Groups) > 0 || len(persisted.Grants) > 0 {
-		service.seq = persisted.Seq
-		service.users = cloneUsers(persisted.Users)
-		service.groups = cloneGroups(persisted.Groups)
-		service.grants = cloneGrants(persisted.Grants)
+	group := cfg.Group
+	if group == "" {
+		group = "higoos"
 	}
+	service := &Service{
+		now:     time.Now,
+		dir:     dir,
+		mfa:     mfa,
+		prov:    newProvisioner(cfg.Backend, cfg.NASRoot, group),
+		nasRoot: cfg.NASRoot,
+	}
+	service.seed()
+	if cfg.StateDir != "" {
+		service.statePath = filepath.Join(cfg.StateDir, "accounts.json")
+		var persisted snapshot
+		if err := state.LoadJSON(service.statePath, &persisted); err != nil {
+			return nil, err
+		}
+		if len(persisted.Users) > 0 || len(persisted.Groups) > 0 || len(persisted.Grants) > 0 {
+			service.seq = persisted.Seq
+			service.users = cloneUsers(persisted.Users)
+			service.groups = cloneGroups(persisted.Groups)
+			service.grants = cloneGrants(persisted.Grants)
+		}
+	}
+	// Pull existing OS accounts into the user list (no-op on the dev backend).
+	service.reconcileSystemUsers(context.Background())
 	return service, nil
 }
 
@@ -100,6 +124,8 @@ func (s *Service) Summary(ctx context.Context) (Summary, error) {
 	if err := ctx.Err(); err != nil {
 		return Summary{}, err
 	}
+	// Refresh from the OS so newly-added system users appear without a restart.
+	s.reconcileSystemUsers(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return Summary{
@@ -153,9 +179,23 @@ func (s *Service) CreateUser(ctx context.Context, request CreateUserRequest) (Us
 		_ = s.dir.RemoveUser(ctx, user.Username)
 		return User{}, err
 	}
+	s.provisionUserFolder(ctx, user)
 	s.users = append(s.users, user)
 	s.syncGroupMembershipLocked(user.ID, user.Groups)
 	return user, s.saveLocked()
+}
+
+// provisionUserFolder creates the user's personal folder on the NAS (best-effort:
+// a host/storage hiccup must not fail account creation; no-op on the dev backend).
+func (s *Service) provisionUserFolder(ctx context.Context, user User) {
+	if s.prov == nil {
+		return
+	}
+	uid := 0
+	if id, ok, _ := s.dir.Lookup(ctx, user.Username); ok {
+		uid = id.UID
+	}
+	_ = s.prov.EnsureUserFolder(ctx, user.Username, uid, user.QuotaBytes)
 }
 
 func (s *Service) UpdateUser(ctx context.Context, id string, request UpdateUserRequest) (User, error) {
@@ -246,7 +286,6 @@ func (s *Service) CreateGroup(ctx context.Context, request CreateGroupRequest) (
 		return Group{}, fmt.Errorf("group name is required")
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	now := s.now().UTC()
 	s.seq++
 	group := Group{
@@ -258,7 +297,18 @@ func (s *Service) CreateGroup(ctx context.Context, request CreateGroupRequest) (
 		UpdatedAt:   now,
 	}
 	s.groups = append(s.groups, group)
-	return group, s.saveLocked()
+	err := s.saveLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return group, err
+	}
+	// Realize a system group (named by the stable HiGoOS group ID) and its
+	// shared folder (best-effort; no-op on the dev backend).
+	_ = s.dir.EnsureGroup(ctx, group.ID)
+	if s.prov != nil {
+		_ = s.prov.EnsureGroupFolder(ctx, group.ID)
+	}
+	return group, nil
 }
 
 func (s *Service) UpdateGroupMembers(ctx context.Context, id string, request UpdateGroupMembersRequest) (Group, error) {
@@ -266,24 +316,35 @@ func (s *Service) UpdateGroupMembers(ctx context.Context, id string, request Upd
 		return Group{}, err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	index, ok := s.findGroupLocked(id)
 	if !ok {
+		s.mu.Unlock()
 		return Group{}, fmt.Errorf("group not found: %s", id)
 	}
 	group := &s.groups[index]
 	group.UserIDs = uniqueStrings(request.UserIDs)
 	group.UpdatedAt = s.now().UTC()
+	var memberNames []string
 	for i := range s.users {
 		if containsString(group.UserIDs, s.users[i].ID) {
 			if !containsString(s.users[i].Groups, group.ID) {
 				s.users[i].Groups = append(s.users[i].Groups, group.ID)
 			}
+			memberNames = append(memberNames, s.users[i].Username)
 		} else {
 			s.users[i].Groups = removeString(s.users[i].Groups, group.ID)
 		}
 	}
-	return *group, s.saveLocked()
+	result := *group
+	groupSysName := group.ID
+	err := s.saveLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return result, err
+	}
+	// Sync the real system group's membership so the group folder grants access.
+	_ = s.dir.SetGroupMembers(ctx, groupSysName, memberNames)
+	return result, nil
 }
 
 func (s *Service) GrantSpace(ctx context.Context, request SpaceGrantRequest) (SpaceGrant, error) {
@@ -302,30 +363,61 @@ func (s *Service) GrantSpace(ctx context.Context, request SpaceGrantRequest) (Sp
 		access = AccessReadOnly
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	now := s.now().UTC()
+	var grant SpaceGrant
 	for index := range s.grants {
-		grant := &s.grants[index]
-		if grant.SubjectID == request.SubjectID && grant.SubjectType == subjectType && grant.SpaceID == request.SpaceID {
-			grant.Access = access
-			grant.QuotaBytes = request.QuotaBytes
-			grant.UpdatedAt = now
-			return *grant, s.saveLocked()
+		g := &s.grants[index]
+		if g.SubjectID == request.SubjectID && g.SubjectType == subjectType && g.SpaceID == request.SpaceID {
+			g.Access = access
+			g.QuotaBytes = request.QuotaBytes
+			g.UpdatedAt = now
+			grant = *g
+			break
 		}
 	}
-	s.seq++
-	grant := SpaceGrant{
-		ID:          fmt.Sprintf("grant-%03d", s.seq),
-		SubjectID:   request.SubjectID,
-		SubjectType: subjectType,
-		SpaceID:     request.SpaceID,
-		Access:      access,
-		QuotaBytes:  request.QuotaBytes,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+	if grant.ID == "" {
+		s.seq++
+		grant = SpaceGrant{
+			ID:          fmt.Sprintf("grant-%03d", s.seq),
+			SubjectID:   request.SubjectID,
+			SubjectType: subjectType,
+			SpaceID:     request.SpaceID,
+			Access:      access,
+			QuotaBytes:  request.QuotaBytes,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		s.grants = append(s.grants, grant)
 	}
-	s.grants = append(s.grants, grant)
-	return grant, s.saveLocked()
+	spec := s.grantSpecLocked(grant)
+	err := s.saveLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return grant, err
+	}
+	// Project the grant onto the filesystem as a POSIX ACL (best-effort).
+	if s.prov != nil {
+		_ = s.prov.ApplyGrant(ctx, spec)
+	}
+	return grant, nil
+}
+
+// grantSpecLocked resolves a grant to a filesystem ACL spec. Caller holds s.mu.
+func (s *Service) grantSpecLocked(grant SpaceGrant) GrantSpec {
+	subjectName := grant.SubjectID
+	if grant.SubjectType == SubjectUser {
+		if idx, ok := s.findUserLocked(grant.SubjectID); ok {
+			subjectName = s.users[idx].Username
+		}
+	}
+	// For groups the SubjectID is the HiGoOS group ID, which is also the system
+	// group name (see CreateGroup).
+	return GrantSpec{
+		SubjectName: subjectName,
+		SubjectKind: grant.SubjectType,
+		SpaceDir:    grant.SpaceID,
+		Access:      grant.Access,
+	}
 }
 
 func (s *Service) DeleteSpaceGrants(ctx context.Context, spaceID string) (int, error) {
@@ -362,7 +454,6 @@ func (s *Service) DeleteGrant(ctx context.Context, id string) error {
 		return fmt.Errorf("grant id is required")
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	index := -1
 	for i, grant := range s.grants {
 		if grant.ID == id {
@@ -371,10 +462,20 @@ func (s *Service) DeleteGrant(ctx context.Context, id string) error {
 		}
 	}
 	if index < 0 {
+		s.mu.Unlock()
 		return fmt.Errorf("grant not found: %s", id)
 	}
+	spec := s.grantSpecLocked(s.grants[index])
 	s.grants = append(s.grants[:index], s.grants[index+1:]...)
-	return s.saveLocked()
+	err := s.saveLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if s.prov != nil {
+		_ = s.prov.RemoveGrant(ctx, spec)
+	}
+	return nil
 }
 
 // VerifyPassword authenticates a username/password against the directory and
@@ -384,6 +485,9 @@ func (s *Service) VerifyPassword(ctx context.Context, username, password string)
 	if err := ctx.Err(); err != nil {
 		return User{}, err
 	}
+	// Allow any real OS account to authenticate, materializing its record on
+	// first login if HiGoOS hasn't seen it yet.
+	s.ensureSystemUser(ctx, strings.TrimSpace(username))
 	s.mu.RLock()
 	index, ok := s.findUserByUsernameLocked(strings.TrimSpace(username))
 	var user User
@@ -450,6 +554,17 @@ func (s *Service) LockUser(ctx context.Context, userID string) error {
 	return s.saveLocked()
 }
 
+// GetUserByUsername returns a user by username.
+func (s *Service) GetUserByUsername(ctx context.Context, username string) (User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	index, ok := s.findUserByUsernameLocked(strings.TrimSpace(username))
+	if !ok {
+		return User{}, false
+	}
+	return s.users[index], true
+}
+
 // GetUser returns a user by ID.
 func (s *Service) GetUser(ctx context.Context, userID string) (User, bool) {
 	s.mu.RLock()
@@ -493,6 +608,187 @@ func (s *Service) BootstrapAdmin(ctx context.Context, fixed string) (string, err
 		return "", err
 	}
 	return password, nil
+}
+
+// EffectiveAccess resolves a user's access to a space from the grant table,
+// considering both direct user grants and grants on the groups they belong to.
+// `controlled` reports whether the space has ANY grant at all — callers treat an
+// uncontrolled space as open (no per-space restriction configured yet), and a
+// controlled space as deny-by-default.
+func (s *Service) EffectiveAccess(ctx context.Context, userID, spaceID string) (access SpaceAccess, controlled bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	index, ok := s.findUserLocked(userID)
+	var groups []string
+	if ok {
+		groups = s.users[index].Groups
+	}
+	best := -1
+	rank := map[SpaceAccess]int{AccessReadOnly: 0, AccessReadWrite: 1, AccessManage: 2}
+	for _, grant := range s.grants {
+		if grant.SpaceID != spaceID {
+			continue
+		}
+		controlled = true
+		match := false
+		if grant.SubjectType == SubjectUser && grant.SubjectID == userID {
+			match = true
+		}
+		if grant.SubjectType == SubjectGroup && containsString(groups, grant.SubjectID) {
+			match = true
+		}
+		if match {
+			if r, ok := rank[grant.Access]; ok && r > best {
+				best = r
+				access = grant.Access
+			}
+		}
+	}
+	return access, controlled
+}
+
+// CanWriteSpace reports whether a user may write to a space. Admins always can;
+// the user's own personal/group spaces are always writable; otherwise the space
+// must be either uncontrolled or grant the user read_write or manage.
+func (s *Service) CanWriteSpace(ctx context.Context, userID, spaceID string) bool {
+	if user, ok := s.GetUser(ctx, userID); ok {
+		if user.Role == RoleAdmin {
+			return true
+		}
+		// Personal home ("homes" / matches own username) and own group folders.
+		if spaceID == "homes" || spaceID == user.Username || containsString(user.Groups, spaceID) {
+			return true
+		}
+	}
+	access, controlled := s.EffectiveAccess(ctx, userID, spaceID)
+	if !controlled {
+		return true
+	}
+	return access == AccessReadWrite || access == AccessManage
+}
+
+// Entitlement is the file-visibility scope for a user, used to filter the file
+// tree and gate reads. It is derived from the user's identity, group membership,
+// and space grants.
+type Entitlement struct {
+	Username      string
+	Admin         bool
+	GroupDirs     []string // system group names (== HiGoOS group IDs) the user belongs to
+	GrantedSpaces []string // shared-space directory names the user may see
+}
+
+// UserEntitlements computes a user's file-visibility scope.
+func (s *Service) UserEntitlements(ctx context.Context, userID string) (Entitlement, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	index, ok := s.findUserLocked(userID)
+	if !ok {
+		return Entitlement{}, fmt.Errorf("user not found: %s", userID)
+	}
+	u := s.users[index]
+	ent := Entitlement{
+		Username:  u.Username,
+		Admin:     u.Role == RoleAdmin,
+		GroupDirs: append([]string{}, u.Groups...),
+	}
+	seen := map[string]bool{}
+	for _, g := range s.grants {
+		match := (g.SubjectType == SubjectUser && g.SubjectID == userID) ||
+			(g.SubjectType == SubjectGroup && containsString(u.Groups, g.SubjectID))
+		if match && !seen[g.SpaceID] {
+			seen[g.SpaceID] = true
+			ent.GrantedSpaces = append(ent.GrantedSpaces, g.SpaceID)
+		}
+	}
+	return ent, nil
+}
+
+// reconcileSystemUsers pulls the directory's OS accounts into the sidecar so
+// pre-existing system users (the installer's sudo user, etc.) show up in the
+// user center. It only adds missing users; existing metadata is preserved. A
+// no-op on the dev backend (List returns nothing).
+func (s *Service) reconcileSystemUsers(ctx context.Context) {
+	if s.dir == nil {
+		return
+	}
+	identities, err := s.dir.List(ctx)
+	if err != nil || len(identities) == 0 {
+		return
+	}
+	s.mu.Lock()
+	var added []SystemIdentity
+	for _, id := range identities {
+		if _, ok := s.findUserByUsernameLocked(id.Username); ok {
+			continue
+		}
+		s.users = append(s.users, s.systemUser(id))
+		added = append(added, id)
+	}
+	if len(added) > 0 {
+		_ = s.saveLocked()
+	}
+	s.mu.Unlock()
+	// Provision personal folders for the freshly-discovered OS users outside the
+	// lock (best-effort; no-op on the dev backend).
+	for _, id := range added {
+		if s.prov != nil {
+			_ = s.prov.EnsureUserFolder(ctx, id.Username, id.UID, 0)
+		}
+	}
+}
+
+// ensureSystemUser materializes a single OS account into the sidecar on demand
+// (used at login so any real system user can authenticate even before a full
+// reconcile).
+func (s *Service) ensureSystemUser(ctx context.Context, username string) {
+	if s.dir == nil {
+		return
+	}
+	s.mu.RLock()
+	_, exists := s.findUserByUsernameLocked(username)
+	s.mu.RUnlock()
+	if exists {
+		return
+	}
+	id, ok, err := s.dir.Lookup(ctx, username)
+	if err != nil || !ok {
+		return
+	}
+	s.mu.Lock()
+	created := false
+	if _, exists := s.findUserByUsernameLocked(username); !exists {
+		s.users = append(s.users, s.systemUser(id))
+		_ = s.saveLocked()
+		created = true
+	}
+	s.mu.Unlock()
+	if created && s.prov != nil {
+		_ = s.prov.EnsureUserFolder(ctx, id.Username, id.UID, 0)
+	}
+}
+
+// systemUser builds a sidecar record for an OS account. The role follows native
+// group membership (admin/sudo/wheel → admin), keyed by username as the ID.
+func (s *Service) systemUser(id SystemIdentity) User {
+	now := s.now().UTC()
+	role := RoleUser
+	if id.Admin {
+		role = RoleAdmin
+	}
+	display := id.DisplayName
+	if display == "" {
+		display = id.Username
+	}
+	return User{
+		ID:          id.Username,
+		Username:    id.Username,
+		DisplayName: display,
+		Role:        role,
+		Status:      StatusActive,
+		Groups:      []string{},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
 }
 
 func (s *Service) seed() {

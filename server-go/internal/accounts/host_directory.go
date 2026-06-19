@@ -33,9 +33,12 @@ type HostDirectory struct {
 	runner     hostRunner
 	shadowPath string
 	uidBase    int
-	group      string
-	adminGroup string
-	nologin    string
+	group       string
+	adminGroup  string
+	nologin     string
+	sambaSync   bool
+	loginUIDMin int // lowest UID treated as a real (human) login account
+	loginUIDMax int // highest such UID
 }
 
 func newHostDirectory(cfg directoryConfig) *HostDirectory {
@@ -59,10 +62,92 @@ func newHostDirectory(cfg directoryConfig) *HostDirectory {
 		runner:     runHostCommand,
 		shadowPath: "/etc/shadow",
 		uidBase:    uidBase,
-		group:      group,
-		adminGroup: adminGroup,
-		nologin:    nologin,
+		group:       group,
+		adminGroup:  adminGroup,
+		nologin:     nologin,
+		sambaSync:   true,
+		loginUIDMin: 1000,
+		loginUIDMax: 60000,
 	}
+}
+
+// List enumerates real human login accounts from getent passwd (UID in the
+// login range), tagging each as admin when it belongs to the admin/sudo/wheel
+// group. This makes pre-existing system users — the installer's sudo user, any
+// hand-created account — visible to HiGoOS without HiGoOS having created them.
+func (d *HostDirectory) List(ctx context.Context) ([]SystemIdentity, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	out, err := d.runner(ctx, "", "getent", "passwd")
+	if err != nil {
+		return nil, fmt.Errorf("accounts: getent passwd: %w", err)
+	}
+	admins := d.adminMemberSet(ctx)
+	var identities []SystemIdentity
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		id, ok := d.parsePasswd(scanner.Text(), admins)
+		if ok {
+			identities = append(identities, id)
+		}
+	}
+	return identities, nil
+}
+
+// Lookup resolves a single account by username.
+func (d *HostDirectory) Lookup(ctx context.Context, username string) (SystemIdentity, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return SystemIdentity{}, false, err
+	}
+	out, err := d.runner(ctx, "", "getent", "passwd", username)
+	if err != nil {
+		return SystemIdentity{}, false, nil
+	}
+	id, ok := d.parsePasswd(strings.TrimSpace(string(out)), d.adminMemberSet(ctx))
+	return id, ok, nil
+}
+
+// parsePasswd turns a passwd line into a SystemIdentity, filtering to the human
+// login UID range and excluding nobody.
+func (d *HostDirectory) parsePasswd(line string, admins map[string]bool) (SystemIdentity, bool) {
+	fields := strings.Split(line, ":")
+	if len(fields) < 7 {
+		return SystemIdentity{}, false
+	}
+	name := fields[0]
+	uid, err := strconv.Atoi(fields[2])
+	if err != nil || uid < d.loginUIDMin || uid > d.loginUIDMax || name == "nobody" {
+		return SystemIdentity{}, false
+	}
+	display := strings.TrimSpace(strings.Split(fields[4], ",")[0])
+	if display == "" {
+		display = name
+	}
+	return SystemIdentity{Username: name, UID: uid, DisplayName: display, Admin: admins[name]}, true
+}
+
+// adminMemberSet returns the union of members of the HiGoOS admin group plus
+// the conventional sudo/wheel groups — membership maps to the admin role.
+func (d *HostDirectory) adminMemberSet(ctx context.Context) map[string]bool {
+	admins := make(map[string]bool)
+	for _, g := range []string{d.adminGroup, "sudo", "wheel"} {
+		out, err := d.runner(ctx, "", "getent", "group", g)
+		if err != nil {
+			continue
+		}
+		// group line: name:passwd:gid:member1,member2,...
+		fields := strings.Split(strings.TrimSpace(string(out)), ":")
+		if len(fields) < 4 {
+			continue
+		}
+		for _, m := range strings.Split(fields[3], ",") {
+			if m = strings.TrimSpace(m); m != "" {
+				admins[m] = true
+			}
+		}
+	}
+	return admins
 }
 
 func (d *HostDirectory) EnsureUser(ctx context.Context, ref IdentityRef) error {
@@ -113,6 +198,12 @@ func (d *HostDirectory) RemoveUser(ctx context.Context, username string) error {
 	if !d.userExists(ctx, username) {
 		return nil
 	}
+	// Safety: only delete accounts HiGoOS manages (UID >= configured base). A
+	// pre-existing system/sudo user (e.g. the installer account) must never be
+	// removed through the user center.
+	if id, ok, _ := d.Lookup(ctx, username); ok && id.UID < d.uidBase {
+		return fmt.Errorf("accounts: refusing to delete unmanaged system user %q (UID %d)", username, id.UID)
+	}
 	if out, err := d.runner(ctx, "", "userdel", "-r", username); err != nil {
 		// userdel returns 12 when the mail spool/home is already gone; tolerate.
 		if !strings.Contains(string(out), "mail spool") && !strings.Contains(string(out), "home directory") {
@@ -132,7 +223,20 @@ func (d *HostDirectory) SetPassword(ctx context.Context, username, plaintext str
 	if out, err := d.runner(ctx, stdin, "chpasswd", "-c", "SHA512"); err != nil {
 		return fmt.Errorf("accounts: chpasswd %s: %w (%s)", username, err, strings.TrimSpace(string(out)))
 	}
+	d.syncSamba(ctx, username, plaintext)
 	return nil
+}
+
+// syncSamba mirrors the credential into the Samba password database so SMB
+// shares authenticate with the same account. Best-effort: hosts without Samba
+// installed simply skip it.
+func (d *HostDirectory) syncSamba(ctx context.Context, username, plaintext string) {
+	if !d.sambaSync {
+		return
+	}
+	// smbpasswd -s reads the password twice from stdin; -a adds the user.
+	stdin := plaintext + "\n" + plaintext + "\n"
+	_, _ = d.runner(ctx, stdin, "smbpasswd", "-s", "-a", username)
 }
 
 func (d *HostDirectory) VerifyPassword(ctx context.Context, username, plaintext string) (bool, error) {
@@ -177,6 +281,28 @@ func (d *HostDirectory) HasCredential(ctx context.Context, username string) bool
 func (d *HostDirectory) userExists(ctx context.Context, username string) bool {
 	_, err := d.runner(ctx, "", "getent", "passwd", username)
 	return err == nil
+}
+
+// EnsureGroup creates the system group if it doesn't exist.
+func (d *HostDirectory) EnsureGroup(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return d.ensureGroup(ctx, name)
+}
+
+// SetGroupMembers replaces a system group's full membership (gpasswd -M).
+func (d *HostDirectory) SetGroupMembers(ctx context.Context, name string, usernames []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := d.ensureGroup(ctx, name); err != nil {
+		return err
+	}
+	if out, err := d.runner(ctx, "", "gpasswd", "-M", strings.Join(usernames, ","), name); err != nil {
+		return fmt.Errorf("accounts: gpasswd -M %s: %w (%s)", name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func (d *HostDirectory) ensureGroup(ctx context.Context, name string) error {

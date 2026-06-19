@@ -320,7 +320,7 @@ export type StoragePool = {
 export type StorageSpace = {
   id: string;
   name: string;
-  mode: 'basic' | 'raid0' | 'raid1' | 'raid5' | 'raid6' | 'raid10' | string;
+  mode: 'basic' | 'linear' | 'raid0' | 'raid1' | 'raid5' | 'raid6' | 'raid10' | string;
   fileSystem: 'ext4' | 'btrfs' | 'zfs' | string;
   diskSlots: string[];
   mountPath: string;
@@ -329,6 +329,20 @@ export type StorageSpace = {
   health: string;
   createdAt: string;
   createdBy?: string;
+};
+
+export type StorageDeletePreview = {
+  spaceId: string;
+  name: string;
+  mode: string;
+  total: string;
+  diskSlots: string[];
+  impact: string;
+  risk: string;
+  riskLabel: string;
+  confirmationId: string;
+  requiresConfirmation: boolean;
+  expiresAt?: string;
 };
 
 export type Disk = {
@@ -378,6 +392,34 @@ export type StorageTask = {
   targetPool?: string;
 };
 
+export type ZfsSnapshot = {
+  name: string;
+  pool: string;
+  usedBytes: number;
+  used: string;
+  createdAt: string;
+};
+
+export type ZfsPoolDetail = {
+  pool: string;
+  sizeBytes: number;
+  allocBytes: number;
+  freeBytes: number;
+  capacityPct: number;
+  fragmentation: number;
+  dedupRatio: string;
+  compressRatio: string;
+  health: string;
+};
+
+export type ZfsSnapshotSchedule = {
+  poolId: string;
+  enabled: boolean;
+  intervalHours: number;
+  keep: number;
+  lastRun?: string;
+};
+
 export type AccountUser = {
   id: string;
   username: string;
@@ -416,6 +458,59 @@ export type AccountSummary = {
   grants: AccountSpaceGrant[];
 };
 
+export type CurrentUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  role: 'admin' | 'user' | 'guest' | string;
+  status: 'active' | 'disabled' | 'locked' | string;
+  quotaBytes: number;
+  groups: string[];
+  permissions: string[];
+  mfaEnabled?: boolean;
+  csrfToken?: string;
+};
+
+export type AuthSession = {
+  id: string;
+  device: string;
+  ipAddress: string;
+  userAgent?: string;
+  current: boolean;
+  createdAt: string;
+  lastSeenAt: string;
+};
+
+export type AuthAuditEntry = {
+  id: string;
+  time: string;
+  actor: string;
+  action: string;
+  domain: string;
+  result: string;
+  risk: string;
+  sourceIp: string;
+};
+
+export type LoginInput = {
+  username: string;
+  password: string;
+  code?: string;
+  rememberDevice?: boolean;
+};
+
+export type MfaSetup = {
+  secret: string;
+  otpauthUri: string;
+};
+
+export type ChangePasswordInput = {
+  currentPassword: string;
+  newPassword: string;
+};
+
+export type StewardSuggestionStatus = 'pending' | 'confirmed' | 'dismissed';
+
 export type StewardSuggestion = {
   id?: string;
   title: string;
@@ -423,6 +518,8 @@ export type StewardSuggestion = {
   count: string;
   risk: RiskLevel;
   action: string;
+  status?: StewardSuggestionStatus | string;
+  updatedAt?: string;
 };
 
 // AgentPreset is a specialized agent role surfaced in the Agent Workbench.
@@ -500,6 +597,8 @@ export type AuditEntry = {
   risk: RiskLevel;
   reverted: boolean;
   rollback: string;
+  result?: 'allowed' | 'confirmed' | 'dismissed' | 'rolled_back' | string;
+  time?: string;
 };
 
 export type IdentityPolicy = {
@@ -699,6 +798,7 @@ export type BackupJob = {
   policy: string;
   health: string;
   enabled: boolean;
+  intervalHours?: number;
 };
 
 export type AppWebEntry = {
@@ -1095,7 +1195,77 @@ export type SettingsState = {
     enabled?: boolean;
     maxEntries?: number;
   };
+  analysis?: {
+    level?: 'off' | 'basic' | 'standard' | 'deep' | string;
+  };
 };
+
+export type AiAnalysisDomain = 'media' | 'file' | 'video';
+export type AiAnalysisState = 'pending' | 'analyzing' | 'done' | 'failed' | 'skipped';
+
+export type AiAnalysisDomainStats = {
+  domain: AiAnalysisDomain;
+  total: number;
+  pending: number;
+  analyzing: number;
+  done: number;
+  failed: number;
+  skipped: number;
+  percent: number;
+};
+
+export type AiAnalysisStatus = {
+  level: 'off' | 'basic' | 'standard' | 'deep' | string;
+  paused: boolean;
+  totalPercent: number;
+  domains: AiAnalysisDomainStats[];
+  hasChat: boolean;
+  hasVision: boolean;
+  hasEmbedding: boolean;
+  hasAsr: boolean;
+  indexEnabled: boolean;
+  ffmpegAvailable: boolean;
+  updatedAt?: string;
+};
+
+export type AiAnalysisResult = {
+  summary?: string;
+  caption?: string;
+  tags?: string[];
+  people?: string[];
+  place?: string;
+  device?: string;
+  transcript?: string;
+  embedded?: boolean;
+};
+
+export type AiAnalysisRecord = {
+  key: string;
+  domain: AiAnalysisDomain;
+  title: string;
+  sourcePath?: string;
+  kind?: string;
+  state: AiAnalysisState;
+  level: string;
+  progress: number;
+  attempts: number;
+  error?: string;
+  result?: AiAnalysisResult;
+  analyzedAt?: string;
+  updatedAt?: string;
+};
+
+export type AiAnalysisRecordPage = {
+  records: AiAnalysisRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export type AiAnalysisReanalyzePayload =
+  | { scope: 'item'; itemId: string }
+  | { scope: 'domain'; domain: AiAnalysisDomain }
+  | { scope: 'all' };
 
 export type AccessPolicy = {
   key: string;

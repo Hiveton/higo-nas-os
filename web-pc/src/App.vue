@@ -22,12 +22,14 @@ import {
   X,
 } from 'lucide-vue-next';
 import TopBar from './components/TopBar.vue';
+import LoginScreen from './components/LoginScreen.vue';
 import DesktopAppGrid from './components/DesktopAppGrid.vue';
 import DesktopDock from './components/DesktopDock.vue';
 import DesktopWindow from './components/DesktopWindow.vue';
 import DesktopContextMenu from './components/DesktopContextMenu.vue';
 import DesktopWidgets from './components/DesktopWidgets.vue';
 import AiAssistantWindow from './components/windows/AiAssistantWindow.vue';
+import AIAnalysisWindow from './components/windows/AIAnalysisWindow.vue';
 import FileManagerWindow from './components/windows/FileManagerWindow.vue';
 import AiStewardWindow from './components/windows/AiStewardWindow.vue';
 import AgentWorkbenchWindow from './components/windows/AgentWorkbenchWindow.vue';
@@ -48,11 +50,13 @@ import RemoteAccessWindow from './components/windows/RemoteAccessWindow.vue';
 import ProtocolsWindow from './components/windows/ProtocolsWindow.vue';
 import TaskCenterWindow from './components/windows/TaskCenterWindow.vue';
 import FeatureModuleWindow from './components/windows/FeatureModuleWindow.vue';
+import UserCenterWindow from './components/windows/UserCenterWindow.vue';
 import { desktopStore } from './stores/desktop';
+import { authStore } from './stores/auth';
 import { settingsStore } from './stores/settings';
 import { activityStore } from './stores/activity';
 import { setLocale } from './i18n';
-import { UiToastHost, UiConfirmHost, useToast } from './components/ui';
+import { UiToastHost, UiConfirmHost, useToast, useConfirm } from './components/ui';
 import { apiClient } from './api/client';
 import { assistantStore } from './stores/assistant';
 import type { DesktopApp, DesktopSession, DesktopWindowConfig } from './api/types';
@@ -98,6 +102,13 @@ type ContextMenuState = {
 };
 
 const toast = useToast();
+const confirm = useConfirm();
+
+// Auth gate: 'loading' shows a splash, 'unauthenticated' shows the login
+// screen, 'authenticated' renders the desktop.
+const authPhase = computed(() => authStore.phase.value);
+// Admin-only desktop windows: non-admins get a toast instead of opening them.
+const adminOnlyWindows = new Set(['security-center']);
 
 const defaultPinnedDockAppIds = [
   'file-manager',
@@ -1011,6 +1022,10 @@ function openAppFrame(payload: { id: string; name: string; src: string }) {
 }
 
 function openApp(id: string) {
+  if (adminOnlyWindows.has(id) && !authStore.canManageSecurity.value) {
+    showToast('需要管理员权限才能打开该应用。');
+    return;
+  }
   const isWindow = desktopWindows.some((window) => window.id === id);
 
   const wasOpen = openWindowIds.value.includes(id);
@@ -1133,10 +1148,36 @@ async function handleTopbarAction(action: string) {
     return;
   }
 
+  if (verb === 'open' && arg) {
+    openApp(arg);
+    return;
+  }
+  if (action === 'profile') {
+    openApp('user-center');
+    return;
+  }
+  if (action === 'permissions') {
+    openApp('user-center');
+    return;
+  }
+  if (action === 'models') {
+    openApp('system-settings');
+    return;
+  }
+  if (action === 'logout') {
+    const ok = await confirm({
+      title: '退出桌面',
+      message: '确定要退出当前会话吗？再次进入需要重新登录。',
+      confirmLabel: '退出',
+      tone: 'danger',
+    });
+    if (ok) {
+      await authStore.logout();
+    }
+    return;
+  }
+
   const messages: Record<string, string> = {
-    permissions: '已打开家庭空间权限概览',
-    models: '模型策略已切换到设置视图',
-    logout: '桌面会话已进入锁定确认',
     notice: '通知已标记为已读',
   };
   showToast(messages[action] ?? '操作已执行');
@@ -1177,14 +1218,27 @@ watch(
   { deep: true },
 );
 
-onMounted(() => {
+onMounted(async () => {
   handleViewportResize();
-  void settingsStore.loadSettings();
-  void loadDesktopBootstrapFromApi();
   window.addEventListener('resize', handleViewportResize);
   window.addEventListener('click', handleGlobalClick);
   window.addEventListener('keydown', handleGlobalKeydown);
+  // Detect the session before loading the desktop, so an unauthenticated user
+  // never triggers a wall of 401s against the protected API surface.
+  await authStore.refresh();
+  if (authStore.phase.value === 'authenticated') {
+    loadDesktopForSession();
+  }
 });
+
+function loadDesktopForSession() {
+  void settingsStore.loadSettings();
+  void loadDesktopBootstrapFromApi();
+}
+
+function handleAuthenticated() {
+  loadDesktopForSession();
+}
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleViewportResize);
@@ -1196,7 +1250,13 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <div v-if="authPhase === 'loading'" class="boot-splash">
+    <div class="boot-splash__logo">HiGoOS</div>
+    <div class="boot-splash__spinner" />
+  </div>
+  <LoginScreen v-else-if="authPhase === 'unauthenticated'" @authenticated="handleAuthenticated" />
   <main
+    v-else
     class="desktop"
     :class="desktopUiClasses"
     :style="desktopUiStyle"
@@ -1233,7 +1293,7 @@ onUnmounted(() => {
       >
         <FileManagerWindow v-if="window.id === 'file-manager'" />
         <AiAssistantWindow v-else-if="window.id === 'ai-assistant'" />
-        <AiStewardWindow v-else-if="window.id === 'ai-file-steward'" />
+        <AiStewardWindow v-else-if="window.id === 'ai-file-steward'" @open-agent="openApp('agent-workbench')" />
         <AgentWorkbenchWindow v-else-if="window.id === 'agent-workbench'" />
         <StorageMonitorWindow v-else-if="window.id === 'storage-monitor'" />
         <BackupSyncWindow v-else-if="window.id === 'backup-sync'" />
@@ -1253,8 +1313,10 @@ onUnmounted(() => {
         <HardwareCenterWindow v-else-if="window.id === 'hardware-center'" />
         <SystemSettingsWindow v-else-if="window.id === 'system-settings'" />
         <TaskCenterWindow v-else-if="window.id === 'task-center'" />
+        <AIAnalysisWindow v-else-if="window.id === 'ai-analysis'" />
         <RemoteAccessWindow v-else-if="window.id === 'remote-access'" />
         <ProtocolsWindow v-else-if="window.id === 'file-protocols'" />
+        <UserCenterWindow v-else-if="window.id === 'user-center'" />
         <FeatureModuleWindow
           v-else-if="featureModuleByWindowId[window.id]"
           :module-key="featureModuleByWindowId[window.id]"
@@ -1304,3 +1366,39 @@ onUnmounted(() => {
     <UiConfirmHost />
   </main>
 </template>
+
+<style scoped>
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  background: radial-gradient(120% 120% at 50% 0%, #1e293b, #020617);
+  color: #e2e8f0;
+  z-index: 1000;
+}
+
+.boot-splash__logo {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.boot-splash__spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid rgba(148, 163, 184, 0.3);
+  border-top-color: #7dd3fc;
+  animation: boot-spin 0.8s linear infinite;
+}
+
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>

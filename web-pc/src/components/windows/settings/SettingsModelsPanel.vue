@@ -5,10 +5,11 @@ import { computed } from 'vue';
 import type { AiProvider, AiProviderInput, AiProviderKind, AiProviderPurpose } from '../../../api/types';
 
 const props = defineProps<{
-  settings: { modelStrategy: string; modelProvider: string; taskRouting: boolean };
+  settings: { modelStrategy: string; modelProvider: string; taskRouting: boolean; analysisLevel: string };
   modelStrategies: string[];
   modelProviderOptions: { value: string; label: string }[];
   modelSummary: string;
+  analysisLevelOptions: { value: string; label: string }[];
   providers: AiProvider[];
   providerForm: AiProviderInput;
   providerBusy: boolean;
@@ -20,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'set-strategy', strategy: string): void;
   (e: 'toggle-task-routing'): void;
+  (e: 'set-analysis-level', level: string): void;
   (e: 'submit-provider'): void;
   (e: 'test-provider', provider: AiProvider): void;
   (e: 'set-default-provider', provider: AiProvider): void;
@@ -57,6 +59,15 @@ const purposeLabel = (purpose?: AiProviderPurpose) =>
       <BrainCircuit :size="17" />
       <p>{{ modelSummary }}</p>
     </div>
+
+    <UiFormField label="AI 分析等级" hint="控制全局后台 AI 分析的深度：关闭 / 基础（本地元数据）/ 标准（+模型摘要标签）/ 深度（+视觉、向量、人脸聚类）">
+      <UiSegmented
+        :model-value="settings.analysisLevel"
+        :options="analysisLevelOptions"
+        aria-label="AI 分析等级选择"
+        @change="(v) => emit('set-analysis-level', String(v))"
+      />
+    </UiFormField>
 
     <div class="provider-binding">
       <div class="provider-binding__head">

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { AlertTriangle, ArchiveRestore, CheckCircle2, History, RefreshCw, ShieldAlert } from 'lucide-vue-next';
+import { AlertTriangle, ArchiveRestore, CheckCircle2, History, RefreshCw, ShieldAlert, Sparkles, Undo2 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { AuditEntry, StewardSuggestion } from '../../api/types';
-import { auditEntries as seedAuditEntries, stewardSuggestions as seedStewardSuggestions } from '../../data/higoos';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
 import { UiBadge, UiButton, UiEmptyState } from '../ui';
 import type { UiTone } from '../ui';
+
+const emit = defineEmits<{ (e: 'open-agent'): void }>();
 
 const riskTone: Record<string, UiTone> = {
   低风险: 'success',
@@ -14,40 +15,41 @@ const riskTone: Record<string, UiTone> = {
   高风险: 'danger',
 };
 
-const dismissedSuggestions = ref<string[]>([]);
-const stewardSuggestions = ref<StewardSuggestion[]>(seedStewardSuggestions);
-const auditEntries = ref<AuditEntry[]>(seedAuditEntries.map((entry, index) => ({
-  id: `seed-audit-${index}`,
-  event: entry,
-  actor: '本地缓存',
-  risk: '低风险',
-  reverted: false,
-  rollback: '等待后端审计同步',
-})));
-const activeSuggestion = ref(stewardSuggestions.value[0]?.title ?? '');
-const actionLog = ref<string[]>([]);
+const suggestions = ref<StewardSuggestion[]>([]);
+const auditEntries = ref<AuditEntry[]>([]);
 const loading = ref(false);
 const actionBusyId = ref<string | null>(null);
-const backendNotice = ref('正在使用本地缓存，后端连接后会同步建议与审计。');
-const previewConfirmations = ref<Record<string, string>>({});
+const rollbackBusyId = ref<string | null>(null);
+const backendNotice = ref('正在连接后端…');
+// Per-suggestion preview state: the confirmation token and the impact text.
+const previews = ref<Record<string, { confirmationId: string; impact: string }>>({});
 
+// Only pending suggestions belong in the action queue; confirmed/dismissed ones
+// live in the audit trail.
 const visibleSuggestions = computed(() =>
-  stewardSuggestions.value.filter((item) => !dismissedSuggestions.value.includes(item.title)),
+  suggestions.value.filter((item) => (item.status ?? 'pending') === 'pending'),
 );
+
+function keyOf(item: StewardSuggestion): string {
+  return item.id ?? item.title;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : 'unknown error';
+}
 
 async function loadStewardState() {
   loading.value = true;
   try {
-    const [suggestions, audit] = await Promise.all([
+    const [list, audit] = await Promise.all([
       apiClient.steward.getSuggestions(),
       apiClient.steward.getAudit(),
     ]);
-    stewardSuggestions.value = suggestions;
+    suggestions.value = list;
     auditEntries.value = audit;
-    activeSuggestion.value = visibleSuggestions.value[0]?.title ?? '';
     backendNotice.value = 'AI 文件管家已连接后端，建议、确认与审计会实时写回。';
   } catch (error) {
-    backendNotice.value = `后端暂不可用，继续使用本地缓存：${error instanceof Error ? error.message : 'unknown error'}`;
+    backendNotice.value = `后端暂不可用：${errorText(error)}`;
   } finally {
     loading.value = false;
   }
@@ -55,70 +57,101 @@ async function loadStewardState() {
 
 async function refreshSuggestions() {
   loading.value = true;
+  previews.value = {};
   try {
-    const suggestions = await apiClient.steward.refresh();
-    stewardSuggestions.value = suggestions;
-    activeSuggestion.value = visibleSuggestions.value[0]?.title ?? '';
-    backendNotice.value = `已重新分析文件，生成 ${suggestions.length} 条建议。`;
+    suggestions.value = await apiClient.steward.refresh();
+    const pending = visibleSuggestions.value.length;
+    backendNotice.value = pending > 0
+      ? `已重新分析文件，生成 ${pending} 条建议。`
+      : '已重新分析文件，暂无可整理项。';
   } catch (error) {
-    backendNotice.value = `重新分析失败：${error instanceof Error ? error.message : 'unknown error'}`;
+    backendNotice.value = `重新分析失败：${errorText(error)}`;
   } finally {
     loading.value = false;
   }
 }
 
-async function handleSuggestionAction(item: StewardSuggestion) {
-  const id = item.id ?? item.title;
-  activeSuggestion.value = item.title;
+// Preview generates the impact summary and a confirmation token (for
+// medium/high-risk items). It never modifies files.
+async function previewSuggestion(item: StewardSuggestion) {
+  const id = keyOf(item);
   actionBusyId.value = id;
   try {
     const preview = await apiClient.steward.previewSuggestion(id);
     const confirmationId = typeof preview.confirmationId === 'string' ? preview.confirmationId : '';
-    if (confirmationId) {
-      previewConfirmations.value[id] = confirmationId;
-    }
-    actionLog.value.unshift(`${item.action}：${item.title}`);
-    backendNotice.value = typeof preview.impact === 'string' ? preview.impact : '已生成执行预览，确认前不会修改文件。';
+    const impact = typeof preview.impact === 'string' ? preview.impact : '已生成执行预览，确认前不会修改文件。';
+    previews.value = { ...previews.value, [id]: { confirmationId, impact } };
+    backendNotice.value = impact;
   } catch (error) {
-    backendNotice.value = `预览失败：${error instanceof Error ? error.message : 'unknown error'}`;
+    backendNotice.value = `预览失败：${errorText(error)}`;
   } finally {
     actionBusyId.value = null;
   }
 }
 
-async function completeSuggestion(item: StewardSuggestion) {
-  const id = item.id ?? item.title;
+// Confirm executes the suggestion's real, reversible operations. Medium/high-risk
+// items require a preview token first; low-risk ones may skip straight to confirm.
+async function confirmSuggestion(item: StewardSuggestion) {
+  const id = keyOf(item);
   actionBusyId.value = id;
   try {
-    let confirmationId = previewConfirmations.value[id];
+    let confirmationId = previews.value[id]?.confirmationId ?? '';
     if (!confirmationId && item.risk !== '低风险') {
       const preview = await apiClient.steward.previewSuggestion(id);
       confirmationId = typeof preview.confirmationId === 'string' ? preview.confirmationId : '';
-      if (confirmationId) {
-        previewConfirmations.value[id] = confirmationId;
-      }
     }
     await apiClient.steward.confirmSuggestion(id, confirmationId ? { confirmationId } : {});
-    if (!dismissedSuggestions.value.includes(item.title)) {
-      dismissedSuggestions.value.push(item.title);
-    }
-    actionLog.value.unshift(`已确认执行：${item.title}`);
-    await refreshAudit();
+    backendNotice.value = `已确认执行：${item.title}`;
+    await reload();
   } catch (error) {
-    backendNotice.value = `确认失败：${error instanceof Error ? error.message : 'unknown error'}`;
+    backendNotice.value = `确认失败：${errorText(error)}`;
   } finally {
-    activeSuggestion.value = visibleSuggestions.value[0]?.title ?? '';
     actionBusyId.value = null;
   }
 }
 
-async function refreshAudit() {
+// Dismiss tells the backend to drop a suggestion (recorded in the audit trail).
+async function dismissSuggestion(item: StewardSuggestion) {
+  const id = keyOf(item);
+  actionBusyId.value = id;
   try {
-    auditEntries.value = await apiClient.steward.getAudit();
-    backendNotice.value = '审计记录已同步。';
+    await apiClient.steward.dismissSuggestion(id, { reason: '用户忽略' });
+    backendNotice.value = `已忽略建议：${item.title}`;
+    await reload();
   } catch (error) {
-    backendNotice.value = `审计同步失败：${error instanceof Error ? error.message : 'unknown error'}`;
+    backendNotice.value = `忽略失败：${errorText(error)}`;
+  } finally {
+    actionBusyId.value = null;
   }
+}
+
+// Rollback reverses a confirmed action: recycled files are restored, archived
+// files are moved back to their original location.
+async function rollbackAudit(entry: AuditEntry) {
+  rollbackBusyId.value = entry.id;
+  try {
+    await apiClient.steward.rollbackAudit(entry.id);
+    backendNotice.value = '已撤销该操作，文件已恢复原位。';
+    await reload();
+  } catch (error) {
+    backendNotice.value = `撤销失败：${errorText(error)}`;
+  } finally {
+    rollbackBusyId.value = null;
+  }
+}
+
+async function reload() {
+  const [list, audit] = await Promise.all([
+    apiClient.steward.getSuggestions(),
+    apiClient.steward.getAudit(),
+  ]);
+  suggestions.value = list;
+  auditEntries.value = audit;
+}
+
+// A confirmed action with a rollback token that hasn't been reverted yet can be undone.
+function canRollback(entry: AuditEntry): boolean {
+  return Boolean(entry.rollback) && entry.result === 'confirmed' && !entry.reverted;
 }
 
 onMounted(loadStewardState);
@@ -131,17 +164,22 @@ onMounted(loadStewardState);
           <p>{{ loading ? '正在同步后端' : '智能整理队列' }}</p>
           <strong>{{ visibleSuggestions.length }} 条建议等待处理</strong>
         </div>
-      <UiButton size="sm" variant="soft" :icon-left="RefreshCw" :loading="loading" @click="refreshSuggestions">
-        重新分析
-      </UiButton>
+      <div class="ai-steward__hero-actions">
+        <UiButton size="sm" variant="ghost" :icon-left="Sparkles" @click="emit('open-agent')">
+          交给 AI 助手
+        </UiButton>
+        <UiButton size="sm" variant="soft" :icon-left="RefreshCw" :loading="loading" @click="refreshSuggestions">
+          重新分析
+        </UiButton>
+      </div>
     </section>
 
     <section class="ai-steward__suggestions" aria-label="智能整理建议">
       <article
         v-for="item in visibleSuggestions"
-        :key="item.title"
+        :key="keyOf(item)"
         class="ai-steward__suggestion"
-        :class="{ 'ai-steward__suggestion--active': activeSuggestion === item.title }"
+        :class="{ 'ai-steward__suggestion--active': Boolean(previews[keyOf(item)]) }"
       >
         <div class="ai-steward__suggestion-head">
           <div>
@@ -150,24 +188,36 @@ onMounted(loadStewardState);
           </div>
           <UiBadge :tone="riskTone[item.risk] ?? 'neutral'">{{ item.risk }}</UiBadge>
         </div>
+        <p v-if="previews[keyOf(item)]" class="ai-steward__suggestion-preview">
+          <ShieldAlert :size="12" /> {{ previews[keyOf(item)].impact }}
+        </p>
         <div class="ai-steward__suggestion-foot">
           <span>{{ item.count }}</span>
           <div>
             <UiButton
+              variant="ghost"
               size="sm"
-              :loading="actionBusyId === (item.id ?? item.title)"
-              :disabled="actionBusyId === (item.id ?? item.title)"
-              @click="handleSuggestionAction(item)"
+              :disabled="actionBusyId === keyOf(item)"
+              @click="dismissSuggestion(item)"
             >
-              {{ actionBusyId === (item.id ?? item.title) ? '处理中' : item.action }}
+              忽略
             </UiButton>
             <UiButton
               variant="soft"
               size="sm"
-              :disabled="actionBusyId === (item.id ?? item.title)"
-              @click="completeSuggestion(item)"
+              :loading="actionBusyId === keyOf(item)"
+              :disabled="actionBusyId === keyOf(item)"
+              @click="previewSuggestion(item)"
             >
-              确认
+              {{ item.action || '预览' }}
+            </UiButton>
+            <UiButton
+              size="sm"
+              :loading="actionBusyId === keyOf(item)"
+              :disabled="actionBusyId === keyOf(item)"
+              @click="confirmSuggestion(item)"
+            >
+              确认执行
             </UiButton>
           </div>
         </div>
@@ -176,7 +226,7 @@ onMounted(loadStewardState);
         v-if="visibleSuggestions.length === 0"
         :icon="CheckCircle2"
         title="整理队列已清空"
-        description="所有建议都已确认或写入审计日志。"
+        description="所有建议都已确认或写入审计日志。点「重新分析」可再次扫描文件。"
         compact
       />
     </section>
@@ -186,30 +236,39 @@ onMounted(loadStewardState);
         <ShieldAlert :size="18" />
         <div>
           <strong>执行风险</strong>
-          <p>{{ backendNotice || activeSuggestion || '移动、重命名、分享权限变更均需管理员确认。' }}</p>
+          <p>{{ backendNotice || '移动、删除、归档均需确认，执行前会展示影响范围。' }}</p>
         </div>
       </div>
       <div class="ai-steward__risk-card">
         <ArchiveRestore :size="18" />
         <div>
           <strong>回滚保护</strong>
-          <p>保留原路径、权限和命名快照，可一键撤销。</p>
+          <p>删除进回收站、归档可移回原路径，确认后的操作可在下方一键撤销。</p>
         </div>
       </div>
     </section>
 
     <section class="ai-steward__audit" aria-label="审计记录">
       <h3><History :size="15" /> 审计 / 回滚</h3>
-      <ul>
-        <li v-for="entry in actionLog" :key="entry">
-          <CheckCircle2 :size="13" />
-          <span>{{ entry }}</span>
-        </li>
+      <ul v-if="auditEntries.length">
         <li v-for="entry in auditEntries" :key="entry.id">
-          <AlertTriangle :size="13" />
+          <component :is="entry.reverted ? Undo2 : entry.result === 'confirmed' ? CheckCircle2 : AlertTriangle" :size="13" />
           <span>{{ entry.event }}</span>
+          <UiButton
+            v-if="canRollback(entry)"
+            class="ai-steward__rollback"
+            variant="ghost"
+            size="sm"
+            :icon-left="Undo2"
+            :loading="rollbackBusyId === entry.id"
+            :disabled="rollbackBusyId === entry.id"
+            @click="rollbackAudit(entry)"
+          >
+            撤销
+          </UiButton>
         </li>
       </ul>
+      <UiEmptyState v-else :icon="History" title="暂无审计记录" description="确认或忽略建议后会在此留痕。" compact />
     </section>
     <NasFeaturePanel class="ai-steward__features" :modules="['files', 'security']" />
   </div>
@@ -247,9 +306,27 @@ onMounted(loadStewardState);
   margin: 0;
 }
 
+.ai-steward__hero-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .ai-steward__hero p {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.ai-steward__suggestion-preview {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  color: var(--text-strong);
+  font-size: 11px;
+  line-height: 1.4;
+  background: rgba(19, 136, 255, 0.08);
+  border-radius: var(--radius-sm);
 }
 
 .ai-steward__hero strong {
@@ -369,9 +446,19 @@ onMounted(loadStewardState);
 
 .ai-steward__audit li {
   display: flex;
+  align-items: center;
   gap: 7px;
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.3;
+}
+
+.ai-steward__audit li span {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-steward__rollback {
+  flex-shrink: 0;
 }
 </style>

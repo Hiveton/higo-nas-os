@@ -280,6 +280,31 @@ func (s *Service) AddTags(ctx context.Context, mutation TagMutation) (FileRow, e
 	return rowFromNode(node), nil
 }
 
+// ApplyAnalysis writes the result of a background AI analysis pass back onto a
+// file node: an AI summary and derived tags. It accepts plain values so the
+// files package never depends on the analysis engine. Empty summary is left
+// untouched; tags are merged (deduped).
+func (s *Service) ApplyAnalysis(ctx context.Context, id, summary string, tags []string) (FileRow, error) {
+	node, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return FileRow{}, err
+	}
+	if sum := strings.TrimSpace(summary); sum != "" {
+		node.Summary = sum
+	}
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" || stringSliceContains(node.Tags, tag) {
+			continue
+		}
+		node.Tags = append(node.Tags, tag)
+	}
+	if err := s.repo.Put(ctx, node); err != nil {
+		return FileRow{}, err
+	}
+	return rowFromNode(node), nil
+}
+
 func (s *Service) CreateShare(ctx context.Context, request ShareLink) (ShareLink, error) {
 	if _, err := s.repo.Get(ctx, request.FileID); err != nil {
 		return ShareLink{}, err

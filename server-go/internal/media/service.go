@@ -421,6 +421,36 @@ func (s *Service) completeTranscodeJob(jobID string) string {
 	return ""
 }
 
+// ApplyAnalysis writes the result of a background AI analysis pass back onto a
+// media item, replacing the "待 AI 识别" placeholders with recognised people,
+// place and device, and recording a short caption/summary. It takes plain values
+// so the media package never depends on the analysis engine. People aggregation
+// is rebuilt so the people dimension reflects the new clusters.
+func (s *Service) ApplyAnalysis(id int, people []string, place, device, summary string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx := s.findItemIndexLocked(id)
+	if idx < 0 {
+		return fmt.Errorf("media item not found: %d", id)
+	}
+	if names := normalizeNames(people); len(names) > 0 {
+		s.items[idx].People = strings.Join(names, " / ")
+	}
+	if p := strings.TrimSpace(place); p != "" {
+		s.items[idx].Place = p
+	}
+	if d := strings.TrimSpace(device); d != "" {
+		s.items[idx].Device = d
+	}
+	if sum := strings.TrimSpace(summary); sum != "" {
+		s.items[idx].Meta = sum
+	}
+	s.items[idx].Status = "AI 已分析"
+	s.people = peopleFromItems(s.items)
+	return s.saveLocked()
+}
+
 func (s *Service) CreateShare(ctx context.Context, request CreateShareRequest) (ShareResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ShareResult{}, err

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { ArchiveRestore, CheckCircle2, CloudUpload, DatabaseBackup, Pause, Play, RefreshCw, ShieldCheck } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import type { BackupJob } from '../../api/types';
@@ -86,6 +86,24 @@ async function resumeBackupJob(id = selectedJob.value.id) {
 
 async function verifyBackupJob(id = selectedJob.value.id) {
   await mutateBackupJob(id, () => apiClient.backup.verifyJob(id), '备份校验已启动，校验结果会写入审计。');
+}
+
+const scheduleHours = ref(6);
+watch(
+  selectedJobId,
+  () => {
+    scheduleHours.value = selectedJob.value?.intervalHours || 6;
+  },
+  { immediate: true },
+);
+
+async function saveBackupSchedule(enabled: boolean, intervalHours: number) {
+  const id = selectedJob.value.id;
+  await mutateBackupJob(
+    id,
+    () => apiClient.backup.setSchedule(id, { enabled, intervalHours: Math.max(0, Number(intervalHours) || 0) }),
+    enabled ? `已开启自动备份：每 ${intervalHours} 小时` : '已切换为手动备份',
+  );
 }
 
 async function mutateBackupJob(id: string, request: () => Promise<BackupJob>, message: string) {
@@ -189,6 +207,15 @@ onMounted(loadBackupJobs);
           <UiButton v-if="selectedJob.state !== '已暂停'" variant="soft" tone="primary" size="sm" :icon-left="Pause" @click="pauseBackupJob()">暂停</UiButton>
           <UiButton v-else variant="soft" tone="primary" size="sm" :icon-left="Play" @click="resumeBackupJob()">恢复</UiButton>
           <UiButton variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="verifyBackupJob()">校验</UiButton>
+        </div>
+
+        <div class="backup-sync__schedule">
+          <label class="backup-sync__schedule-toggle">
+            <input type="checkbox" :checked="selectedJob.enabled" @change="saveBackupSchedule(!selectedJob.enabled, scheduleHours)" />
+            <span>自动备份</span>
+          </label>
+          <label>每 <input v-model.number="scheduleHours" type="number" min="1" :disabled="!selectedJob.enabled" /> 小时</label>
+          <UiButton variant="soft" size="sm" :disabled="!selectedJob.enabled" @click="saveBackupSchedule(true, scheduleHours)">保存计划</UiButton>
         </div>
       </section>
     </main>
@@ -378,6 +405,31 @@ onMounted(loadBackupJobs);
   flex-wrap: wrap;
   gap: 8px;
   padding: 0 14px 14px;
+}
+
+.backup-sync__schedule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 14px 14px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-2, rgba(0, 0, 0, 0.03));
+  font-size: var(--fs-sm, 13px);
+}
+.backup-sync__schedule-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.backup-sync__schedule input[type='number'] {
+  width: 52px;
+  padding: 3px 6px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-radius: 6px;
+  background: var(--surface-1, #fff);
 }
 
 .backup-sync__audit {

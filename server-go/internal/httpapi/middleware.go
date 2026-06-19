@@ -50,14 +50,60 @@ func cors(publicOrigin string) middleware {
 	}
 }
 
-func sessionGuard(cfg platform.Config) middleware {
+// sessionGuard validates the higo_session cookie, resolves the authenticated
+// principal and stows it on the request context. When auth is not required (the
+// dev default) and no valid session exists, it injects an implicit admin so the
+// desktop keeps working without logging in. The login route is always allowed
+// through so unauthenticated callers can obtain a session.
+func sessionGuard(api *API) middleware {
+	cfg := api.config
+	// Auth is required outside dev/test, or whenever explicitly switched on
+	// (HIGO_AUTH_REQUIRED=true lets you exercise the login flow in dev).
+	authRequired := cfg.AuthRequired || (cfg.Environment != "dev" && cfg.Environment != "test")
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodOptions || cfg.Environment == "dev" || cfg.Environment == "test" || !requiresSession(r.URL.Path) {
+			if r.Method == http.MethodOptions || !requiresSession(r.URL.Path) || isAuthWhitelisted(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if _, err := r.Cookie("higo_session"); err == nil {
+			if principal, ok := api.resolvePrincipal(r); ok {
+				r = r.WithContext(platform.WithPrincipal(r.Context(), principal))
+				next.ServeHTTP(w, r)
+				return
+			}
+			// A cloud-signed device access token (Bearer, presented by the mobile
+			// App via the relay or LAN) is verified with the cloud public key
+			// distributed at device registration. On success the request runs as
+			// the mapped NAS-local user — not as a blanket admin.
+			if principal, ok := api.resolveDeviceToken(r); ok {
+				r = r.WithContext(platform.WithPrincipal(r.Context(), principal))
+				next.ServeHTTP(w, r)
+				return
+			}
+			// A Bearer token (external API / MCP client) is accepted as-is; token
+			// validation is layered in P1. Treat it as an admin service principal.
+			if r.Header.Get("Authorization") != "" {
+				r = r.WithContext(platform.WithPrincipal(r.Context(), platform.Principal{UserID: "api-token", Username: "api-token", Role: "admin"}))
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !authRequired {
+				r = r.WithContext(platform.WithPrincipal(r.Context(), api.devAdminPrincipal(r)))
+				next.ServeHTTP(w, r)
+				return
+			}
+			platform.WriteError(w, r, http.StatusUnauthorized, "unauthorized", "missing or invalid session")
+		})
+	}
+}
+
+// csrfGuard enforces double-submit CSRF on cookie-authenticated write requests.
+// Bearer-token flows and the login route are exempt; dev disables it entirely.
+func csrfGuard(api *API) middleware {
+	cfg := api.config
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if cfg.CSRFDisabled || !isWriteMethod(r.Method) || !requiresSession(r.URL.Path) || isAuthWhitelisted(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -65,9 +111,22 @@ func sessionGuard(cfg platform.Config) middleware {
 				next.ServeHTTP(w, r)
 				return
 			}
-			platform.WriteError(w, r, http.StatusUnauthorized, "unauthorized", "missing HiGoOS session")
+			cookie, err := r.Cookie(csrfCookieName)
+			header := r.Header.Get("X-CSRF-Token")
+			if err != nil || cookie.Value == "" || header == "" || header != cookie.Value {
+				platform.WriteError(w, r, http.StatusForbidden, "csrf_failed", "missing or invalid CSRF token")
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// isAuthWhitelisted reports whether a guarded path is reachable without a
+// session: the login endpoint, and the read-only device fingerprint the LAN
+// discovery flow relies on (the HTTP twin of the UDP announce).
+func isAuthWhitelisted(path string) bool {
+	return path == "/api/v1/auth/login" || path == "/api/v1/system/identity"
 }
 
 func hasAPIPrefix(path string) bool {

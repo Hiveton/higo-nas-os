@@ -42,7 +42,8 @@ HEALTH_URL="http://127.0.0.1:8080/healthz"
 
 RUNTIME_PKGS=(ca-certificates curl smartmontools util-linux e2fsprogs \
   btrfs-progs lm-sensors rsync ffmpeg aria2 docker.io docker-compose-v2 \
-  samba samba-common-bin nfs-kernel-server minidlna apache2 apache2-utils)
+  samba samba-common-bin nfs-kernel-server minidlna apache2 apache2-utils \
+  acl quota)
 
 if [[ -z "${SSH_PASS:-}" ]]; then
   echo "ERROR: SSH_PASS env var is required (ssh/sudo password)." >&2

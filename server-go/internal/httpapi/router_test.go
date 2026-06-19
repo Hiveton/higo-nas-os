@@ -1128,6 +1128,39 @@ func TestStorageManagementEndpoints(t *testing.T) {
 		t.Fatalf("unexpected created space: %#v", createBody.Data)
 	}
 
+	// Snapshot listing route is wired: an ext4 space is not a ZFS pool, so the
+	// handler returns a domain error (400) rather than a 404 route-not-found.
+	snapRec := httptest.NewRecorder()
+	snapReq := httptest.NewRequest(http.MethodGet, "/api/v1/storage/spaces/"+createBody.Data.ID+"/snapshots", nil)
+	router.ServeHTTP(snapRec, snapReq)
+	if snapRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected snapshots route to reach handler (400), got %d: %s", snapRec.Code, snapRec.Body.String())
+	}
+
+	// ZFS detail route is wired (ext4 space → 400 "not a ZFS pool", not 404).
+	zfsRec := httptest.NewRecorder()
+	zfsReq := httptest.NewRequest(http.MethodGet, "/api/v1/storage/spaces/"+createBody.Data.ID+"/zfs", nil)
+	router.ServeHTTP(zfsRec, zfsReq)
+	if zfsRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected zfs detail route to reach handler (400), got %d: %s", zfsRec.Code, zfsRec.Body.String())
+	}
+
+	// Snapshot-schedule route is wired: PUT on an ext4 space is refused (not ZFS).
+	schedRec := httptest.NewRecorder()
+	schedReq := httptest.NewRequest(http.MethodPut, "/api/v1/storage/spaces/"+createBody.Data.ID+"/snapshot-schedule", bytes.NewBufferString(`{"enabled":true,"intervalHours":6,"keep":5}`))
+	router.ServeHTTP(schedRec, schedReq)
+	if schedRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected snapshot-schedule route to refuse non-ZFS space (400), got %d: %s", schedRec.Code, schedRec.Body.String())
+	}
+
+	// Rollback route is wired and refuses an unmanaged pool.
+	rbRec := httptest.NewRecorder()
+	rbReq := httptest.NewRequest(http.MethodPost, "/api/v1/storage/snapshots/rollback", bytes.NewBufferString(`{"snapshot":"tank@evil"}`))
+	router.ServeHTTP(rbRec, rbReq)
+	if rbRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected rollback route to refuse unmanaged pool (400), got %d: %s", rbRec.Code, rbRec.Body.String())
+	}
+
 	deleteRec := httptest.NewRecorder()
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/storage/spaces/"+createBody.Data.ID, bytes.NewBufferString(`{"confirm":true}`))
 	router.ServeHTTP(deleteRec, deleteReq)

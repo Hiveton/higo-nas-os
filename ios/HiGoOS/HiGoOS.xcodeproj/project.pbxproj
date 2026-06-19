@@ -1,0 +1,608 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1CC77C78A30E364D40AA5028 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41E48FCA17FBD25EBDA07D69 /* Theme.swift */; };
+		3338D10C520439663DE84359 /* HiGoOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E98EF690B19BDFDA3ADE6D4 /* HiGoOSUITests.swift */; };
+		337388AD49D14755170879B2 /* PhotosScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4BCCDB90D1FD1EA97C3119C /* PhotosScreen.swift */; };
+		3C448DCE2906302673E29A45 /* AiScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E755D3DC7E8A2139E34E60 /* AiScreen.swift */; };
+		3EA1E3E6F70848FE11198E0D /* ModuleScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9E9DA0D9E46133D99C0B34 /* ModuleScreens.swift */; };
+		4D19E573D3C25A367E0401D7 /* HomeScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 231B30CBFD9BABF645C1DB69 /* HomeScreens.swift */; };
+		62A0C58DDD4E18EF8F2AB1F2 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1463F9C924F82765A6357DCE /* Models.swift */; };
+		7ACDD35F605EBE65050F3046 /* PreviewCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 211204798B710B6E718DDA90 /* PreviewCatalog.swift */; };
+		88D39A077DAF465BD0CD4DA5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6231122C04AE6C4C2DE0FF /* RootView.swift */; };
+		9770D4962DA6124C5FA318A1 /* MobileTasksScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2235836959ACA52075BEFAAC /* MobileTasksScreen.swift */; };
+		99D80D1C866412AD12054AF8 /* CloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD97FC7D04C348A92DBAA79 /* CloudClient.swift */; };
+		99E604905D799C5C83547C32 /* DeviceScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FEBDF88EB960130A9886F5 /* DeviceScreen.swift */; };
+		A56C7F156341AFC9D880520D /* FeatureStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = B151BFE7ADB7EFCCB87E6019 /* FeatureStores.swift */; };
+		A607DD90F71F79CD540C5D47 /* HiGoOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 585A7933B701F50D44F517D2 /* HiGoOSApp.swift */; };
+		B3BD549B43101FFC04B723F7 /* ScreenPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CC7891124A0A36DFCA9109 /* ScreenPreviews.swift */; };
+		BF810688F8E2B4168581F89A /* AppViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFC8690A9104233FF5B5174 /* AppViewModelTests.swift */; };
+		CC5D99DDFD9F1EEBD6FA37F7 /* Repositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 583595404510A7C634FD42A5 /* Repositories.swift */; };
+		D3FF4EFC00824C65F07BA8E1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B8D67FCB6AD161043FCBA060 /* Assets.xcassets */; };
+		DF4E9293F34830C2C37DF88C /* NotificationsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07E7D74BB9281A4D76C68C1 /* NotificationsScreen.swift */; };
+		EA31CAE7E7399CEE864BF092 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE446D16F8B8F0DF8125B3F8 /* AppContainer.swift */; };
+		EE9D31129B891CBBF16F9074 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = D72A18F3531F585339E5AD89 /* Components.swift */; };
+		F82DF50C23E24B2F951BA393 /* FilesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70BC0851D91CA131481C97E /* FilesScreen.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A04A8D1FD5937B1394686718 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A15CBAE9A4BF56941FD3D3D8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1C9C204E5DA529A23D830A7D;
+			remoteInfo = HiGoOS;
+		};
+		C469838057E4DB3D99729D57 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A15CBAE9A4BF56941FD3D3D8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1C9C204E5DA529A23D830A7D;
+			remoteInfo = HiGoOS;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		06CC7891124A0A36DFCA9109 /* ScreenPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPreviews.swift; sourceTree = "<group>"; };
+		1463F9C924F82765A6357DCE /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		1C6231122C04AE6C4C2DE0FF /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		1E98EF690B19BDFDA3ADE6D4 /* HiGoOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiGoOSUITests.swift; sourceTree = "<group>"; };
+		211204798B710B6E718DDA90 /* PreviewCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewCatalog.swift; sourceTree = "<group>"; };
+		2235836959ACA52075BEFAAC /* MobileTasksScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTasksScreen.swift; sourceTree = "<group>"; };
+		231B30CBFD9BABF645C1DB69 /* HomeScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScreens.swift; sourceTree = "<group>"; };
+		41E48FCA17FBD25EBDA07D69 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		48D3E3E940F7F49DBFD9AAF1 /* HiGoOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = HiGoOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		583595404510A7C634FD42A5 /* Repositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Repositories.swift; sourceTree = "<group>"; };
+		585A7933B701F50D44F517D2 /* HiGoOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiGoOSApp.swift; sourceTree = "<group>"; };
+		5BD97FC7D04C348A92DBAA79 /* CloudClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudClient.swift; sourceTree = "<group>"; };
+		6EA8C21CCDD838340B1320F2 /* HiGoOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HiGoOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6F9E9DA0D9E46133D99C0B34 /* ModuleScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleScreens.swift; sourceTree = "<group>"; };
+		7AFC8690A9104233FF5B5174 /* AppViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModelTests.swift; sourceTree = "<group>"; };
+		9398E503D3C8510D687019B9 /* HiGoOSTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = HiGoOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A5FEBDF88EB960130A9886F5 /* DeviceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceScreen.swift; sourceTree = "<group>"; };
+		A70BC0851D91CA131481C97E /* FilesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesScreen.swift; sourceTree = "<group>"; };
+		B151BFE7ADB7EFCCB87E6019 /* FeatureStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStores.swift; sourceTree = "<group>"; };
+		B4E755D3DC7E8A2139E34E60 /* AiScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AiScreen.swift; sourceTree = "<group>"; };
+		B8D67FCB6AD161043FCBA060 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D4BCCDB90D1FD1EA97C3119C /* PhotosScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosScreen.swift; sourceTree = "<group>"; };
+		D72A18F3531F585339E5AD89 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		D964A818428A076F162D465C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F07E7D74BB9281A4D76C68C1 /* NotificationsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsScreen.swift; sourceTree = "<group>"; };
+		FE446D16F8B8F0DF8125B3F8 /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		195F3956000D0AC9FB7F9FC8 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6EA8C21CCDD838340B1320F2 /* HiGoOS.app */,
+				9398E503D3C8510D687019B9 /* HiGoOSTests.xctest */,
+				48D3E3E940F7F49DBFD9AAF1 /* HiGoOSUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		61BF8B14FF5E26C315E4505E /* HiGoOS */ = {
+			isa = PBXGroup;
+			children = (
+				FE446D16F8B8F0DF8125B3F8 /* AppContainer.swift */,
+				B8D67FCB6AD161043FCBA060 /* Assets.xcassets */,
+				D72A18F3531F585339E5AD89 /* Components.swift */,
+				B151BFE7ADB7EFCCB87E6019 /* FeatureStores.swift */,
+				585A7933B701F50D44F517D2 /* HiGoOSApp.swift */,
+				D964A818428A076F162D465C /* Info.plist */,
+				1463F9C924F82765A6357DCE /* Models.swift */,
+				211204798B710B6E718DDA90 /* PreviewCatalog.swift */,
+				583595404510A7C634FD42A5 /* Repositories.swift */,
+				1C6231122C04AE6C4C2DE0FF /* RootView.swift */,
+				41E48FCA17FBD25EBDA07D69 /* Theme.swift */,
+				E909B4A2B1E13120EEE6C5B7 /* Cloud */,
+				B845E6F853D6D18FFC074900 /* Screens */,
+			);
+			path = HiGoOS;
+			sourceTree = "<group>";
+		};
+		62188F7BC6C58E310E9479C9 /* HiGoOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				1E98EF690B19BDFDA3ADE6D4 /* HiGoOSUITests.swift */,
+			);
+			path = HiGoOSUITests;
+			sourceTree = "<group>";
+		};
+		B845E6F853D6D18FFC074900 /* Screens */ = {
+			isa = PBXGroup;
+			children = (
+				B4E755D3DC7E8A2139E34E60 /* AiScreen.swift */,
+				A5FEBDF88EB960130A9886F5 /* DeviceScreen.swift */,
+				A70BC0851D91CA131481C97E /* FilesScreen.swift */,
+				231B30CBFD9BABF645C1DB69 /* HomeScreens.swift */,
+				2235836959ACA52075BEFAAC /* MobileTasksScreen.swift */,
+				6F9E9DA0D9E46133D99C0B34 /* ModuleScreens.swift */,
+				F07E7D74BB9281A4D76C68C1 /* NotificationsScreen.swift */,
+				D4BCCDB90D1FD1EA97C3119C /* PhotosScreen.swift */,
+				06CC7891124A0A36DFCA9109 /* ScreenPreviews.swift */,
+			);
+			path = Screens;
+			sourceTree = "<group>";
+		};
+		DBE3D219170FF27BA1E956A0 /* HiGoOSTests */ = {
+			isa = PBXGroup;
+			children = (
+				7AFC8690A9104233FF5B5174 /* AppViewModelTests.swift */,
+			);
+			path = HiGoOSTests;
+			sourceTree = "<group>";
+		};
+		E909B4A2B1E13120EEE6C5B7 /* Cloud */ = {
+			isa = PBXGroup;
+			children = (
+				5BD97FC7D04C348A92DBAA79 /* CloudClient.swift */,
+			);
+			path = Cloud;
+			sourceTree = "<group>";
+		};
+		FF6609BFEFBB6E051896FD32 = {
+			isa = PBXGroup;
+			children = (
+				61BF8B14FF5E26C315E4505E /* HiGoOS */,
+				DBE3D219170FF27BA1E956A0 /* HiGoOSTests */,
+				62188F7BC6C58E310E9479C9 /* HiGoOSUITests */,
+				195F3956000D0AC9FB7F9FC8 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1C9C204E5DA529A23D830A7D /* HiGoOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DF614474AEC8AA3A652711B1 /* Build configuration list for PBXNativeTarget "HiGoOS" */;
+			buildPhases = (
+				EF168B1831FF9A14EC99219C /* Sources */,
+				CEF63C35D91704E6EDA8D4BD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HiGoOS;
+			packageProductDependencies = (
+			);
+			productName = HiGoOS;
+			productReference = 6EA8C21CCDD838340B1320F2 /* HiGoOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7E8316D9D22AF9ABB749134D /* HiGoOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 018E33577C46700721086F5A /* Build configuration list for PBXNativeTarget "HiGoOSUITests" */;
+			buildPhases = (
+				56D68F7944DE2805F338ABC8 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BB0BD9EAAB0CEE09A07DB269 /* PBXTargetDependency */,
+			);
+			name = HiGoOSUITests;
+			packageProductDependencies = (
+			);
+			productName = HiGoOSUITests;
+			productReference = 48D3E3E940F7F49DBFD9AAF1 /* HiGoOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		E6E54A027F0E2ADBFABCD3E7 /* HiGoOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7BDBF81D8F32394B89FEBC7B /* Build configuration list for PBXNativeTarget "HiGoOSTests" */;
+			buildPhases = (
+				E50F1F6F420E3909A1F8DC11 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4C7B4E26844B8E659751A91D /* PBXTargetDependency */,
+			);
+			name = HiGoOSTests;
+			packageProductDependencies = (
+			);
+			productName = HiGoOSTests;
+			productReference = 9398E503D3C8510D687019B9 /* HiGoOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A15CBAE9A4BF56941FD3D3D8 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					1C9C204E5DA529A23D830A7D = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					7E8316D9D22AF9ABB749134D = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+						TestTargetID = 1C9C204E5DA529A23D830A7D;
+					};
+					E6E54A027F0E2ADBFABCD3E7 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = CD28C60B145123FB705566B9 /* Build configuration list for PBXProject "HiGoOS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = FF6609BFEFBB6E051896FD32;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 195F3956000D0AC9FB7F9FC8 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1C9C204E5DA529A23D830A7D /* HiGoOS */,
+				E6E54A027F0E2ADBFABCD3E7 /* HiGoOSTests */,
+				7E8316D9D22AF9ABB749134D /* HiGoOSUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		CEF63C35D91704E6EDA8D4BD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D3FF4EFC00824C65F07BA8E1 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		56D68F7944DE2805F338ABC8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3338D10C520439663DE84359 /* HiGoOSUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E50F1F6F420E3909A1F8DC11 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF810688F8E2B4168581F89A /* AppViewModelTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EF168B1831FF9A14EC99219C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3C448DCE2906302673E29A45 /* AiScreen.swift in Sources */,
+				EA31CAE7E7399CEE864BF092 /* AppContainer.swift in Sources */,
+				99D80D1C866412AD12054AF8 /* CloudClient.swift in Sources */,
+				EE9D31129B891CBBF16F9074 /* Components.swift in Sources */,
+				99E604905D799C5C83547C32 /* DeviceScreen.swift in Sources */,
+				A56C7F156341AFC9D880520D /* FeatureStores.swift in Sources */,
+				F82DF50C23E24B2F951BA393 /* FilesScreen.swift in Sources */,
+				A607DD90F71F79CD540C5D47 /* HiGoOSApp.swift in Sources */,
+				4D19E573D3C25A367E0401D7 /* HomeScreens.swift in Sources */,
+				9770D4962DA6124C5FA318A1 /* MobileTasksScreen.swift in Sources */,
+				62A0C58DDD4E18EF8F2AB1F2 /* Models.swift in Sources */,
+				3EA1E3E6F70848FE11198E0D /* ModuleScreens.swift in Sources */,
+				DF4E9293F34830C2C37DF88C /* NotificationsScreen.swift in Sources */,
+				337388AD49D14755170879B2 /* PhotosScreen.swift in Sources */,
+				7ACDD35F605EBE65050F3046 /* PreviewCatalog.swift in Sources */,
+				CC5D99DDFD9F1EEBD6FA37F7 /* Repositories.swift in Sources */,
+				88D39A077DAF465BD0CD4DA5 /* RootView.swift in Sources */,
+				B3BD549B43101FFC04B723F7 /* ScreenPreviews.swift in Sources */,
+				1CC77C78A30E364D40AA5028 /* Theme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		4C7B4E26844B8E659751A91D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1C9C204E5DA529A23D830A7D /* HiGoOS */;
+			targetProxy = A04A8D1FD5937B1394686718 /* PBXContainerItemProxy */;
+		};
+		BB0BD9EAAB0CEE09A07DB269 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1C9C204E5DA529A23D830A7D /* HiGoOS */;
+			targetProxy = C469838057E4DB3D99729D57 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0E9B316302A01383F3073AE5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hiveton.higoos.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HiGoOS.app/HiGoOS";
+			};
+			name = Debug;
+		};
+		1F601DE12B2D41EEC488CD81 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		33308C473E349F2794402136 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hiveton.higoos.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = HiGoOS;
+			};
+			name = Debug;
+		};
+		3F15E8044C3762689AA704D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hiveton.higoos.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = HiGoOS;
+			};
+			name = Release;
+		};
+		5A60B4CF2A6930CBFFFDD126 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = HiGoOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hiveton.higoos;
+				PRODUCT_NAME = HiGoOS;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7BED676754C22C3C0C8291B3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = HiGoOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hiveton.higoos;
+				PRODUCT_NAME = HiGoOS;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		7FFCF4B027A683BF46E37851 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hiveton.higoos.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HiGoOS.app/HiGoOS";
+			};
+			name = Release;
+		};
+		9A5959A2BE6D9E10B474AC63 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		018E33577C46700721086F5A /* Build configuration list for PBXNativeTarget "HiGoOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				33308C473E349F2794402136 /* Debug */,
+				3F15E8044C3762689AA704D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7BDBF81D8F32394B89FEBC7B /* Build configuration list for PBXNativeTarget "HiGoOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0E9B316302A01383F3073AE5 /* Debug */,
+				7FFCF4B027A683BF46E37851 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CD28C60B145123FB705566B9 /* Build configuration list for PBXProject "HiGoOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1F601DE12B2D41EEC488CD81 /* Debug */,
+				9A5959A2BE6D9E10B474AC63 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DF614474AEC8AA3A652711B1 /* Build configuration list for PBXNativeTarget "HiGoOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A60B4CF2A6930CBFFFDD126 /* Debug */,
+				7BED676754C22C3C0C8291B3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A15CBAE9A4BF56941FD3D3D8 /* Project object */;
+}

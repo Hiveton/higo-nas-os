@@ -73,6 +73,7 @@ export const dockApps: DockApp[] = [
   { id: 'file-manager', name: '文件管理', icon: fileManagerIcon, badge: 2 },
   { id: 'storage-monitor', name: '存储管理', icon: storageManagerIcon },
   { id: 'ai-file-steward', name: 'AI 文件管家', icon: aiFileStewardIcon, badge: 6 },
+  { id: 'ai-analysis', name: 'AI 分析中心', icon: agentWorkbenchIcon },
   { id: 'agent-workbench', name: 'Agent 工作台', icon: agentWorkbenchIcon },
   { id: 'ai-assistant', name: 'AI 助手', icon: aiAssistantIcon },
   { id: 'backup-sync', name: '备份同步', icon: backupSyncIcon, badge: 1 },
@@ -86,6 +87,7 @@ export const dockApps: DockApp[] = [
   { id: 'device-monitor', name: '设备监控', icon: deviceMonitorIcon },
   { id: 'task-center', name: '任务中心', icon: taskCenterIcon },
   { id: 'system-settings', name: '系统设置', icon: systemSettingsIcon },
+  { id: 'user-center', name: '用户中心', icon: securityCenterIcon },
   { id: 'remote-access', name: '远程访问', icon: remoteAccessIcon },
   { id: 'file-protocols', name: '共享协议', icon: remoteAccessIcon },
   { id: 'virtual-machine', name: '虚拟机', icon: appCenterIcon },
@@ -264,6 +266,18 @@ export const desktopWindows: DesktopWindowConfig[] = [
     z: 13,
   },
   {
+    id: 'ai-analysis',
+    title: 'AI 分析中心',
+    subtitle: '相册 / 文件 / 视频 · 分析进度与记录',
+    status: '分析中',
+    statusTone: 'blue',
+    x: 200,
+    y: 100,
+    width: 920,
+    height: 640,
+    z: 21,
+  },
+  {
     id: 'system-settings',
     title: '系统设置',
     subtitle: '网络 / 模型 / 隐私 / 更新',
@@ -359,6 +373,18 @@ export const desktopWindows: DesktopWindowConfig[] = [
     height: 720,
     z: 22,
   },
+  {
+    id: 'user-center',
+    title: '用户中心',
+    subtitle: '账号 / 用户组 / 权限 / 我的账号',
+    status: '已就绪',
+    statusTone: 'green',
+    x: 240,
+    y: 110,
+    width: 900,
+    height: 660,
+    z: 24,
+  },
 ];
 
 export const folders = ['家庭空间', '团队空间', '照片与视频', '财务票据', '项目资料', 'Docker 数据', '备份归档'];
@@ -405,37 +431,6 @@ export const files: FileRow[] = [
     aiSummary: '发现 31 张发票，其中 4 张可能重复，建议按年月归档。',
   },
 ];
-
-export const stewardSuggestions: StewardSuggestion[] = [
-  {
-    title: '下载目录智能整理',
-    detail: '31 张发票、12 个安装包和 4 个重复压缩包可按规则归档。',
-    count: '47 项',
-    risk: '中风险',
-    action: '预览整理',
-  },
-  {
-    title: '过期分享链接',
-    detail: '发现 3 个公开链接仍可访问，包含团队空间资料。',
-    count: '3 个',
-    risk: '高风险',
-    action: '查看权限',
-  },
-  {
-    title: '相似照片清理',
-    detail: '五一旅行相册中有 86 张连拍相似照片，可保留清晰版本。',
-    count: '1.6 GB',
-    risk: '低风险',
-    action: '智能筛选',
-  },
-];
-
-export const auditEntries = [
-  '09:41 文件管家读取 /下载/票据，仅生成建议，未移动文件',
-  '09:22 Agent 创建家庭保修提醒，等待管理员确认',
-  '昨天 18:36 撤销 12 个文件重命名，已恢复原路径',
-];
-
 
 export const assistantMessages = [
   {

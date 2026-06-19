@@ -453,6 +453,60 @@ func (s *Service) Item(ctx context.Context, id string) (Item, error) {
 	return Item{}, fmt.Errorf("video item not found: %s", id)
 }
 
+// ApplyAnalysis writes the result of a background AI analysis pass back onto a
+// video item: an LLM/vision overview, derived tags, and ffprobe technical
+// metadata. It accepts plain values so the video package never depends on the
+// analysis engine. Empty values are left untouched so a partial (degraded) pass
+// does not clobber existing metadata.
+func (s *Service) ApplyAnalysis(id, overview string, tags []string, container, codec, resolution string, durationSeconds int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.items {
+		if s.items[i].ID != id {
+			continue
+		}
+		if ov := strings.TrimSpace(overview); ov != "" {
+			s.items[i].Overview = ov
+		}
+		if len(tags) > 0 {
+			s.items[i].Tags = mergeUniqueStrings(s.items[i].Tags, tags)
+		}
+		if container != "" {
+			s.items[i].Container = container
+		}
+		if codec != "" {
+			s.items[i].Codec = codec
+		}
+		if resolution != "" {
+			s.items[i].Resolution = resolution
+		}
+		if durationSeconds > 0 {
+			s.items[i].DurationSeconds = durationSeconds
+		}
+		s.items[i].Status = "AI 已分析"
+		return s.saveLocked()
+	}
+	return fmt.Errorf("video item not found: %s", id)
+}
+
+func mergeUniqueStrings(existing, additions []string) []string {
+	seen := make(map[string]bool, len(existing))
+	out := append([]string(nil), existing...)
+	for _, v := range existing {
+		seen[strings.ToLower(strings.TrimSpace(v))] = true
+	}
+	for _, v := range additions {
+		v = strings.TrimSpace(v)
+		key := strings.ToLower(v)
+		if v == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, v)
+	}
+	return out
+}
+
 func (s *Service) OpenItem(ctx context.Context, id string) (*os.File, Item, error) {
 	item, err := s.Item(ctx, id)
 	if err != nil {

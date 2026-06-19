@@ -31,6 +31,44 @@ export type EventStreamOptions = {
 export const API_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_HIGOOS_API_BASE_URL ?? '');
 export const API_CREDENTIALS = normalizeCredentials(import.meta.env.VITE_HIGOOS_API_CREDENTIALS);
 
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+// --- CSRF (double-submit) ---------------------------------------------------
+// The session cookie is HttpOnly; the matching CSRF token rides a readable
+// `higo_csrf` cookie (and is also returned by /auth/me + /auth/login). Write
+// requests must echo it as X-CSRF-Token. The store calls setCsrfToken after
+// login/refresh; we fall back to the cookie so it works even before that.
+let csrfToken: string | null = null;
+
+export function setCsrfToken(token: string | null) {
+  csrfToken = token;
+}
+
+function readCsrfCookie(): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(/(?:^|;\s*)higo_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function currentCsrf(): string | null {
+  return csrfToken ?? readCsrfCookie();
+}
+
+// --- 401 handling -----------------------------------------------------------
+// runtime.ts must not import stores (circular dep). The auth store registers a
+// handler here so a 401 on any guarded request flips the app back to the login
+// screen.
+type UnauthorizedHandler = (error: ApiError) => void;
+let onUnauthorized: UnauthorizedHandler | null = null;
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  onUnauthorized = handler;
+}
+
+function isAuthEndpoint(url: string): boolean {
+  return url.includes('/api/v1/auth/login') || url.includes('/api/v1/auth/me');
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly statusText: string;
@@ -86,6 +124,10 @@ export async function request<T>(path: string, options: InternalRequestOptions =
 
   if (!headers.has('Accept')) headers.set('Accept', 'application/json');
   if (!headers.has('X-Request-Id')) headers.set('X-Request-Id', requestId);
+  if (WRITE_METHODS.has(method.toUpperCase()) && !headers.has('X-CSRF-Token')) {
+    const token = currentCsrf();
+    if (token) headers.set('X-CSRF-Token', token);
+  }
 
   const init: RequestInit = {
     ...requestOptions,
@@ -323,7 +365,7 @@ function buildApiError(
     response.statusText ||
     'API request failed';
 
-  return new ApiError(message, {
+  const apiError = new ApiError(message, {
     status: response.status,
     statusText: response.statusText,
     code: typeof error === 'string' ? envelope?.code : error?.code ?? envelope?.code,
@@ -332,4 +374,12 @@ function buildApiError(
     url: context.url,
     method: context.method,
   });
+
+  // A 401 on any guarded (non-auth) request means the session lapsed — let the
+  // auth store flip back to the login screen.
+  if (apiError.status === 401 && !isAuthEndpoint(context.url)) {
+    onUnauthorized?.(apiError);
+  }
+
+  return apiError;
 }

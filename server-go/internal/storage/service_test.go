@@ -312,6 +312,141 @@ func TestCreateAndDeleteStorageSpace(t *testing.T) {
 	}
 }
 
+func TestValidateSpaceModeMatrix(t *testing.T) {
+	cases := []struct {
+		mode    SpaceMode
+		count   int
+		wantErr bool
+	}{
+		{SpaceModeBasic, 1, false},
+		{SpaceModeBasic, 2, true},   // basic is single-disk only
+		{SpaceModeLinear, 1, true},  // linear needs 2+ disks to concatenate
+		{SpaceModeLinear, 2, false},
+		{SpaceModeRAID0, 2, false},
+		{SpaceModeRAID1, 1, true},
+		{SpaceModeRAID5, 2, true},
+		{SpaceModeRAID5, 3, false},
+		{SpaceModeRAID6, 3, true},
+		{SpaceModeRAID6, 4, false},
+		{SpaceModeRAID10, 3, true}, // odd count rejected
+		{SpaceModeRAID10, 4, false},
+	}
+	for _, c := range cases {
+		err := validateSpaceMode(c.mode, c.count)
+		if (err != nil) != c.wantErr {
+			t.Fatalf("validateSpaceMode(%s,%d): err=%v wantErr=%v", c.mode, c.count, err, c.wantErr)
+		}
+	}
+}
+
+func TestDeleteSpaceTwoPhaseGovernance(t *testing.T) {
+	provisioner := &recordingProvisioner{}
+	root := t.TempDir()
+	t.Setenv("HIGO_NAS_ROOT", root)
+	service := NewService(staticAdapter{disks: []Disk{{
+		Slot: "data", Size: "245 GB", State: DiskStateHealthy, Health: HealthHealthy,
+		Role: "disk", DevicePath: "/dev/test-data", DeviceType: "disk", MediaType: "SSD",
+	}}})
+	service.provisioner = provisioner
+	ctx := context.Background()
+
+	space, err := service.CreateSpace(ctx, CreateSpaceRequest{
+		Name: "待删空间", Mode: SpaceModeBasic, FileSystem: FileSystemEXT4,
+		DiskSlots: []string{"data"}, MountPath: root + "/del", Actor: "admin",
+		Confirm: true, FormatDisk: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatalf("create space: %v", err)
+	}
+
+	// Phase 1: preview registers a single-use token and does NOT remove the space.
+	preview, err := service.PreviewDeleteSpace(ctx, space.ID, "admin")
+	if err != nil {
+		t.Fatalf("preview delete: %v", err)
+	}
+	if preview.ConfirmationID == "" || preview.Impact == "" || !preview.RequiresConfirmation {
+		t.Fatalf("unexpected preview: %#v", preview)
+	}
+	if preview.Risk != "high" {
+		t.Fatalf("expected high risk, got %q", preview.Risk)
+	}
+	if spaces, _ := service.Spaces(ctx); !containsSpace(spaces, space.ID) {
+		t.Fatal("preview must not delete the space")
+	}
+
+	// A bad confirmation id is rejected.
+	if _, err := service.ConfirmDeleteSpace(ctx, ConfirmDeleteRequest{ConfirmationID: "storage-confirm-999", Actor: "admin"}); err == nil {
+		t.Fatal("expected error for unknown confirmation id")
+	}
+
+	// Phase 2: confirm executes once.
+	task, err := service.ConfirmDeleteSpace(ctx, ConfirmDeleteRequest{ConfirmationID: preview.ConfirmationID, Actor: "admin"})
+	if err != nil {
+		t.Fatalf("confirm delete: %v", err)
+	}
+	if task.Kind != TaskKindDeleteSpace || task.TargetPool != space.ID {
+		t.Fatalf("unexpected delete task: %#v", task)
+	}
+	if spaces, _ := service.Spaces(ctx); containsSpace(spaces, space.ID) {
+		t.Fatal("space should be gone after confirm")
+	}
+
+	// Single-use: the same token cannot be replayed.
+	if _, err := service.ConfirmDeleteSpace(ctx, ConfirmDeleteRequest{ConfirmationID: preview.ConfirmationID, Actor: "admin"}); err == nil {
+		t.Fatal("expected single-use token to be consumed")
+	}
+
+	// One audit entry recorded for the confirmed deletion.
+	auditTrail := service.Audit()
+	if len(auditTrail) != 1 || auditTrail[0].SpaceID != space.ID || auditTrail[0].Result != "confirmed" {
+		t.Fatalf("unexpected audit trail: %#v", auditTrail)
+	}
+}
+
+func TestConfirmDeleteSpaceRejectsExpiredToken(t *testing.T) {
+	provisioner := &recordingProvisioner{}
+	root := t.TempDir()
+	t.Setenv("HIGO_NAS_ROOT", root)
+	service := NewService(staticAdapter{disks: []Disk{{
+		Slot: "data", Size: "245 GB", State: DiskStateHealthy, Health: HealthHealthy,
+		Role: "disk", DevicePath: "/dev/test-data", DeviceType: "disk",
+	}}})
+	service.provisioner = provisioner
+	clock := time.Unix(1_700_000_000, 0).UTC()
+	service.now = func() time.Time { return clock }
+	ctx := context.Background()
+
+	space, err := service.CreateSpace(ctx, CreateSpaceRequest{
+		Name: "过期空间", Mode: SpaceModeBasic, FileSystem: FileSystemEXT4,
+		DiskSlots: []string{"data"}, MountPath: root + "/exp", Actor: "admin",
+		Confirm: true, FormatDisk: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatalf("create space: %v", err)
+	}
+	preview, err := service.PreviewDeleteSpace(ctx, space.ID, "admin")
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	// Advance the clock past the TTL.
+	clock = clock.Add(confirmationTTL + time.Minute)
+	if _, err := service.ConfirmDeleteSpace(ctx, ConfirmDeleteRequest{ConfirmationID: preview.ConfirmationID}); err == nil {
+		t.Fatal("expected expired confirmation to be rejected")
+	}
+	if spaces, _ := service.Spaces(ctx); !containsSpace(spaces, space.ID) {
+		t.Fatal("expired confirm must not delete the space")
+	}
+}
+
+func containsSpace(spaces []StorageSpace, id string) bool {
+	for _, s := range spaces {
+		if s.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func TestCreateSpaceRequiresExplicitCreateConfirmation(t *testing.T) {
 	service := NewService(NewDevAdapter())
 

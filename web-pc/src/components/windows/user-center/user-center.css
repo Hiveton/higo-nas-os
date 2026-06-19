@@ -1,0 +1,438 @@
+/* User Center — shared styling on the HiGoOS design tokens (src/styles/tokens.css).
+   Imported once by UserCenterWindow.vue; classes are global so all panels share
+   them, mirroring settings-window.css. */
+
+.uc {
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* --- left rail ----------------------------------------------------------- */
+.uc__rail {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: rgba(var(--surface-rgb), 0.5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.uc__rail-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 14px;
+  color: var(--accent);
+  border-bottom: 1px solid rgba(100, 136, 166, 0.14);
+}
+
+.uc__rail-head strong {
+  display: block;
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.uc__rail-head span {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-soft);
+  font-size: var(--fs-2xs);
+}
+
+.uc__nav {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 0;
+  padding: 10px;
+  overflow: auto;
+}
+
+.uc__nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  color: var(--text-muted);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+
+.uc__nav-item:hover {
+  color: var(--text-strong);
+  background: rgba(var(--surface-rgb), 0.7);
+}
+
+.uc__nav-item--active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: var(--fw-semibold);
+}
+
+/* --- main content card --------------------------------------------------- */
+.uc__main {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px;
+  background: rgba(var(--surface-rgb), 0.5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* --- panel scaffolding --------------------------------------------------- */
+.uc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.uc-panel__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.uc-panel__title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+}
+
+.uc-panel__sub {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-snug);
+}
+
+/* sub-cards (forms, group cards, identity cards) */
+.uc-card {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: rgba(var(--surface-rgb), 0.62);
+  border: 1px solid var(--border);
+}
+
+.uc-divider {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* identity header (My Account, profile) */
+.uc-id {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.uc-id__avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  color: var(--text-inverse);
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent));
+  box-shadow: var(--shadow-sm);
+}
+
+.uc-id__name {
+  margin: 0 0 5px;
+  color: var(--text-strong);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+}
+
+/* definition grid (profile fields) */
+.uc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 28px;
+  margin: 0;
+}
+
+.uc-grid dt {
+  margin-bottom: 3px;
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+}
+
+.uc-grid dd {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+}
+
+/* inline forms */
+.uc-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 380px;
+}
+
+.uc-form label {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
+
+.uc-form-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.uc-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.uc-muted {
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+}
+
+.uc-secret {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  color: var(--text-strong);
+  word-break: break-all;
+}
+
+/* cell helpers for tables */
+.uc-cell-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.uc-cell-stack strong {
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.uc-cell-stack span {
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+}
+
+.uc-cell-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* stat cards (overview) */
+.uc-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.uc-stat {
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.86), rgba(var(--surface-rgb), 0.58));
+  border: 1px solid var(--border);
+}
+
+.uc-stat__icon {
+  color: var(--accent);
+}
+
+.uc-stat__value {
+  color: var(--text-strong);
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+.uc-stat__label {
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+}
+
+/* list cards (sessions, groups) */
+.uc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.uc-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(var(--surface-rgb), 0.62);
+  border: 1px solid var(--border);
+}
+
+.uc-list__row strong {
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.uc-list__meta {
+  margin-top: 4px;
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+}
+
+/* card grid (groups / identities) */
+.uc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(264px, 1fr));
+  gap: 12px;
+}
+
+.uc-cards__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.uc-cards__head strong {
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.uc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
+.uc-chip__rm {
+  display: inline-flex;
+  padding: 0;
+  margin-left: 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.uc-chip__rm:hover {
+  opacity: 1;
+}
+
+.uc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.uc-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.uc-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.uc-mfa {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  max-width: 380px;
+}
+
+.uc-mfa__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.uc-mfa__head strong {
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+}
+
+/* member checklist (group management modal) */
+.uc-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0 -6px;
+}
+
+.uc-check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.uc-check-row:hover {
+  background: rgba(var(--surface-rgb), 0.7);
+}
+
+.uc-check-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.uc-check-name strong {
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+
+.uc-check-name small {
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+}

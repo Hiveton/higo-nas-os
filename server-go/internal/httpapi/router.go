@@ -12,15 +12,20 @@ import (
 
 	"higoos/server-go/internal/accounts"
 	"higoos/server-go/internal/activity"
+	"higoos/server-go/internal/aianalysis"
 	"higoos/server-go/internal/apiclient"
 	"higoos/server-go/internal/appcenter"
 	"higoos/server-go/internal/assistant"
+	"higoos/server-go/internal/audit"
+	"higoos/server-go/internal/auth"
 	"higoos/server-go/internal/backups"
 	"higoos/server-go/internal/db"
 	"higoos/server-go/internal/devstub"
+	"higoos/server-go/internal/discovery"
 	hdocker "higoos/server-go/internal/docker"
 	"higoos/server-go/internal/downloads"
 	"higoos/server-go/internal/files"
+	"higoos/server-go/internal/identity"
 	"higoos/server-go/internal/index"
 	"higoos/server-go/internal/llm"
 	higomcp "higoos/server-go/internal/mcp"
@@ -29,6 +34,7 @@ import (
 	"higoos/server-go/internal/hardware"
 	"higoos/server-go/internal/monitoring"
 	"higoos/server-go/internal/music"
+	"higoos/server-go/internal/network"
 	"higoos/server-go/internal/platform"
 	"higoos/server-go/internal/protocols"
 	"higoos/server-go/internal/remote"
@@ -61,10 +67,14 @@ type Dependencies struct {
 	Video      *video.Service
 	Assistant  *assistant.Service
 	Accounts   *accounts.Service
+	Auth       *auth.SessionStore
+	Audit      *audit.Store
 	Steward    *steward.Service
 	Security   *security.Service
 	Activity   *activity.Service
 	Protocols  *protocols.Service
+	Network    *network.Service
+	Identity   *identity.Provider
 	Tasks      *tasks.Manager
 	Logger     *slog.Logger
 }
@@ -232,11 +242,39 @@ func NewRouter(deps Dependencies) http.Handler {
 	accountsService := deps.Accounts
 	if accountsService == nil {
 		var err error
-		accountsService, err = accounts.NewServiceWithStateDir(cfg.StateDir)
+		accountsService, err = accounts.NewServiceWithConfig(accounts.Config{
+			StateDir:   cfg.StateDir,
+			Backend:    cfg.AccountsBackend,
+			UIDBase:    cfg.AccountsUIDBase,
+			Group:      cfg.AccountsGroup,
+			AdminGroup: cfg.AccountsAdminGroup,
+			NASRoot:    cfg.NASRoot,
+		})
 		if err != nil {
 			logger.Warn("accounts state unavailable", slog.Any("error", err))
 			accountsService = accounts.NewService()
 		}
+	}
+	// Ensure the seed admin has a credential on first boot. The generated
+	// password is logged once; operators must change it after first login.
+	if pw, err := accountsService.BootstrapAdmin(context.Background(), cfg.AdminBootstrapPassword); err != nil {
+		logger.Warn("admin bootstrap failed", slog.Any("error", err))
+	} else if pw != "" {
+		logger.Warn("initial admin password generated — change it after first login",
+			slog.String("username", "admin"), slog.String("password", pw))
+	}
+	authStore := deps.Auth
+	if authStore == nil {
+		var err error
+		authStore, err = auth.NewSessionStoreWithStateDir(cfg.StateDir, cfg.SessionTTL)
+		if err != nil {
+			logger.Warn("session state unavailable", slog.Any("error", err))
+			authStore = auth.NewSessionStore(cfg.SessionTTL)
+		}
+	}
+	auditStore := deps.Audit
+	if auditStore == nil {
+		auditStore = audit.NewStore()
 	}
 	stewardService := deps.Steward
 	if stewardService == nil {
@@ -274,6 +312,30 @@ func NewRouter(deps Dependencies) http.Handler {
 			protocolsService = protocols.NewService(nil)
 		}
 	}
+	networkService := deps.Network
+	if networkService == nil {
+		var err error
+		networkService, err = network.NewServiceWithStateDir(nil, cfg.StateDir)
+		if err != nil {
+			logger.Warn("network state unavailable", slog.Any("error", err))
+			networkService = network.NewService(nil)
+		}
+	}
+	identityProvider := deps.Identity
+	if identityProvider == nil {
+		var err error
+		identityProvider, err = identity.NewProvider(cfg.StateDir, cfg.AppName, cfg.Version, cfg.HTTPAddr)
+		if err != nil {
+			logger.Warn("identity provider unavailable", slog.Any("error", err))
+			identityProvider, _ = identity.NewProvider("", cfg.AppName, cfg.Version, cfg.HTTPAddr)
+		}
+	}
+	// LAN discovery responder so the desktop assistant can find a fresh NAS.
+	if cfg.DiscoveryEnabled {
+		go func() {
+			_ = discovery.Run(context.Background(), cfg.DiscoveryAddr, identityProvider, logger)
+		}()
+	}
 
 	taskManager := deps.Tasks
 	if taskManager == nil {
@@ -286,8 +348,10 @@ func NewRouter(deps Dependencies) http.Handler {
 	}
 	// Register domain task handlers before the pool starts.
 	storageService.AttachTaskRunner(taskManager)
+	storageService.StartSnapshotScheduler(context.Background(), 5*time.Minute)
 	mediaService.AttachTaskRunner(taskManager)
 	backupService.AttachTaskRunner(taskManager)
+	backupService.StartBackupScheduler(context.Background(), 5*time.Minute)
 	videoService.AttachTaskRunner(taskManager)
 	dockerService.AttachTaskRunner(taskManager)
 	downloadsService.AttachTaskRunner(taskManager)
@@ -295,7 +359,33 @@ func NewRouter(deps Dependencies) http.Handler {
 	if fileService != nil {
 		stewardService.AttachFiles(fileService)
 	}
+
+	// Global background AI analysis engine: ledger-backed, resumable, runs in
+	// this process and drives item analysis through the shared task runtime.
+	analysisEngine, err := aianalysis.New(aianalysis.Deps{
+		StateDir:        cfg.StateDir,
+		Logger:          logger,
+		Settings:        settingsStore,
+		LLM:             llmStore,
+		Index:           index.New(deps.DB, llmStore),
+		Media:           mediaService,
+		Files:           fileService,
+		Video:           videoService,
+		FaceEmbedderURL: cfg.FaceEmbedderURL,
+		FaceTrainerURL:  cfg.FaceTrainerURL,
+	})
+	if err != nil {
+		logger.Warn("ai analysis engine unavailable", slog.Any("error", err))
+		analysisEngine = nil
+	}
+	if analysisEngine != nil {
+		analysisEngine.AttachTaskRunner(taskManager)
+	}
+
 	taskManager.Start(context.Background())
+	if analysisEngine != nil {
+		analysisEngine.Start(context.Background())
+	}
 
 	api := &API{
 		config:     cfg,
@@ -314,15 +404,21 @@ func NewRouter(deps Dependencies) http.Handler {
 		media:      mediaService,
 		music:      musicService,
 		video:      videoService,
-		assistant:  assistantService,
-		accounts:   accountsService,
-		steward:    stewardService,
+		assistant:     assistantService,
+		accounts:      accountsService,
+		auth:          authStore,
+		audit:         auditStore,
+		loginThrottle: newLoginThrottle(),
+		steward:       stewardService,
 		security:   securityService,
 		activity:   activityService,
 		protocols:  protocolsService,
+		network:    networkService,
+		identity:   identityProvider,
 		tasks:      taskManager,
 		index:      index.New(deps.DB, llmStore),
 		search:     search.New(deps.DB, llmStore),
+		aianalysis: analysisEngine,
 		staticDir:  strings.TrimSpace(cfg.StaticDir),
 	}
 
@@ -330,6 +426,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/healthz", api.healthz)
 	mux.HandleFunc("/readyz", api.readyz)
 	mux.HandleFunc("/api/v1/system/info", api.systemInfo)
+	mux.HandleFunc("/api/v1/system/identity", api.systemIdentity)
 	mux.HandleFunc("/api/v1/system/updates", api.systemUpdates)
 	mux.HandleFunc("/api/v1/system/updates/check", api.systemUpdateCheck)
 	mux.HandleFunc("/api/v1/system/backups", api.systemBackups)
@@ -365,6 +462,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/storage/tasks/smart-scan", api.storageSmartScan)
 	mux.HandleFunc("/api/v1/storage/tasks/repair", api.storageRepair)
 	mux.HandleFunc("/api/v1/storage/tasks/snapshot", api.storageSnapshot)
+	mux.HandleFunc("/api/v1/storage/snapshots/rollback", api.storageSnapshotRollback)
 	mux.HandleFunc("/api/v1/storage/tasks/", api.storageTaskByID)
 	mux.HandleFunc("/api/v1/tasks", api.tasksList)
 	mux.HandleFunc("/api/v1/tasks/stream", api.tasksStream)
@@ -444,6 +542,16 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/ai/index/files", api.aiIndexFiles)
 	mux.HandleFunc("/api/v1/ai/index/media", api.aiIndexMedia)
 	mux.HandleFunc("/api/v1/ai/index/status", api.aiIndexStatus)
+	mux.HandleFunc("/api/v1/ai-analysis/status", api.aiAnalysisStatus)
+	mux.HandleFunc("/api/v1/ai-analysis/records", api.aiAnalysisRecords)
+	mux.HandleFunc("/api/v1/ai-analysis/reanalyze", api.aiAnalysisReanalyze)
+	mux.HandleFunc("/api/v1/ai-analysis/rescan", api.aiAnalysisRescan)
+	mux.HandleFunc("/api/v1/ai-analysis/pause", api.aiAnalysisPause)
+	mux.HandleFunc("/api/v1/ai-analysis/resume", api.aiAnalysisResume)
+	mux.HandleFunc("/api/v1/ai-analysis/progress/stream", api.aiAnalysisProgressStream)
+	mux.HandleFunc("/api/v1/ai-analysis/faces", api.aiAnalysisFaces)
+	mux.HandleFunc("/api/v1/ai-analysis/faces/label", api.aiAnalysisFaceLabel)
+	mux.HandleFunc("/api/v1/ai-analysis/faces/retrain", api.aiAnalysisFaceRetrain)
 	mux.HandleFunc("/api/v1/assistant/threads", api.assistantThreads)
 	mux.HandleFunc("/api/v1/assistant/threads/", api.assistantThreadByID)
 	mux.HandleFunc("/api/v1/assistant/actions/", api.assistantActionByID)
@@ -451,6 +559,18 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/assistant/tools", api.assistantTools)
 	mux.HandleFunc("/api/v1/ai/providers", api.aiProviders)
 	mux.HandleFunc("/api/v1/ai/providers/", api.aiProviderByID)
+	mux.HandleFunc("/api/v1/cloud/provision", api.cloudProvision)
+	mux.HandleFunc("/api/v1/cloud/unprovision", api.cloudUnprovision)
+	mux.HandleFunc("/api/v1/auth/login", api.authLogin)
+	mux.HandleFunc("/api/v1/auth/logout", api.authLogout)
+	mux.HandleFunc("/api/v1/auth/me", api.authMe)
+	mux.HandleFunc("/api/v1/auth/password", api.authPassword)
+	mux.HandleFunc("/api/v1/auth/sessions", api.authSessions)
+	mux.HandleFunc("/api/v1/auth/sessions/", api.authSessionByID)
+	mux.HandleFunc("/api/v1/auth/mfa/setup", api.authMFASetup)
+	mux.HandleFunc("/api/v1/auth/mfa/enable", api.authMFAEnable)
+	mux.HandleFunc("/api/v1/auth/mfa/disable", api.authMFADisable)
+	mux.HandleFunc("/api/v1/auth/audit", api.authAudit)
 	mux.HandleFunc("/api/v1/accounts/summary", api.accountsSummary)
 	mux.HandleFunc("/api/v1/accounts/users", api.accountUsers)
 	mux.HandleFunc("/api/v1/accounts/users/", api.accountUserByID)
@@ -479,6 +599,11 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/protocols/audit", api.protocolsAudit)
 	mux.HandleFunc("/api/v1/protocols/audit/", api.protocolsAuditByID)
 	mux.HandleFunc("/api/v1/protocols/", api.protocolByKey)
+	mux.HandleFunc("/api/v1/network/interfaces", api.networkInterfaces)
+	mux.HandleFunc("/api/v1/network/config", api.networkConfig)
+	mux.HandleFunc("/api/v1/network/config/confirm", api.networkConfigConfirm)
+	mux.HandleFunc("/api/v1/network/audit", api.networkAudit)
+	mux.HandleFunc("/api/v1/network/audit/", api.networkAuditByID)
 	// The assistant drives the FULL tool catalog through an in-process MCP client
 	// — the same Model Context Protocol surface external clients use. Read-only
 	// tools execute inline; mutating/destructive tools (per their MCP annotation)
@@ -519,7 +644,9 @@ func NewRouter(deps Dependencies) http.Handler {
 		recoverPanic(logger),
 		secureHeaders,
 		cors(cfg.PublicOrigin),
-		sessionGuard(cfg),
+		sessionGuard(api),
+		csrfGuard(api),
+		roleGate(api),
 		accessLog(logger),
 	)
 }
@@ -551,15 +678,21 @@ type API struct {
 	media      *media.Service
 	music      *music.Service
 	video      *video.Service
-	assistant  *assistant.Service
-	accounts   *accounts.Service
-	steward    *steward.Service
+	assistant     *assistant.Service
+	accounts      *accounts.Service
+	auth          *auth.SessionStore
+	audit         *audit.Store
+	loginThrottle *loginThrottle
+	steward       *steward.Service
 	security   *security.Service
 	activity   *activity.Service
 	protocols  *protocols.Service
+	network    *network.Service
+	identity   *identity.Provider
 	tasks      *tasks.Manager
 	index      *index.Service
 	search     *search.Service
+	aianalysis *aianalysis.Engine
 	staticDir  string
 }
 

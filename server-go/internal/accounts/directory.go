@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"runtime"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	_ "github.com/GehirnInc/crypt/md5_crypt"
 	_ "github.com/GehirnInc/crypt/sha256_crypt"
 	_ "github.com/GehirnInc/crypt/sha512_crypt"
+	yescrypt "github.com/openwall/yescrypt-go"
 )
 
 // IdentityRef is the host-facing projection of a HiGoOS user. The directory
@@ -24,6 +26,17 @@ type IdentityRef struct {
 	DisplayName string
 	// Admin reflects whether the user should belong to the admin system group.
 	Admin bool
+}
+
+// SystemIdentity is a real OS account the directory can enumerate. HiGoOS
+// reconciles these into its user list so pre-existing system users (e.g. the
+// installer-created sudo user) appear and can authenticate — the OS is the
+// authoritative source of identities, not just HiGoOS-created ones.
+type SystemIdentity struct {
+	Username    string
+	UID         int
+	DisplayName string
+	Admin       bool // member of the admin/sudo/wheel group
 }
 
 // Directory is the identity + credential backend. HostDirectory drives real
@@ -47,6 +60,15 @@ type Directory interface {
 	SetLocked(ctx context.Context, username string, locked bool) error
 	// HasCredential reports whether a credential exists for username.
 	HasCredential(ctx context.Context, username string) bool
+	// List enumerates real OS login accounts (empty on the dev backend, which
+	// is sidecar-authoritative).
+	List(ctx context.Context) ([]SystemIdentity, error)
+	// Lookup resolves a single OS account by username.
+	Lookup(ctx context.Context, username string) (SystemIdentity, bool, error)
+	// EnsureGroup creates the named system group if absent.
+	EnsureGroup(ctx context.Context, name string) error
+	// SetGroupMembers replaces a system group's membership.
+	SetGroupMembers(ctx context.Context, name string, usernames []string) error
 }
 
 // directoryConfig carries the host-tuning knobs the system directory needs.
@@ -86,9 +108,18 @@ func verifyCryptHash(hash, plaintext string) (bool, error) {
 	if hash == "" {
 		return false, nil
 	}
-	// Only the crypt(3) schemes we register are verifiable in pure Go. Anything
-	// else (notably Ubuntu's default yescrypt "$y$") is rejected up front so
-	// crypt.NewFromHash — which panics on unknown prefixes — is never reached.
+	// yescrypt ($y$ / $gy$) is Ubuntu 24.04's default shadow scheme — verify it
+	// by recomputing the hash from the stored setting and comparing.
+	if strings.HasPrefix(hash, "$y$") || strings.HasPrefix(hash, "$gy$") {
+		computed, err := yescrypt.Hash([]byte(plaintext), []byte(hash))
+		if err != nil {
+			return false, fmt.Errorf("accounts: yescrypt verify: %w", err)
+		}
+		return subtle.ConstantTimeCompare(computed, []byte(hash)) == 1, nil
+	}
+	// The remaining crypt(3) schemes are handled by GehirnInc/crypt. Reject
+	// anything else up front so crypt.NewFromHash — which panics on unknown
+	// prefixes — is never reached.
 	switch {
 	case strings.HasPrefix(hash, "$1$"),
 		strings.HasPrefix(hash, "$5$"),

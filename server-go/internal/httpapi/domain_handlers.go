@@ -22,7 +22,7 @@ func (a *API) filesTree(w http.ResponseWriter, r *http.Request) {
 		platform.WriteError(w, r, http.StatusServiceUnavailable, "files_unavailable", "files service is unavailable")
 		return
 	}
-	tree, err := a.files.Tree(r.Context(), r.URL.Query().Get("space"))
+	tree, err := a.files.TreeFor(r.Context(), r.URL.Query().Get("space"), a.viewerFor(r))
 	if err != nil {
 		platform.WriteError(w, r, http.StatusNotFound, "space_not_found", err.Error())
 		return
@@ -64,6 +64,12 @@ func (a *API) filesFolders(w http.ResponseWriter, r *http.Request) {
 	var body files.CreateFolderRequest
 	if err := decodeJSON(r, &body); err != nil {
 		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	// Resource-level ACL: a non-admin may only write to a space they hold
+	// read_write/manage on. Uncontrolled spaces (no grants) stay open.
+	if !a.authorizeSpaceWrite(r, body.Space) {
+		platform.WriteError(w, r, http.StatusForbidden, "forbidden", "no write access to this space")
 		return
 	}
 	row, err := a.files.CreateFolder(r.Context(), body)
@@ -157,6 +163,10 @@ func (a *API) fileByID(w http.ResponseWriter, r *http.Request) {
 			platform.WriteError(w, r, http.StatusNotFound, "file_not_found", err.Error())
 			return
 		}
+		if !a.files.CanAccessID(r.Context(), id, a.viewerFor(r)) {
+			platform.WriteError(w, r, http.StatusForbidden, "forbidden", "no access to this file")
+			return
+		}
 		platform.WriteJSON(w, r, http.StatusOK, row)
 		return
 	}
@@ -196,6 +206,10 @@ func (a *API) fileDownload(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	defer reader.Close()
+	if !a.authorizeSpaceRead(r, node) {
+		platform.WriteError(w, r, http.StatusForbidden, "forbidden", "no access to this file")
+		return
+	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", node.Name))
 	w.WriteHeader(http.StatusOK)
@@ -204,6 +218,10 @@ func (a *API) fileDownload(w http.ResponseWriter, r *http.Request, id string) {
 
 func (a *API) filePreview(w http.ResponseWriter, r *http.Request, id string) {
 	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	if !a.files.CanAccessID(r.Context(), id, a.viewerFor(r)) {
+		platform.WriteError(w, r, http.StatusForbidden, "forbidden", "no access to this file")
 		return
 	}
 	preview, err := a.files.Preview(r.Context(), id)

@@ -14,13 +14,11 @@ import {
   RotateCcw,
   Save,
   ShieldCheck,
-  Users,
   Wifi,
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import { settingsStore } from '../../stores/settings';
 import { UiButton } from '../ui';
-import SettingsAccountsPanel from './settings/SettingsAccountsPanel.vue';
 import SettingsNetworkPanel from './settings/SettingsNetworkPanel.vue';
 import SettingsModelsPanel from './settings/SettingsModelsPanel.vue';
 import SettingsAiPanel from './settings/SettingsAiPanel.vue';
@@ -32,8 +30,6 @@ import SettingsBackupPanel from './settings/SettingsBackupPanel.vue';
 import SettingsInterfacePanel from './settings/SettingsInterfacePanel.vue';
 import SettingsActivityPanel from './settings/SettingsActivityPanel.vue';
 import type {
-  AccountSummary,
-  AccountUser,
   AiProvider,
   AiProviderInput,
   AiProviderKind,
@@ -42,7 +38,6 @@ import type {
 import './settings/settings-window.css';
 
 type CategoryId =
-  | 'accounts'
   | 'network'
   | 'models'
   | 'ai'
@@ -65,6 +60,7 @@ type SettingsState = {
   modelStrategy: string;
   modelProvider: string;
   taskRouting: boolean;
+  analysisLevel: string;
   localAi: boolean;
   cloudAi: boolean;
   privateEndpoint: boolean;
@@ -96,7 +92,6 @@ type Category = {
 };
 
 const categories: Category[] = [
-  { id: 'accounts', label: '账号 / 权限', summary: '角色、访客、Agent 授权', icon: Users },
   { id: 'network', label: '网络 / DDNS', summary: '远程访问、DNS、域名', icon: Wifi },
   { id: 'models', label: '模型策略', summary: '混合、本地、云端路由', icon: BrainCircuit },
   { id: 'ai', label: '本地 / 云端 AI', summary: '推理资源与私有端点', icon: Cloud },
@@ -110,6 +105,12 @@ const categories: Category[] = [
 ];
 
 const modelStrategies = ['家庭混合模式', '小团队供应商模式', '企业强制本地', '按数据级别路由'];
+const analysisLevelOptions = [
+  { value: 'off', label: '关闭' },
+  { value: 'basic', label: '基础' },
+  { value: 'standard', label: '标准' },
+  { value: 'deep', label: '深度' },
+];
 const retentionOptions = ['30 天', '90 天', '180 天', '365 天'];
 const themeOptions = [
   { value: 'auto', label: '跟随系统' },
@@ -145,39 +146,13 @@ const modelProviderOptions = ['本地 Qwen3-8B', '私有 vLLM 集群', 'OpenAI �
 const releaseChannelOptions = ['稳定版', '安全预览', '开发者预览'].map((value) => ({ value, label: value }));
 const backupTargetOptions = ['HiGoNAS 内部快照', '异地 NAS', '加密云端仓库'].map((value) => ({ value, label: value }));
 
-const activeCategoryId = ref<CategoryId>('accounts');
+const activeCategoryId = ref<CategoryId>('network');
 const updateStatus = ref('上次检查：今天 09:20，当前为最新版本。');
 const appliedState = ref('设置已加载，等待管理员调整。');
 const lastAudit = ref('系统设置窗口已打开，配置读取写入审计。');
 const checkCount = ref(0);
 
 const settings = ref<SettingsState>(createDefaultSettings());
-const accounts = ref<AccountSummary>({ users: [], groups: [], grants: [] });
-const accountState = ref('账号后端正在同步。');
-const accountBusy = ref('');
-const newUser = ref({
-  username: '',
-  displayName: '',
-  password: 'Passw0rd!',
-  role: 'user',
-  quotaGB: 50,
-  groupId: 'family',
-});
-const newGroup = ref({
-  name: '',
-  description: '',
-});
-const memberEditor = ref({
-  groupId: 'family',
-  userId: 'admin',
-});
-const grantEditor = ref({
-  subjectType: 'user',
-  subjectId: 'admin',
-  spaceId: 'space-family',
-  access: 'read_write',
-  quotaGB: 100,
-});
 
 const activeCategory = computed(() => categories.find((category) => category.id === activeCategoryId.value) ?? categories[0]);
 const activeCategoryIndex = computed(() => categories.findIndex((category) => category.id === activeCategoryId.value) + 1);
@@ -203,15 +178,6 @@ const governanceScore = computed(() => {
   if (!settings.value.cloudAi) score += 4;
   return Math.min(score, 100);
 });
-const accountUsers = computed(() => accounts.value.users ?? []);
-const accountGroups = computed(() => accounts.value.groups ?? []);
-const accountGrants = computed(() => accounts.value.grants ?? []);
-const selectedMemberGroup = computed(() => accountGroups.value.find((group) => group.id === memberEditor.value.groupId));
-const grantSubjects = computed(() => (
-  grantEditor.value.subjectType === 'group'
-    ? accountGroups.value.map((group) => ({ id: group.id, label: group.name }))
-    : accountUsers.value.map((user) => ({ id: user.id, label: user.displayName || user.username }))
-));
 
 function createDefaultSettings(): SettingsState {
   return {
@@ -225,6 +191,7 @@ function createDefaultSettings(): SettingsState {
     modelStrategy: '家庭混合模式',
     modelProvider: '本地 Qwen3-8B',
     taskRouting: true,
+    analysisLevel: 'standard',
     localAi: true,
     cloudAi: true,
     privateEndpoint: false,
@@ -273,6 +240,7 @@ function applyBackendSettings(nextSettings: ApiSettingsState) {
   const activity = nextSettings.activity ?? {};
   settings.value.activityEnabled = activity.enabled ?? true;
   settings.value.activityMaxEntries = activity.maxEntries ?? 2000;
+  settings.value.analysisLevel = normalizeBackendOption(nextSettings.analysis?.level, analysisLevelOptions, 'standard');
 }
 
 function toBackendSettings(): ApiSettingsState {
@@ -300,7 +268,15 @@ function toBackendSettings(): ApiSettingsState {
       enabled: settings.value.activityEnabled,
       maxEntries: settings.value.activityMaxEntries,
     },
+    analysis: {
+      level: settings.value.analysisLevel,
+    },
   };
+}
+
+function setAnalysisLevel(level: string) {
+  settings.value.analysisLevel = level;
+  lastAudit.value = `AI 分析等级已切换为${analysisLevelOptions.find((o) => o.value === level)?.label ?? level}。`;
 }
 
 function normalizeBackendOption(value: unknown, options: { value: string }[], fallback: string) {
@@ -372,7 +348,7 @@ async function saveSettings() {
 
 async function restoreDefaults() {
   settings.value = createDefaultSettings();
-  activeCategoryId.value = 'accounts';
+  activeCategoryId.value = 'network';
   try {
     const nextSettings = await settingsStore.restoreDefaults();
     applyBackendSettings(nextSettings);
@@ -408,139 +384,6 @@ async function createSystemBackup() {
     lastAudit.value = '系统备份任务已提交到后端队列。';
   } catch {
     appliedState.value = '系统备份任务暂未提交，后端不可用。';
-  }
-}
-
-async function loadAccounts() {
-  try {
-    accounts.value = await apiClient.accounts.getSummary();
-    memberEditor.value.groupId = accountGroups.value[0]?.id ?? 'family';
-    memberEditor.value.userId = accountUsers.value[0]?.id ?? 'admin';
-    grantEditor.value.subjectId = grantSubjects.value[0]?.id ?? 'admin';
-    accountState.value = `已同步 ${accountUsers.value.length} 个用户、${accountGroups.value.length} 个用户组、${accountGrants.value.length} 条授权。`;
-  } catch (error) {
-    accountState.value = `账号接口不可用：${error instanceof Error ? error.message : 'unknown error'}`;
-  }
-}
-
-async function createAccountUser() {
-  if (!newUser.value.username.trim()) {
-    accountState.value = '请输入用户名。';
-    return;
-  }
-  accountBusy.value = 'create-user';
-  try {
-    const user = await apiClient.accounts.createUser({
-      username: newUser.value.username.trim(),
-      displayName: newUser.value.displayName.trim() || newUser.value.username.trim(),
-      password: newUser.value.password,
-      role: newUser.value.role,
-      quotaBytes: Number(newUser.value.quotaGB) * 1024 * 1024 * 1024,
-      groups: newUser.value.groupId ? [newUser.value.groupId] : [],
-    });
-    accountState.value = `已创建用户 ${user.displayName || user.username}。`;
-    newUser.value.username = '';
-    newUser.value.displayName = '';
-    await loadAccounts();
-  } catch (error) {
-    accountState.value = `创建用户失败：${error instanceof Error ? error.message : 'unknown error'}`;
-  } finally {
-    accountBusy.value = '';
-  }
-}
-
-async function toggleAccountUser(user: AccountUser) {
-  accountBusy.value = user.id;
-  try {
-    const status = user.status === 'active' ? 'disabled' : 'active';
-    await apiClient.accounts.updateUser(user.id, { status });
-    accountState.value = `${user.displayName || user.username} 已${status === 'active' ? '启用' : '停用'}。`;
-    await loadAccounts();
-  } catch (error) {
-    accountState.value = `更新用户失败：${error instanceof Error ? error.message : 'unknown error'}`;
-  } finally {
-    accountBusy.value = '';
-  }
-}
-
-async function deleteAccountUser(user: AccountUser) {
-  if (user.role === 'admin') {
-    accountState.value = '管理员账号不能在此处删除。';
-    return;
-  }
-  accountBusy.value = user.id;
-  try {
-    await apiClient.accounts.deleteUser(user.id);
-    accountState.value = `${user.displayName || user.username} 已删除。`;
-    await loadAccounts();
-  } catch (error) {
-    accountState.value = `删除用户失败：${error instanceof Error ? error.message : 'unknown error'}`;
-  } finally {
-    accountBusy.value = '';
-  }
-}
-
-async function createAccountGroup() {
-  if (!newGroup.value.name.trim()) {
-    accountState.value = '请输入用户组名称。';
-    return;
-  }
-  accountBusy.value = 'create-group';
-  try {
-    const group = await apiClient.accounts.createGroup({
-      name: newGroup.value.name.trim(),
-      description: newGroup.value.description.trim(),
-    });
-    accountState.value = `已创建用户组 ${group.name}。`;
-    newGroup.value.name = '';
-    newGroup.value.description = '';
-    await loadAccounts();
-  } catch (error) {
-    accountState.value = `创建用户组失败：${error instanceof Error ? error.message : 'unknown error'}`;
-  } finally {
-    accountBusy.value = '';
-  }
-}
-
-async function addMemberToGroup() {
-  const group = selectedMemberGroup.value;
-  if (!group || !memberEditor.value.userId) {
-    accountState.value = '请选择用户组和用户。';
-    return;
-  }
-  accountBusy.value = 'members';
-  try {
-    const userIds = Array.from(new Set([...(group.userIds ?? []), memberEditor.value.userId]));
-    const updated = await apiClient.accounts.updateGroupMembers(group.id, userIds);
-    accountState.value = `${updated.name} 成员已更新。`;
-    await loadAccounts();
-  } catch (error) {
-    accountState.value = `更新成员失败：${error instanceof Error ? error.message : 'unknown error'}`;
-  } finally {
-    accountBusy.value = '';
-  }
-}
-
-async function grantAccountSpace() {
-  if (!grantEditor.value.subjectId || !grantEditor.value.spaceId.trim()) {
-    accountState.value = '请选择授权对象并填写空间 ID。';
-    return;
-  }
-  accountBusy.value = 'grant';
-  try {
-    const grant = await apiClient.accounts.grantSpace({
-      subjectType: grantEditor.value.subjectType,
-      subjectId: grantEditor.value.subjectId,
-      spaceId: grantEditor.value.spaceId.trim(),
-      access: grantEditor.value.access,
-      quotaBytes: Number(grantEditor.value.quotaGB) * 1024 * 1024 * 1024,
-    });
-    accountState.value = `已写入空间授权：${grant.subjectId} -> ${grant.spaceId}。`;
-    await loadAccounts();
-  } catch (error) {
-    accountState.value = `授权失败：${error instanceof Error ? error.message : 'unknown error'}`;
-  } finally {
-    accountBusy.value = '';
   }
 }
 
@@ -627,7 +470,6 @@ async function testProvider(provider: AiProvider) {
 onMounted(async () => {
   const [nextSettings] = await Promise.all([
     settingsStore.loadSettings(),
-    loadAccounts(),
     loadProviders(),
   ]);
   if (nextSettings.model || nextSettings.privacy || nextSettings.ui) {
@@ -680,28 +522,8 @@ onMounted(async () => {
       </section>
 
       <section class="system-settings__content" aria-label="系统设置表单">
-        <SettingsAccountsPanel
-          v-if="activeCategoryId === 'accounts'"
-          :account-state="accountState"
-          :account-busy="accountBusy"
-          :new-user="newUser"
-          :new-group="newGroup"
-          :member-editor="memberEditor"
-          :grant-editor="grantEditor"
-          :account-users="accountUsers"
-          :account-groups="accountGroups"
-          :grant-subjects="grantSubjects"
-          @create-user="createAccountUser"
-          @toggle-user="toggleAccountUser"
-          @delete-user="deleteAccountUser"
-          @create-group="createAccountGroup"
-          @add-member="addMemberToGroup"
-          @grant-space="grantAccountSpace"
-          @subject-type-change="grantEditor.subjectId = grantSubjects[0]?.id ?? ''"
-        />
-
         <SettingsNetworkPanel
-          v-else-if="activeCategoryId === 'network'"
+          v-if="activeCategoryId === 'network'"
           :settings="settings"
           :dns-profile-options="dnsProfileOptions"
           @toggle-ddns="settings.ddnsEnabled = !settings.ddnsEnabled"
@@ -714,6 +536,7 @@ onMounted(async () => {
           :model-strategies="modelStrategies"
           :model-provider-options="modelProviderOptions"
           :model-summary="modelSummary"
+          :analysis-level-options="analysisLevelOptions"
           :providers="providers"
           :provider-form="providerForm"
           :provider-busy="providerBusy"
@@ -722,6 +545,7 @@ onMounted(async () => {
           :provider-kind-label="providerKindLabel"
           @set-strategy="setModelStrategy"
           @toggle-task-routing="settings.taskRouting = !settings.taskRouting"
+          @set-analysis-level="setAnalysisLevel"
           @submit-provider="submitProvider"
           @test-provider="testProvider"
           @set-default-provider="setDefaultProvider"

@@ -42,6 +42,17 @@ func (a *API) backupJobByID(w http.ResponseWriter, r *http.Request) {
 	case "verify":
 		job, err := a.backups.Verify(r.Context(), id)
 		writeBackupJob(w, r, job, err)
+	case "schedule":
+		var body struct {
+			Enabled       bool `json:"enabled"`
+			IntervalHours int  `json:"intervalHours"`
+		}
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		job, err := a.backups.SetJobSchedule(r.Context(), id, body.Enabled, body.IntervalHours)
+		writeBackupJob(w, r, job, err)
 	default:
 		platform.WriteError(w, r, http.StatusNotFound, "backup_route_not_found", "backup route not found")
 	}

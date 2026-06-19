@@ -1,0 +1,19 @@
+[Unit]
+Description=HiGoOS Cloud control plane + relay (higo-cloud)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/higoos/cloud.env
+ExecStart=/opt/higoos/bin/higo-cloud
+Restart=on-failure
+RestartSec=3
+# Relay holds many long-lived WebSockets; raise the fd ceiling.
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

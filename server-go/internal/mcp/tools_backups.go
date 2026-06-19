@@ -23,6 +23,12 @@ type BackupsJobVerifyInput struct {
 	ID string `json:"id" jsonschema:"backup job id to verify"`
 }
 
+type BackupsJobScheduleInput struct {
+	ID            string `json:"id" jsonschema:"backup job id"`
+	Enabled       bool   `json:"enabled" jsonschema:"whether automatic backups are enabled"`
+	IntervalHours int    `json:"intervalHours" jsonschema:"hours between automatic backups (0 = manual only)"`
+}
+
 func registerBackups(r *registry) {
 	addTool(r, "backups", "higo.backups.jobs.list",
 		"List configured backup jobs and their status.",
@@ -57,5 +63,12 @@ func registerBackups(r *registry) {
 		mutating(),
 		func(ctx context.Context, c *apiclient.Client, in BackupsJobVerifyInput) (json.RawMessage, error) {
 			return c.BackupJobVerify(ctx, in.ID)
+		})
+
+	addTool(r, "backups", "higo.backups.jobs.schedule",
+		"Configure a backup job's automatic schedule (enable + interval in hours).",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, in BackupsJobScheduleInput) (json.RawMessage, error) {
+			return c.BackupJobSchedule(ctx, in.ID, map[string]any{"enabled": in.Enabled, "intervalHours": in.IntervalHours})
 		})
 }

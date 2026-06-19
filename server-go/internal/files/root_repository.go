@@ -61,8 +61,14 @@ func (r *RootRepository) Tree(ctx context.Context) (FileNode, error) {
 	if err := ctx.Err(); err != nil {
 		return FileNode{}, err
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	// Rescan on read so the tree reflects the live disk — personal/group folders
+	// provisioned out-of-band (account provisioning) and files written over
+	// SMB/NFS/WebDAV appear without restarting.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.rescanLocked(); err != nil {
+		return FileNode{}, err
+	}
 	return cloneNode(r.tree), nil
 }
 

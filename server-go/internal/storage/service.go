@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,21 +22,28 @@ type Service struct {
 	now         func() time.Time
 	provisioner SpaceProvisioner
 
-	mu        sync.Mutex
-	taskSeq   int
-	tasks     map[string]StorageTask
-	disks     []Disk
-	spaces    []StorageSpace
-	statePath string
-	runner    *tasks.Manager
-	zfsRunner commandRunner // shells out to zfs/zpool for ZFS maintenance tasks
+	mu         sync.Mutex
+	taskSeq    int
+	confirmSeq int
+	tasks      map[string]StorageTask
+	disks      []Disk
+	spaces     []StorageSpace
+	pending    map[string]pendingDelete // single-use delete confirmations, keyed by confirmationId
+	audit      []StorageAuditEntry      // append-only governance trail (newest first)
+	statePath  string
+	runner     *tasks.Manager
+	zfsRunner  commandRunner      // shells out to zfs/zpool for ZFS maintenance tasks
+	scheduler  *snapshotScheduler // lazily-built automatic-snapshot scheduler
 }
 
 type snapshot struct {
-	TaskSeq int                    `json:"taskSeq"`
-	Tasks   map[string]StorageTask `json:"tasks"`
-	Disks   []Disk                 `json:"disks"`
-	Spaces  []StorageSpace         `json:"spaces"`
+	TaskSeq    int                      `json:"taskSeq"`
+	ConfirmSeq int                      `json:"confirmSeq"`
+	Tasks      map[string]StorageTask   `json:"tasks"`
+	Disks      []Disk                   `json:"disks"`
+	Spaces     []StorageSpace           `json:"spaces"`
+	Pending    map[string]pendingDelete `json:"pending"`
+	Audit      []StorageAuditEntry      `json:"audit"`
 }
 
 func NewService(adapter Adapter) *Service {
@@ -57,6 +65,7 @@ func NewServiceWithProvisioner(adapter Adapter, provisioner SpaceProvisioner) *S
 		now:         time.Now,
 		provisioner: provisioner,
 		tasks:       map[string]StorageTask{},
+		pending:     map[string]pendingDelete{},
 		zfsRunner:   runCommand,
 	}
 }
@@ -80,6 +89,11 @@ func NewServiceWithStateDir(adapter Adapter, stateDir string) (*Service, error) 
 	}
 	service.disks = cloneDisks(persisted.Disks)
 	service.spaces = cloneSpaces(persisted.Spaces)
+	service.confirmSeq = persisted.ConfirmSeq
+	if len(persisted.Pending) > 0 {
+		service.pending = clonePending(persisted.Pending)
+	}
+	service.audit = append([]StorageAuditEntry(nil), persisted.Audit...)
 	return service, nil
 }
 
@@ -116,6 +130,12 @@ func (s *Service) Pools(ctx context.Context) ([]StoragePool, error) {
 				used = int(stat.AllocBytes * 100 / stat.SizeBytes)
 				total = formatStorageBytes(stat.SizeBytes)
 				health = zfsHealthLabel(stat.Health)
+			}
+		} else if space.MountPath != "" {
+			// For ext4/btrfs spaces, read live usage from the mounted filesystem.
+			if pct, totalBytes, ok := mountUsage(space.MountPath); ok && totalBytes > 0 {
+				used = pct
+				total = formatStorageBytes(totalBytes)
 			}
 		}
 		pools = append(pools, StoragePool{
@@ -580,6 +600,122 @@ func (s *Service) zfsPoolForTarget(targetPool string) (string, bool) {
 	return "", false
 }
 
+// isManagedZFSPool reports whether pool is the ZFS pool of one of our spaces, so
+// rollback can never target an arbitrary pool name.
+func (s *Service) isManagedZFSPool(pool string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, sp := range s.spaces {
+		if sp.FileSystem == FileSystemZFS && zfsPoolName(sp.Name) == pool {
+			return true
+		}
+	}
+	return false
+}
+
+// PoolDetail returns the rich ZFS efficiency/health figures of a managed pool.
+func (s *Service) PoolDetail(ctx context.Context, poolID string) (ZFSPoolDetail, error) {
+	if err := ctx.Err(); err != nil {
+		return ZFSPoolDetail{}, err
+	}
+	pool, ok := s.zfsPoolForTarget(poolID)
+	if !ok {
+		return ZFSPoolDetail{}, fmt.Errorf("storage space %s is not a ZFS pool", poolID)
+	}
+	return zfsPoolDetail(ctx, s.zfsRunner, pool)
+}
+
+// ensureScheduler lazily builds the automatic-snapshot scheduler with callbacks
+// wired to this service's ZFS operations.
+func (s *Service) ensureScheduler() *snapshotScheduler {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.scheduler != nil {
+		return s.scheduler
+	}
+	schedPath := ""
+	if s.statePath != "" {
+		schedPath = filepath.Join(filepath.Dir(s.statePath), "zfs-schedules.json")
+	}
+	sc := newSnapshotScheduler(schedPath, s.now, slog.Default())
+	sc.createSnapshot = func(ctx context.Context, poolID string) error {
+		pool, ok := s.zfsPoolForTarget(poolID)
+		if !ok {
+			return fmt.Errorf("storage space %s is not a ZFS pool", poolID)
+		}
+		_, err := zfsSnapshot(ctx, s.zfsRunner, pool, s.now())
+		return err
+	}
+	sc.listSnapshots = s.ListSnapshots
+	sc.destroy = func(ctx context.Context, snapshot string) error {
+		return zfsDestroySnapshot(ctx, s.zfsRunner, snapshot)
+	}
+	s.scheduler = sc
+	return sc
+}
+
+// SetSnapshotSchedule configures (or disables) the automatic-snapshot policy for
+// a ZFS space.
+func (s *Service) SetSnapshotSchedule(ctx context.Context, sched SnapshotSchedule) (SnapshotSchedule, error) {
+	if err := ctx.Err(); err != nil {
+		return SnapshotSchedule{}, err
+	}
+	if _, ok := s.zfsPoolForTarget(sched.PoolID); !ok {
+		return SnapshotSchedule{}, fmt.Errorf("storage space %s is not a ZFS pool", sched.PoolID)
+	}
+	return s.ensureScheduler().set(sched)
+}
+
+// SnapshotSchedules lists all configured automatic-snapshot policies.
+func (s *Service) SnapshotSchedules(ctx context.Context) []SnapshotSchedule {
+	if ctx.Err() != nil {
+		return nil
+	}
+	return s.ensureScheduler().list()
+}
+
+// StartSnapshotScheduler starts the periodic create+prune loop. interval is how
+// often due schedules are checked (not the snapshot interval itself).
+func (s *Service) StartSnapshotScheduler(ctx context.Context, interval time.Duration) {
+	s.ensureScheduler().start(ctx, interval)
+}
+
+// runScheduledSnapshotsNow runs one create+prune pass immediately (used in tests).
+func (s *Service) runScheduledSnapshotsNow(ctx context.Context) {
+	s.ensureScheduler().runDue(ctx)
+}
+
+// ListSnapshots returns the ZFS snapshots of a managed pool/space (newest first).
+func (s *Service) ListSnapshots(ctx context.Context, poolID string) ([]ZFSSnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	pool, ok := s.zfsPoolForTarget(poolID)
+	if !ok {
+		return nil, fmt.Errorf("storage space %s is not a ZFS pool", poolID)
+	}
+	return zfsListSnapshots(ctx, s.zfsRunner, pool)
+}
+
+// RollbackSnapshot rolls a managed ZFS pool back to the named snapshot
+// (pool@snapshot). It refuses snapshots whose pool is not HiGoOS-managed.
+func (s *Service) RollbackSnapshot(ctx context.Context, snapshotName string) (ZFSSnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return ZFSSnapshot{}, err
+	}
+	pool, _, found := strings.Cut(snapshotName, "@")
+	if !found || strings.TrimSpace(pool) == "" {
+		return ZFSSnapshot{}, fmt.Errorf("invalid snapshot name %q (expected pool@snapshot)", snapshotName)
+	}
+	if !s.isManagedZFSPool(pool) {
+		return ZFSSnapshot{}, fmt.Errorf("snapshot %s does not belong to a managed ZFS pool", snapshotName)
+	}
+	if err := zfsRollback(ctx, s.zfsRunner, snapshotName); err != nil {
+		return ZFSSnapshot{}, err
+	}
+	return ZFSSnapshot{Name: snapshotName, Pool: pool}, nil
+}
+
 // completedTaskLocked records a task receipt for work that was already performed
 // synchronously (e.g. space/disk removal), so the receipt reflects "completed"
 // instead of dangling at "queued".
@@ -615,10 +751,13 @@ func (s *Service) saveLocked() error {
 		return nil
 	}
 	return state.SaveJSON(s.statePath, snapshot{
-		TaskSeq: s.taskSeq,
-		Tasks:   cloneTasks(s.tasks),
-		Disks:   cloneDisks(s.disks),
-		Spaces:  cloneSpaces(s.spaces),
+		TaskSeq:    s.taskSeq,
+		ConfirmSeq: s.confirmSeq,
+		Tasks:      cloneTasks(s.tasks),
+		Disks:      cloneDisks(s.disks),
+		Spaces:     cloneSpaces(s.spaces),
+		Pending:    clonePending(s.pending),
+		Audit:      append([]StorageAuditEntry(nil), s.audit...),
 	})
 }
 
@@ -641,7 +780,7 @@ func validateFileSystem(fs FileSystem) error {
 func validateSpaceMode(mode SpaceMode, diskCount int) error {
 	minDisks := map[SpaceMode]int{
 		SpaceModeBasic:  1,
-		SpaceModeLinear: 1,
+		SpaceModeLinear: 2,
 		SpaceModeRAID0:  2,
 		SpaceModeRAID1:  2,
 		SpaceModeRAID5:  3,
@@ -654,6 +793,10 @@ func validateSpaceMode(mode SpaceMode, diskCount int) error {
 	}
 	if diskCount < min {
 		return fmt.Errorf("%s requires at least %d disks", mode, min)
+	}
+	// Basic addresses a single disk; concatenation/striping needs Linear or RAID.
+	if mode == SpaceModeBasic && diskCount > 1 {
+		return fmt.Errorf("basic supports a single disk only")
 	}
 	if mode == SpaceModeRAID10 && diskCount%2 != 0 {
 		return fmt.Errorf("raid10 requires an even number of disks")
@@ -751,6 +894,23 @@ func mountCapacityBytes(path string) (int64, bool) {
 		return 0, false
 	}
 	return int64(stat.Blocks) * int64(stat.Bsize), true
+}
+
+// mountUsage returns the live used-percentage and total bytes of the filesystem
+// mounted at path (statfs). ok is false when the path is not a mountable dir.
+func mountUsage(path string) (usedPercent int, totalBytes int64, ok bool) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, 0, false
+	}
+	bs := int64(stat.Bsize)
+	total := int64(stat.Blocks) * bs
+	avail := int64(stat.Bavail) * bs
+	if total <= 0 {
+		return 0, 0, false
+	}
+	used := total - avail
+	return int(used * 100 / total), total, true
 }
 
 func parseCapacityGB(value string) float64 {

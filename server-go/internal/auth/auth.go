@@ -16,12 +16,16 @@ type User struct {
 }
 
 type Session struct {
-	ID        string
-	UserID    string
-	DeviceID  string
-	CreatedAt time.Time
-	ExpiresAt time.Time
-	RevokedAt *time.Time
+	ID         string     `json:"id"`
+	UserID     string     `json:"userId"`
+	DeviceID   string     `json:"deviceId"`
+	SourceIP   string     `json:"sourceIp,omitempty"`
+	UserAgent  string     `json:"userAgent,omitempty"`
+	CSRFToken  string     `json:"csrfToken,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	ExpiresAt  time.Time  `json:"expiresAt"`
+	LastSeenAt time.Time  `json:"lastSeenAt,omitempty"`
+	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
 }
 
 type TrustedDevice struct {

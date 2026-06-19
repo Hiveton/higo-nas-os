@@ -44,7 +44,8 @@ Use first because it removes global dependency on `web-pc/src/data/higoos.ts`.
 | `GET /api/v1/monitoring/metrics/current` | CPU, memory, network, disk, temperature, fan summary. |
 | `GET /api/v1/monitoring/alerts` | Notification popover and unread severity counts. |
 | `GET /api/v1/security/ai-policies` | Current model policy badges. |
-| `POST /api/v1/auth/logout` | Account menu logout once auth lands. |
+| `GET /api/v1/auth/me` | Current logged-in user for the account menu; `401` when no session. |
+| `POST /api/v1/auth/logout` | Account menu logout; clears session and cookies. |
 
 ## File Manager: `web-pc/src/components/windows/FileManagerWindow.vue`
 
@@ -172,6 +173,35 @@ Use first because it removes global dependency on `web-pc/src/data/higoos.ts`.
 | `POST /api/v1/app-center/audit/{id}/rollback` | Reverse a previously-confirmed action. |
 
 Apps are described by a declarative `manifest.json` (see `docs/appcenter-sdk.md`). Third-party packages are dropped under `$HIGO_STATE_DIR/appcenter/apps/<id>/manifest.json` or served from a remote registry — no control-plane code change required.
+
+## Authentication / User Center (Auth)
+
+Real authentication backs the account menu and the user-center surfaces. Accounts are authoritative against **Linux system users** on the NAS host (managed via `useradd`/`usermod`/`userdel`/`chpasswd`, verified by reading `/etc/shadow` with a pure-Go crypt that enforces SHA-512 `$6$` hashes); Mac/dev falls back to a devstub (`credentials.json`). Managed users have primary group `higoos`, UID ≥ 3000, and shell `/usr/sbin/nologin`; the `admin` role is membership in the `higoos-admins` group.
+
+All endpoints use the standard `{ ok, data, error, requestId }` envelope.
+
+| API | Purpose |
+| --- | --- |
+| `POST /api/v1/auth/login` | Body `{username, password, rememberDevice}`. Returns the current user `{id, username, displayName, role, status, quotaBytes, groups, permissions[], csrfToken}` and sets an HttpOnly `higo_session` cookie plus a readable `higo_csrf` cookie. |
+| `POST /api/v1/auth/logout` | Clears the session and both cookies. |
+| `GET /api/v1/auth/me` | Returns the current user (same shape as login); `401` when not logged in. |
+| `POST /api/v1/auth/password` | Body `{currentPassword, newPassword}`. Self-service password change; revokes the user's other sessions on success. |
+| `GET /api/v1/auth/sessions` | Active sessions/devices for the current user; admin may pass `?userId=` to inspect another user. |
+| `DELETE /api/v1/auth/sessions/{id}` | Revoke a specific session. |
+| `POST /api/v1/auth/mfa/setup` | Begin TOTP enrolment; returns `{secret, otpauthUri}` for an authenticator app. |
+| `POST /api/v1/auth/mfa/enable` | Body `{code}`. Confirms enrolment with a 6-digit code. |
+| `POST /api/v1/auth/mfa/disable` | Body `{password}`. Turns TOTP off after verifying the password. |
+
+Session, CSRF and identity mechanics:
+
+- **OS-authoritative accounts**: on the Linux host accounts are real system users; `GET /api/v1/accounts/users` lists both HiGoOS-created users and pre-existing system users (e.g. the installer's sudo user), and any of them can log in with their OS password. See `security-governance.md` and `linux-adapters.md`.
+- **Two-factor**: when a user has TOTP enabled, `login` requires an extra `code` field — without it `login` returns `401 mfa_required`; a bad code returns `401 mfa_invalid`.
+
+- **Session cookie**: `higo_session` is HttpOnly and carries the server-side session persisted in `sessions.json`. `sessionGuard` lets dev/test through with an implicit admin actor; other environments require a valid session or `401`. Set `HIGO_AUTH_REQUIRED=true` to enforce sessions even in dev.
+- **CSRF**: cookie-based write requests must send an `X-CSRF-Token` header equal to the `higo_csrf` cookie value (returned as `csrfToken` from login/`me`). Bearer-token requests and `login` itself are exempt; CSRF is disabled by default in dev/test.
+- **Role gate**: write methods on sensitive prefixes (`/api/v1/accounts/`, `/security/`, `/settings`, `/remote/`, `/protocols`, `/storage/`, `/ai/providers`, …) require the `admin` role or return `403`.
+- **Login lockout**: an account locks after `HIGO_LOGIN_MAX_FAILURES` (default 5) consecutive failures.
+- **Bootstrap admin**: on first start a seed `admin` user (`username=admin`, `role=admin`) with no credentials is assigned a random password printed once to the log (`WARN initial admin password generated`); set `HIGO_ADMIN_BOOTSTRAP_PASSWORD` to fix it.
 
 ## Security Center: `web-pc/src/components/windows/SecurityCenterWindow.vue`
 

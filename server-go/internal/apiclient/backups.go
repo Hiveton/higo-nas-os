@@ -35,3 +35,10 @@ func (c *Client) BackupJobVerify(ctx context.Context, id string) (json.RawMessag
 	path := "/api/v1/backups/jobs/" + url.PathEscape(id) + "/verify"
 	return c.Do(ctx, http.MethodPost, path, nil, nil)
 }
+
+// BackupJobSchedule configures a job's automatic-backup policy
+// (POST /api/v1/backups/jobs/{id}/schedule).
+func (c *Client) BackupJobSchedule(ctx context.Context, id string, body any) (json.RawMessage, error) {
+	path := "/api/v1/backups/jobs/" + url.PathEscape(id) + "/schedule"
+	return c.Do(ctx, http.MethodPost, path, nil, body)
+}

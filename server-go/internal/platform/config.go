@@ -30,6 +30,13 @@ type Config struct {
 	// (e.g. "files,storage,docker"). Empty means expose every domain.
 	MCPDomains string
 
+	// DiscoveryEnabled controls the LAN UDP discovery daemon that lets the
+	// desktop assistant (tools/higo-assistant) find a fresh NAS and read its
+	// fingerprint. Defaults true.
+	DiscoveryEnabled bool
+	// DiscoveryAddr is the UDP listen address for the discovery daemon.
+	DiscoveryAddr string
+
 	// RemoteProbeAddr is an optional host:port the remote-access channel dials
 	// on start to measure real reachability and latency. Empty (the default)
 	// keeps the dev demo's representative estimate; real deployments set it to
@@ -69,6 +76,19 @@ type Config struct {
 	// AdminBootstrapPassword optionally fixes the initial admin password
 	// (automation/imaging). Empty generates a random one printed once at boot.
 	AdminBootstrapPassword string
+
+	// --- Face model / self-training framework ------------------------------
+
+	// FaceEmbedderURL is the HTTP endpoint of a face detection+embedding sidecar
+	// (a cross-arch ONNX model — ArcFace/SFace/etc. — or a self-trained model).
+	// It receives an image and returns one vector per detected face. Empty falls
+	// back to the built-in vision-descriptor approximation, so the engine works
+	// with no model configured.
+	FaceEmbedderURL string
+	// FaceTrainerURL is the HTTP endpoint of a self-training sidecar that consumes
+	// the exported labeled face dataset and returns a new model version. Empty
+	// leaves the self-training framework reserved but inert (retrain is a no-op).
+	FaceTrainerURL string
 }
 
 func LoadConfig() Config {
@@ -88,6 +108,9 @@ func LoadConfig() Config {
 		MCPDomains:      getenv("HIGO_MCP_DOMAINS", ""),
 		RemoteProbeAddr: getenv("HIGO_REMOTE_PROBE_ADDR", ""),
 
+		DiscoveryEnabled: getenvBool("HIGO_DISCOVERY_ENABLED", true),
+		DiscoveryAddr:    getenv("HIGO_DISCOVERY_ADDR", ":19999"),
+
 		AuthRequired:           getenvBool("HIGO_AUTH_REQUIRED", env != "dev" && env != "test"),
 		SessionTTL:             getenvDuration("HIGO_SESSION_TTL", 720*time.Hour),
 		CookieSameSite:         getenv("HIGO_COOKIE_SAMESITE", "lax"),
@@ -98,6 +121,9 @@ func LoadConfig() Config {
 		AccountsAdminGroup:     getenv("HIGO_ACCOUNTS_ADMIN_GROUP", "higoos-admins"),
 		LoginMaxFailures:       getenvInt("HIGO_LOGIN_MAX_FAILURES", 5),
 		AdminBootstrapPassword: getenv("HIGO_ADMIN_BOOTSTRAP_PASSWORD", ""),
+
+		FaceEmbedderURL: getenv("HIGO_FACE_EMBEDDER_URL", ""),
+		FaceTrainerURL:  getenv("HIGO_FACE_TRAINER_URL", ""),
 	}
 }
 
@@ -123,6 +149,9 @@ func (c Config) WithDefaults() Config {
 	if c.CookieSameSite == "" {
 		c.CookieSameSite = "lax"
 	}
+	if c.DiscoveryAddr == "" {
+		c.DiscoveryAddr = ":19999"
+	}
 	if c.AccountsGroup == "" {
 		c.AccountsGroup = "higoos"
 	}
@@ -131,6 +160,12 @@ func (c Config) WithDefaults() Config {
 	}
 	if c.AccountsUIDBase == 0 {
 		c.AccountsUIDBase = 3000
+	}
+	// Dev/test convenience: no forced auth and no CSRF, so the desktop and the
+	// test suite work without logging in. Production (any other environment)
+	// keeps whatever LoadConfig resolved (auth on, CSRF on by default).
+	if c.Environment == "dev" || c.Environment == "test" {
+		c.CSRFDisabled = true
 	}
 	return c
 }

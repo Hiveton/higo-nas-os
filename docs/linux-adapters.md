@@ -198,3 +198,33 @@ Devstub:
   - WebDAV → rewrite `/etc/higoos/webdav/higoos-dav.conf` + `systemctl reload higoos-webdav` (a dedicated Apache instance on port 8081).
 
 Devstub: returns success for all mutations; `Status` reports every protocol installed with `Running` tracking the desired toggle.
+
+## Accounts / identity adapter (`internal/accounts`)
+
+User identity is OS-authoritative on the NAS host: HiGoOS accounts *are* Linux system users. A `Directory` interface fronts the backend — `HostDirectory` (Linux) drives the real system-user database; `DevDirectory` (Mac) is a sidecar-only devstub. All host shell-outs go through an injectable runner (unit-tested with a fake). App-level metadata HiGoOS adds (role, quota, space grants, sessions, MFA) lives in sidecar JSON keyed by username — the OS never stores it.
+
+Boundary:
+
+- **Provision / mutate**: create = `useradd -m -g higoos -s /usr/sbin/nologin -u <uid≥base> -c <gecos>`; update = `usermod`; delete = `userdel -r`; lock/unlock = `usermod -L`/`-U`; group membership = `gpasswd -a/-d`, `groupadd`.
+- **Credentials**: set = `chpasswd -c SHA512` (forces a `$6$` hash regardless of the host default), plus best-effort `smbpasswd -s -a` so SMB shares share the credential. Verify = read `/etc/shadow` and recompute the hash in pure Go — yescrypt (`$y$`/`$gy$`, Ubuntu 24.04's default) and crypt(3) `$6$`/`$5$`/`$1$` — so any pre-existing OS password authenticates, with no cgo/PAM dependency.
+- **Enumerate**: `getent passwd` lists real human accounts (UID ∈ [1000, 60000], excluding `root`/daemons/`nobody`); `getent group <higoos-admins|sudo|wheel>` resolves the admin role. The service reconciles these into its user list at start-up and on every account listing, so a pre-existing sudo user (e.g. `hiveton`) appears and can log in without HiGoOS having created it.
+- **Managed scope & safety**: HiGoOS-created users live in group `higoos`, UID ≥ `HIGO_ACCOUNTS_UID_BASE` (3000), shell `/usr/sbin/nologin`. Deletion is refused for accounts below the managed UID base, so an installer/sudo user can never be removed through the API. Requires the process to run as root (the `higo-api.service` unit does) to manage users and read `/etc/shadow`.
+
+Linux dependencies:
+
+- `useradd` / `usermod` / `userdel` / `chpasswd` / `gpasswd` / `groupadd` (shadow-utils)
+- `getent` for the passwd/group databases and `/etc/shadow` read access (root)
+- optional `smbpasswd` (Samba) — absent hosts simply skip the SMB sync
+
+Devstub: keeps SHA-512 credentials in `credentials.json`, never touches host users, and `List` returns nothing — so on Mac the accounts service stays sidecar-authoritative and development is unaffected.
+
+### Filesystem provisioner
+
+A companion `Provisioner` (`HostProvisioner` on Linux, `DevProvisioner` no-op elsewhere) realizes the user/group/grant model on the real filesystem under the NAS root, so identity actually owns storage:
+
+- **Personal folder**: creating a user (or reconciling an existing OS user) provisions `<NAS_ROOT>/homes/<username>`, `chown <user>:<group>`, `chmod 0700`. A per-user block quota is applied best-effort via `setquota` (only takes effect when the filesystem is mounted with `usrquota`).
+- **Group folder**: creating a HiGoOS group provisions a real system group (named by the stable group ID) plus `<NAS_ROOT>/groups/<groupID>`, `chown root:<group>`, `chmod 2770` (setgid so new files inherit the group); membership is synced with `gpasswd -M`.
+- **Grants → ACLs**: a `SpaceGrant` is projected onto the target directory with `setfacl` — a recursive ACL plus a default ACL so new children inherit (`read`→`rX`, `read_write`/`manage`→`rwX`, for `u:<user>` or `g:<group>`). Revoking clears it with `setfacl -x`.
+- All paths are confined to the NAS root; every shell-out goes through the injectable runner (unit-tested with a fake). Requires `acl` (setfacl) and, for quotas, `quota` (setquota).
+
+The web layer additionally scopes the file tree to the caller (`files.TreeFor`/`CanAccess`): a non-admin sees only their personal folder, their group folders, and granted shared spaces, and is denied reads outside that set — mirroring the on-disk ownership/ACLs for the API (which runs as root and would otherwise bypass filesystem permissions). SMB/NFS/WebDAV honor the ownership/ACLs directly.

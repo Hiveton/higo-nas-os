@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sync"
 	"time"
@@ -28,6 +29,9 @@ type Job struct {
 	Policy    string `json:"policy"`
 	Health    string `json:"health"`
 	Enabled   bool   `json:"enabled"`
+	// IntervalHours drives the automatic scheduler; 0 disables auto-runs (manual
+	// only). Schedule remains the human-readable label.
+	IntervalHours int `json:"intervalHours,omitempty"`
 }
 
 type Service struct {
@@ -35,6 +39,78 @@ type Service struct {
 	jobs      []Job
 	statePath string
 	runner    *tasks.Manager
+	scheduler *backupScheduler
+}
+
+// ensureScheduler lazily builds the automatic-backup scheduler.
+func (s *Service) ensureScheduler() *backupScheduler {
+	s.mu.Lock()
+	if s.scheduler != nil {
+		sc := s.scheduler
+		s.mu.Unlock()
+		return sc
+	}
+	schedPath := ""
+	if s.statePath != "" {
+		schedPath = filepath.Join(filepath.Dir(s.statePath), "backup-schedules.json")
+	}
+	sc := newBackupScheduler(schedPath, time.Now, slog.Default())
+	s.scheduler = sc
+	s.mu.Unlock()
+
+	sc.enabledJobs = func() []scheduledJob {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		var out []scheduledJob
+		for _, j := range s.jobs {
+			if j.Enabled && j.IntervalHours > 0 {
+				out = append(out, scheduledJob{ID: j.ID, IntervalHours: j.IntervalHours})
+			}
+		}
+		return out
+	}
+	sc.runJob = func(ctx context.Context, id string) error {
+		_, err := s.Run(ctx, id)
+		return err
+	}
+	return sc
+}
+
+// StartBackupScheduler starts the periodic auto-run loop. interval is how often
+// due jobs are checked (not the per-job backup interval).
+func (s *Service) StartBackupScheduler(ctx context.Context, interval time.Duration) {
+	s.ensureScheduler().start(ctx, interval)
+}
+
+// SetJobSchedule configures a job's automatic-backup policy (enabled + interval).
+func (s *Service) SetJobSchedule(ctx context.Context, id string, enabled bool, intervalHours int) (Job, error) {
+	if intervalHours < 0 {
+		intervalHours = 0
+	}
+	return s.update(ctx, id, func(job *Job) {
+		job.Enabled = enabled
+		job.IntervalHours = intervalHours
+		if intervalHours > 0 {
+			job.Schedule = fmt.Sprintf("每 %d 小时", intervalHours)
+		} else {
+			job.Schedule = "手动"
+		}
+		if enabled && intervalHours > 0 {
+			job.NextRun = nextRunLabel(intervalHours)
+		} else {
+			job.NextRun = "手动触发"
+		}
+	})
+}
+
+// nextRunLabel formats the next automatic run time, intervalHours from now.
+func nextRunLabel(intervalHours int) string {
+	return time.Now().Add(time.Duration(intervalHours) * time.Hour).Format("01-02 15:04")
+}
+
+// runScheduledBackupsNow runs one scheduling pass immediately (used in tests).
+func (s *Service) runScheduledBackupsNow(ctx context.Context) {
+	s.ensureScheduler().runDue(ctx)
 }
 
 func NewService() *Service {
@@ -51,10 +127,11 @@ func NewService() *Service {
 			ETA:       "剩余 16 分钟",
 			LastRun:   "今天 08:30",
 			NextRun:   "今天 14:30",
-			Retention: "保留 180 天",
-			Policy:    "去重 + 加密 + 远端校验",
-			Health:    "正常",
-			Enabled:   true,
+			Retention:     "保留 180 天",
+			Policy:        "去重 + 加密 + 远端校验",
+			Health:        "正常",
+			Enabled:       true,
+			IntervalHours: 6,
 		},
 		{
 			ID:        "team-snapshot",
@@ -68,10 +145,11 @@ func NewService() *Service {
 			ETA:       "等待归档索引",
 			LastRun:   "今天 02:00",
 			NextRun:   "明天 02:00",
-			Retention: "保留 365 天",
-			Policy:    "只读快照 + 变更审计",
-			Health:    "正常",
-			Enabled:   true,
+			Retention:     "保留 365 天",
+			Policy:        "只读快照 + 变更审计",
+			Health:        "正常",
+			Enabled:       true,
+			IntervalHours: 24,
 		},
 		{
 			ID:        "system-config",
@@ -85,10 +163,11 @@ func NewService() *Service {
 			ETA:       "等待下次计划",
 			LastRun:   "今天 09:20",
 			NextRun:   "明天 09:20",
-			Retention: "保留 90 天",
-			Policy:    "配置签名 + 本地加密",
-			Health:    "正常",
-			Enabled:   true,
+			Retention:     "保留 90 天",
+			Policy:        "配置签名 + 本地加密",
+			Health:        "正常",
+			Enabled:       true,
+			IntervalHours: 24,
 		},
 	}}
 }
@@ -129,6 +208,9 @@ func (s *Service) Run(ctx context.Context, id string) (Job, error) {
 		job.ETA = "进行中"
 		job.LastRun = "刚刚"
 		job.Health = "正常"
+		if job.IntervalHours > 0 {
+			job.NextRun = nextRunLabel(job.IntervalHours)
+		}
 	})
 	if err != nil {
 		return Job{}, err

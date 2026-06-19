@@ -24,6 +24,31 @@ Actors are normalized before authorization:
 
 Every request should carry actor ID, session/device ID when present, request ID, source IP, user agent, and selected space. Worker actions inherit a system actor plus the user/Agent/action that scheduled the work.
 
+## Authentication
+
+Identity is now backed by a real authentication layer, not an implicit dev actor:
+
+- **The OS is the authoritative identity source.** On the Linux NAS host accounts are Linux system users, managed through `useradd`/`usermod`/`userdel`/`chpasswd` and authenticated by reading `/etc/shadow`. Mac/dev uses a devstub backend (`credentials.json`); `HIGO_ACCOUNTS_BACKEND` (`system`/`devstub`/empty = auto by OS) selects the backend.
+- **Pre-existing system users are enumerated, not just HiGoOS-created ones.** At start-up and on every account listing the service reconciles `getent passwd` into its user list, including every real human account (UID in `[1000, 60000]`, excluding `root`/daemons/`nobody`). So the installer's sudo user (e.g. `hiveton`) appears in the user center and can log in with its existing OS password — no HiGoOS-side provisioning required. App-level metadata HiGoOS adds (role, quota, space grants, sessions, MFA) lives in sidecar JSON keyed by username; the OS never stores it.
+- **Password verification is pure-Go and scheme-aware.** `/etc/shadow` hashes are verified without cgo/PAM: yescrypt (`$y$`/`$gy$`, Ubuntu 24.04's default, via `openwall/yescrypt-go`) and the crypt(3) schemes `$6$`/`$5$`/`$1$` (via `GehirnInc/crypt`). Passwords **HiGoOS sets** are forced to SHA-512 `$6$` (`chpasswd -c SHA512`) and mirrored into the Samba DB (`smbpasswd`) so SMB shares share the credential.
+- **Role follows native group membership.** A user is `admin` when it belongs to `higoos-admins` (`HIGO_ACCOUNTS_ADMIN_GROUP`), `sudo`, or `wheel`; otherwise `user`. So existing sudo users are treated as administrators automatically.
+- **Managed-user shape & delete protection.** HiGoOS-created accounts use primary group `higoos` (`HIGO_ACCOUNTS_GROUP`), UID ≥ 3000 (`HIGO_ACCOUNTS_UID_BASE`), and shell `/usr/sbin/nologin`. The user center refuses to delete accounts below the managed UID base, so a pre-existing system/sudo user can never be removed through the API.
+- **Two-factor (TOTP).** Users may enrol RFC-6238 TOTP (`/api/v1/auth/mfa/setup|enable|disable`, secrets in `mfa.json`); when enabled, login requires a 6-digit `code` (errors `mfa_required`/`mfa_invalid`).
+- **Sessions and cookies.** Login issues a server-side session persisted in `sessions.json`, delivered as an HttpOnly `higo_session` cookie. `sessionGuard` admits dev/test with an implicit admin actor; other environments require a valid session or return `401`. `HIGO_AUTH_REQUIRED=true` enforces sessions even in dev. Session TTL is `HIGO_SESSION_TTL` (default `720h`); cookie SameSite is `HIGO_COOKIE_SAMESITE` (`lax`/`strict`/`none`).
+- **CSRF.** Cookie-session write requests must send an `X-CSRF-Token` header matching the readable `higo_csrf` cookie. Bearer-token requests and `login` are exempt; CSRF is disabled by default in dev/test (`HIGO_CSRF_DISABLED`).
+- **Coarse-grained admin gate (`roleGate`).** Write methods on sensitive prefixes (`/api/v1/accounts/`, `/security/`, `/settings`, `/remote/`, `/protocols`, `/storage/`, `/ai/providers`, …) require the `admin` role or return `403`. This is a coarse gate layered on top of the per-resource ACL model below, not a replacement for it.
+- **Login lockout.** An account locks after `HIGO_LOGIN_MAX_FAILURES` (default 5) consecutive failed logins.
+- **Bootstrap admin.** On first start a seed `admin` user with no credentials is given a random password printed once to the log (`WARN initial admin password generated`); `HIGO_ADMIN_BOOTSTRAP_PASSWORD` fixes it for reproducible provisioning.
+
+The self-service auth endpoints (`/api/v1/auth/login|logout|me|password|sessions`) are documented in `api.md`.
+
+## File storage isolation (real)
+
+Identity owns storage on disk, not just in metadata:
+
+- **Personal folders** live at `<NAS_ROOT>/homes/<username>` (`chown user`, `0700`); **group folders** at `<NAS_ROOT>/groups/<groupID>` (system group, `2770` setgid). A `SpaceGrant` is written as a real POSIX ACL (`setfacl`, recursive + default) on the target space directory. See `linux-adapters.md` (filesystem provisioner).
+- **Web file visibility is strictly scoped**: a non-admin sees only their personal folder, their group folders, and explicitly-granted shared spaces; reads outside that set return `403`. Admins see everything. This mirrors the on-disk ownership/ACLs that SMB/NFS/WebDAV enforce natively (the HTTP API runs as root and so enforces the same scope in-app).
+
 ## ACL Model
 
 ACL decisions combine:

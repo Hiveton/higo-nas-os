@@ -19,6 +19,7 @@ type ModeOption = {
   label: string;
   group: '无数据保护' | '有数据保护';
   minDisks: number;
+  maxDisks?: number;
   evenOnly?: boolean;
   capacity: (sizes: number[]) => number;
   protection: (sizes: number[]) => number;

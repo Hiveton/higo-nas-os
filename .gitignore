@@ -20,3 +20,20 @@ coverage/
 .vite/
 .cache/
 server-go/.gocache/
+
+# Go build output binaries
+server-go/higo-api
+server-go/higo-worker
+server-go/higo-mcp
+server-go/higoctl
+server-cloud/higo-cloud
+server-cloud/higo-cloudctl
+
+# iOS build artifacts
+ios/**/build/
+ios/**/DerivedData/
+*.xcuserstate
+
+# Secrets / keys (never commit)
+*.p8
+apns.p8

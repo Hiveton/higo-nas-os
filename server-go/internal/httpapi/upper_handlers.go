@@ -329,7 +329,7 @@ func (a *API) refreshSteward(ctx context.Context) ([]steward.Suggestion, error) 
 func collectFileInfos(node files.FileNode, out *[]steward.FileInfo) {
 	if !node.IsDir {
 		*out = append(*out, steward.FileInfo{
-			Name: node.Name, Path: node.Path, Type: node.Type,
+			ID: node.ID, Name: node.Name, Path: node.Path, Type: node.Type,
 			Space: node.Space, SizeBytes: node.SizeBytes, Modified: node.Modified,
 		})
 	}

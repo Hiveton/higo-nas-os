@@ -17,9 +17,18 @@ const (
 )
 
 type Settings struct {
-	Model   ModelPolicy   `json:"model"`
-	Privacy PrivacyPolicy `json:"privacy"`
-	UI      UIPolicy      `json:"ui"`
+	Model    ModelPolicy    `json:"model"`
+	Privacy  PrivacyPolicy  `json:"privacy"`
+	UI       UIPolicy       `json:"ui"`
+	Analysis AnalysisPolicy `json:"analysis"`
+}
+
+// AnalysisPolicy controls the global background AI analysis engine. Level gates
+// how deep the analyzers go: off disables analysis entirely; basic does local
+// deterministic metadata only; standard adds LLM text summaries/tags; deep adds
+// vision captioning, embeddings and face clustering.
+type AnalysisPolicy struct {
+	Level string `json:"level"` // off | basic | standard | deep
 }
 
 type ModelPolicy struct {
@@ -94,6 +103,9 @@ func DefaultSettings() Settings {
 			DockStyle:    "floating",
 			DockIconSize: "default",
 		},
+		Analysis: AnalysisPolicy{
+			Level: "basic",
+		},
 	}
 }
 
@@ -159,6 +171,12 @@ func normalize(settings Settings) (Settings, error) {
 	if settings.UI.DockIconSize == "" {
 		settings.UI.DockIconSize = "default"
 	}
+	if settings.Analysis.Level == "" {
+		settings.Analysis.Level = "basic"
+	}
+	if !allowedString(settings.Analysis.Level, "off", "basic", "standard", "deep") {
+		return Settings{}, fmt.Errorf("settings: invalid ai analysis level")
+	}
 	if settings.Privacy.AuditRetentionDays < 1 {
 		return Settings{}, fmt.Errorf("settings: audit retention days must be positive")
 	}
@@ -207,5 +225,6 @@ func isZeroSettings(settings Settings) bool {
 		settings.UI.WindowRadius == "" &&
 		settings.UI.DockPosition == "" &&
 		settings.UI.DockStyle == "" &&
-		settings.UI.DockIconSize == ""
+		settings.UI.DockIconSize == "" &&
+		settings.Analysis.Level == ""
 }

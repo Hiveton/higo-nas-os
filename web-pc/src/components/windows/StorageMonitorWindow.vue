@@ -11,11 +11,12 @@ import {
   Trash2,
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
-import type { AccountSummary, AccountUser, Disk, StoragePool, StorageSpace } from '../../api/types';
+import type { AccountSummary, AccountUser, Disk, StoragePool, StorageSpace, ZfsSnapshot, ZfsPoolDetail, ZfsSnapshotSchedule } from '../../api/types';
 import StorageSpacesPanel from './storage/StorageSpacesPanel.vue';
 import StorageDiskPanel from './storage/StorageDiskPanel.vue';
 import StorageCachePanel from './storage/StorageCachePanel.vue';
 import StorageCreateWizard from './storage/StorageCreateWizard.vue';
+import StorageDeleteDialog from './storage/StorageDeleteDialog.vue';
 import { UiButton } from '../ui';
 import './storage/storage-window.css';
 
@@ -37,6 +38,7 @@ type ModeOption = {
   label: string;
   group: '无数据保护' | '有数据保护';
   minDisks: number;
+  maxDisks?: number;
   evenOnly?: boolean;
   capacity: (sizes: number[]) => number;
   protection: (sizes: number[]) => number;
@@ -77,6 +79,7 @@ const modeCatalog: ModeOption[] = [
     label: 'Basic',
     group: '无数据保护',
     minDisks: 1,
+    maxDisks: 1,
     capacity: (sizes) => sizes[0] ?? 0,
     protection: () => 0,
     performance: () => '读写 1 倍',
@@ -88,7 +91,7 @@ const modeCatalog: ModeOption[] = [
     key: 'linear',
     label: 'Linear',
     group: '无数据保护',
-    minDisks: 1,
+    minDisks: 2,
     capacity: (sizes) => sum(sizes),
     protection: () => 0,
     performance: () => '读写 1 倍',
@@ -172,6 +175,7 @@ const busyAction = ref('');
 const statusText = ref('正在从后端同步存储空间、硬盘和账号授权。');
 
 const wizardOpen = ref(false);
+const deleteTarget = ref<StorageSpace | null>(null);
 const wizardStep = ref<WizardStep>(1);
 const createDone = ref(false);
 const createdSpaceName = ref('');
@@ -380,22 +384,21 @@ async function createStorageSpace() {
   }
 }
 
-async function deleteSelectedSpace() {
+// Deletion is high-risk: open the governed 3-step dialog instead of deleting
+// directly. The dialog runs preview -> type-name -> final confirm.
+function deleteSelectedSpace() {
   const space = selectedSpace.value;
   if (!space) {
     statusText.value = '当前没有可删除的存储空间。';
     return;
   }
-  busyAction.value = 'delete-space';
-  try {
-    const task = await apiClient.storage.deleteSpace(space.id, { confirm: true, actor: 'storage-manager' });
-    statusText.value = `${space.name} 删除任务已提交：${task.message ?? task.id}`;
-    await loadStorageState();
-  } catch (error) {
-    statusText.value = `删除存储空间失败：${error instanceof Error ? error.message : 'unknown error'}`;
-  } finally {
-    busyAction.value = '';
-  }
+  deleteTarget.value = space;
+}
+
+async function onSpaceDeleted(message: string) {
+  deleteTarget.value = null;
+  statusText.value = message;
+  await loadStorageState();
 }
 
 async function addManagedMount() {
@@ -469,12 +472,92 @@ async function runSpaceAction(action: 'SMART 扫描' | '创建快照' | '阵列�
         ? await apiClient.storage.createSnapshot(payload)
         : await apiClient.storage.startRepair(payload);
     statusText.value = `${action}已提交：${task.message ?? task.id}`;
+    if (action === '创建快照') {
+      // refresh the snapshot list shortly after the snapshot task runs
+      window.setTimeout(() => void loadSnapshots(), 800);
+    }
   } catch (error) {
     statusText.value = `${action}失败：${error instanceof Error ? error.message : 'unknown error'}`;
   } finally {
     busyAction.value = '';
   }
 }
+
+const snapshots = ref<ZfsSnapshot[]>([]);
+const snapshotsBusy = ref(false);
+const zfsDetail = ref<ZfsPoolDetail | null>(null);
+const schedule = ref<ZfsSnapshotSchedule>({ poolId: '', enabled: false, intervalHours: 6, keep: 10 });
+const isZfsSpace = computed(() => selectedSpace.value?.fileSystem === 'zfs');
+
+async function loadSnapshots() {
+  const space = selectedSpace.value;
+  if (!space || space.fileSystem !== 'zfs') {
+    snapshots.value = [];
+    zfsDetail.value = null;
+    return;
+  }
+  snapshotsBusy.value = true;
+  try {
+    const [snapResult, detail, sched] = await Promise.allSettled([
+      apiClient.storage.getSnapshots(space.id),
+      apiClient.storage.getZfsDetail(space.id),
+      apiClient.storage.getSnapshotSchedule(space.id),
+    ]);
+    snapshots.value = snapResult.status === 'fulfilled' ? snapResult.value.snapshots ?? [] : [];
+    zfsDetail.value = detail.status === 'fulfilled' ? detail.value : null;
+    if (sched.status === 'fulfilled') {
+      schedule.value = {
+        poolId: space.id,
+        enabled: Boolean(sched.value.enabled),
+        intervalHours: sched.value.intervalHours || 6,
+        keep: sched.value.keep || 10,
+        lastRun: sched.value.lastRun,
+      };
+    }
+  } catch {
+    // ZFS not available on this host (e.g. dev) — leave the panel empty.
+    snapshots.value = [];
+    zfsDetail.value = null;
+  } finally {
+    snapshotsBusy.value = false;
+  }
+}
+
+async function saveSchedule() {
+  const space = selectedSpace.value;
+  if (!space) return;
+  snapshotsBusy.value = true;
+  try {
+    await apiClient.storage.setSnapshotSchedule(space.id, {
+      enabled: schedule.value.enabled,
+      intervalHours: Math.max(1, Number(schedule.value.intervalHours) || 6),
+      keep: Math.max(1, Number(schedule.value.keep) || 10),
+    });
+    statusText.value = schedule.value.enabled
+      ? `已开启自动快照：每 ${schedule.value.intervalHours} 小时，保留 ${schedule.value.keep} 份`
+      : '已关闭自动快照';
+  } catch (error) {
+    statusText.value = `自动快照设置失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    snapshotsBusy.value = false;
+  }
+}
+
+async function rollbackSnapshot(name: string) {
+  if (!window.confirm(`回滚到快照「${name}」会丢弃此快照之后的所有更改，确定继续？`)) return;
+  snapshotsBusy.value = true;
+  try {
+    await apiClient.storage.rollbackSnapshot(name);
+    statusText.value = `已回滚到快照 ${name}`;
+    await loadSnapshots();
+  } catch (error) {
+    statusText.value = `回滚失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    snapshotsBusy.value = false;
+  }
+}
+
+watch(selectedSpaceId, () => void loadSnapshots(), { immediate: true });
 
 function syncCacheSettings() {
   const disk = selectedDisk.value;
@@ -491,6 +574,7 @@ function nextSpaceName() {
 
 function modeAvailable(mode: ModeOption, count: number) {
   if (count < mode.minDisks) return false;
+  if (mode.maxDisks && count > mode.maxDisks) return false;
   if (mode.evenOnly && count % 2 !== 0) return false;
   return true;
 }
@@ -710,6 +794,42 @@ onMounted(loadStorageState);
             @add-mount="addManagedMount"
           />
         </div>
+
+        <section v-if="isZfsSpace" class="storage-monitor__snapshots">
+          <header class="storage-monitor__snapshots-head">
+            <strong>ZFS 快照 · {{ selectedSpace?.name }}</strong>
+            <UiButton size="sm" variant="soft" :disabled="snapshotsBusy" @click="loadSnapshots">刷新</UiButton>
+          </header>
+          <ul v-if="zfsDetail" class="storage-monitor__zfs-stats">
+            <li><span>压缩比</span><strong>{{ zfsDetail.compressRatio || '—' }}</strong></li>
+            <li><span>去重比</span><strong>{{ zfsDetail.dedupRatio || '—' }}</strong></li>
+            <li><span>碎片率</span><strong>{{ zfsDetail.fragmentation }}%</strong></li>
+            <li><span>容量</span><strong>{{ zfsDetail.capacityPct }}%</strong></li>
+          </ul>
+
+          <div class="storage-monitor__schedule">
+            <label class="storage-monitor__schedule-toggle">
+              <input v-model="schedule.enabled" type="checkbox" />
+              <span>自动快照</span>
+            </label>
+            <label>每 <input v-model.number="schedule.intervalHours" type="number" min="1" :disabled="!schedule.enabled" /> 小时</label>
+            <label>保留 <input v-model.number="schedule.keep" type="number" min="1" :disabled="!schedule.enabled" /> 份</label>
+            <UiButton size="sm" variant="soft" tone="primary" :disabled="snapshotsBusy" @click="saveSchedule">保存计划</UiButton>
+          </div>
+          <p v-if="snapshotsBusy" class="storage-monitor__snapshots-empty">加载中…</p>
+          <p v-else-if="!snapshots.length" class="storage-monitor__snapshots-empty">
+            暂无快照。点击上方「创建快照」生成首个快照（需主机已安装 ZFS）。
+          </p>
+          <ul v-else class="storage-monitor__snapshots-list">
+            <li v-for="snap in snapshots" :key="snap.name" class="storage-monitor__snapshot">
+              <div class="storage-monitor__snapshot-info">
+                <strong>{{ snap.name.split('@')[1] || snap.name }}</strong>
+                <span>{{ snap.used }} · {{ new Date(snap.createdAt).toLocaleString() }}</span>
+              </div>
+              <UiButton size="sm" variant="soft" tone="danger" :disabled="snapshotsBusy" @click="rollbackSnapshot(snap.name)">回滚</UiButton>
+            </li>
+          </ul>
+        </section>
       </div>
 
       <StorageCachePanel
@@ -758,6 +878,13 @@ onMounted(loadStorageState);
       @toggle-disk="toggleWizardDisk"
       @select-mode="selectMode"
       @toggle-user="toggleWizardUser"
+    />
+
+    <StorageDeleteDialog
+      v-if="deleteTarget"
+      :space="deleteTarget"
+      @close="deleteTarget = null"
+      @deleted="onSpaceDeleted"
     />
   </div>
 </template>

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"higoos/server-go/internal/state"
@@ -35,7 +36,12 @@ var orderedSpaceDirs = []string{
 }
 
 type FixtureRepository struct {
-	root      string
+	root string
+
+	// mu guards nodes and tree. Reads (Tree/List/Get) take RLock; the only
+	// mutator (Put) takes Lock. Construction (scan/NewFixtureRepository…) runs
+	// single-threaded before the repo is shared, so it stays lock-free.
+	mu        sync.RWMutex
 	nodes     map[string]FileNode
 	tree      FileNode
 	statePath string
@@ -114,10 +120,14 @@ func NewFixtureRepositoryWithStateDir(root string, stateDir string) (*FixtureRep
 }
 
 func (r *FixtureRepository) Tree(_ context.Context) (FileNode, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return cloneNode(r.tree), nil
 }
 
 func (r *FixtureRepository) List(_ context.Context) ([]FileNode, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	nodes := make([]FileNode, 0, len(r.nodes))
 	for _, node := range r.nodes {
 		nodes = append(nodes, cloneNode(node))
@@ -127,6 +137,8 @@ func (r *FixtureRepository) List(_ context.Context) ([]FileNode, error) {
 }
 
 func (r *FixtureRepository) Get(_ context.Context, id string) (FileNode, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	node, ok := r.nodes[id]
 	if !ok {
 		return FileNode{}, fmt.Errorf("file node not found: %s", id)
@@ -138,6 +150,8 @@ func (r *FixtureRepository) Put(_ context.Context, node FileNode) error {
 	if node.ID == "" {
 		return errors.New("file node id is required")
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.nodes[node.ID] = cloneNode(node)
 	if err := r.replaceTreeNode(node.ID, node); err != nil {
 		return err
