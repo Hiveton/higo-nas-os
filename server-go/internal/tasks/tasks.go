@@ -92,8 +92,15 @@ func (h *Handle) Progress(pct int, msg string) {
 }
 
 // Handler executes one task. The returned RawMessage is stored as the task
-// result; a non-nil error marks the task failed.
+// result; a non-nil error marks the task failed. The ctx is canceled when the
+// task is canceled (cooperative cancellation) — long-running handlers should
+// honor it (ctx.Err()/select on ctx.Done()).
 type Handler func(ctx context.Context, h *Handle) (json.RawMessage, error)
+
+// Canceler cancels an externally-driven (adopted) task by id. Registered per
+// kind so the central Cancel can route back to the owning domain (e.g. aria2
+// remove for downloads).
+type Canceler func(id string) error
 
 // Manager owns the task store and worker pool.
 type Manager struct {
@@ -102,6 +109,10 @@ type Manager struct {
 	inflight  map[string]bool
 	seq       int
 	handlers  map[string]Handler
+	cancels   map[string]context.CancelFunc // running handler-driven tasks
+	cancelers map[string]Canceler           // per-kind, for adopted tasks
+	subs      map[int]chan Task             // SSE subscribers
+	subSeq    int
 	statePath string
 	now       func() time.Time
 	logger    *slog.Logger
@@ -166,6 +177,9 @@ func NewManager(statePath string, opts ...Option) (*Manager, error) {
 		tasks:     map[string]Task{},
 		inflight:  map[string]bool{},
 		handlers:  map[string]Handler{},
+		cancels:   map[string]context.CancelFunc{},
+		cancelers: map[string]Canceler{},
+		subs:      map[int]chan Task{},
 		statePath: statePath,
 		now:       func() time.Time { return time.Now().UTC() },
 		logger:    slog.Default(),
@@ -195,6 +209,44 @@ func (m *Manager) Register(kind string, h Handler) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.handlers[kind] = h
+}
+
+// RegisterCanceler binds a per-kind canceler used to abort externally-driven
+// (adopted) tasks of that kind when Cancel is called.
+func (m *Manager) RegisterCanceler(kind string, c Canceler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cancelers[kind] = c
+}
+
+// Subscribe returns a channel that receives a Task snapshot on every state
+// change, plus an unsubscribe func. Sends are non-blocking (a slow consumer
+// drops events) so the runtime is never stalled by a subscriber.
+func (m *Manager) Subscribe() (<-chan Task, func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.subSeq++
+	id := m.subSeq
+	ch := make(chan Task, 64)
+	m.subs[id] = ch
+	return ch, func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if c, ok := m.subs[id]; ok {
+			delete(m.subs, id)
+			close(c)
+		}
+	}
+}
+
+// emitLocked fans a task snapshot out to subscribers. Caller must hold m.mu.
+func (m *Manager) emitLocked(task Task) {
+	for _, ch := range m.subs {
+		select {
+		case ch <- task:
+		default:
+		}
+	}
 }
 
 // Start recovers interrupted tasks and launches the worker pool. The pool runs
@@ -269,6 +321,7 @@ func (m *Manager) Enqueue(kind string, payload any) (Task, error) {
 		m.mu.Unlock()
 		return Task{}, err
 	}
+	m.emitLocked(task)
 	m.mu.Unlock()
 
 	m.offer(task.ID)
@@ -306,26 +359,50 @@ func (m *Manager) List(kind string) []Task {
 	return out
 }
 
-// Cancel marks a queued task canceled. Tasks already running cannot be canceled
-// here (cooperative cancellation would require handler support).
+// Cancel cancels a task. A queued task is marked canceled immediately. A running
+// task is canceled cooperatively: its handler context is canceled (handler-driven
+// tasks) and/or its registered Canceler is invoked (adopted/external tasks); the
+// task transitions to canceled asynchronously when it unwinds.
 func (m *Manager) Cancel(id string) (Task, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	task, ok := m.tasks[id]
 	if !ok {
+		m.mu.Unlock()
 		return Task{}, ErrNotFound
 	}
-	if task.Status != StatusQueued {
+	now := m.now()
+	switch task.Status {
+	case StatusQueued:
+		task.Status = StatusCanceled
+		task.Message = "任务已取消"
+		task.UpdatedAt = now
+		task.FinishedAt = &now
+		m.tasks[id] = task
+		_ = m.saveLocked()
+		m.emitLocked(task)
+		m.mu.Unlock()
+		return task, nil
+	case StatusRunning:
+		cancel := m.cancels[id]
+		canceler := m.cancelers[task.Kind]
+		task.Message = "取消中"
+		task.UpdatedAt = now
+		m.tasks[id] = task
+		_ = m.saveLocked()
+		m.emitLocked(task)
+		m.mu.Unlock()
+		// Route cancellation outside the lock; the task settles asynchronously.
+		if cancel != nil {
+			cancel()
+		}
+		if canceler != nil {
+			_ = canceler(id)
+		}
+		return task, nil
+	default:
+		m.mu.Unlock()
 		return task, fmt.Errorf("task %s is %s and cannot be canceled", id, task.Status)
 	}
-	now := m.now()
-	task.Status = StatusCanceled
-	task.Message = "任务已取消"
-	task.UpdatedAt = now
-	task.FinishedAt = &now
-	m.tasks[id] = task
-	_ = m.saveLocked()
-	return task, nil
 }
 
 // offer tries to deliver an id to a worker without blocking the caller; the
@@ -399,6 +476,7 @@ func (m *Manager) claim(id string) (Handler, *Handle, bool) {
 		task.FinishedAt = &now
 		m.tasks[id] = task
 		_ = m.saveLocked()
+		m.emitLocked(task)
 		return nil, nil, false
 	}
 	now := m.now()
@@ -411,6 +489,7 @@ func (m *Manager) claim(id string) (Handler, *Handle, bool) {
 	m.tasks[id] = task
 	m.inflight[id] = true
 	_ = m.saveLocked()
+	m.emitLocked(task)
 	return handler, &Handle{id: id, kind: task.Kind, payload: task.Payload, manager: m}, true
 }
 
@@ -419,10 +498,17 @@ func (m *Manager) run(ctx context.Context, id string) {
 	if !ok {
 		return
 	}
+	// Per-task cancellation context so Cancel can abort a running handler.
+	taskCtx, cancel := context.WithCancel(ctx)
+	m.mu.Lock()
+	m.cancels[id] = cancel
+	m.mu.Unlock()
 	defer func() {
 		m.mu.Lock()
 		delete(m.inflight, id)
+		delete(m.cancels, id)
 		m.mu.Unlock()
+		cancel()
 	}()
 
 	var (
@@ -435,7 +521,7 @@ func (m *Manager) run(ctx context.Context, id string) {
 				err = fmt.Errorf("task panicked: %v", r)
 			}
 		}()
-		result, err = handler(ctx, handle)
+		result, err = handler(taskCtx, handle)
 	}()
 
 	m.mu.Lock()
@@ -443,17 +529,22 @@ func (m *Manager) run(ctx context.Context, id string) {
 	now := m.now()
 	task.UpdatedAt = now
 	task.FinishedAt = &now
-	if err != nil {
+	switch {
+	case err != nil && (errors.Is(err, context.Canceled) || taskCtx.Err() == context.Canceled):
+		task.Status = StatusCanceled
+		task.Message = "任务已取消"
+	case err != nil:
 		task.Status = StatusFailed
 		task.Error = err.Error()
 		m.logger.Warn("task failed", slog.String("id", id), slog.String("kind", task.Kind), slog.Any("error", err))
-	} else {
+	default:
 		task.Status = StatusSucceeded
 		task.Progress = 100
 		task.Result = result
 	}
 	m.tasks[id] = task
 	_ = m.saveLocked()
+	m.emitLocked(task)
 	m.mu.Unlock()
 }
 
@@ -477,6 +568,76 @@ func (m *Manager) setProgress(id string, pct int, msg string) {
 	task.UpdatedAt = m.now()
 	m.tasks[id] = task
 	_ = m.saveLocked()
+	m.emitLocked(task)
+}
+
+// Adopt creates a task that is already "running" and is driven externally
+// (no registered handler) — for domains whose work is owned elsewhere (e.g.
+// aria2 downloads). Drive it with Update and finish it with Settle; register a
+// Canceler for its kind so Cancel can route back to the domain.
+func (m *Manager) Adopt(kind string, payload any) (Task, error) {
+	var raw json.RawMessage
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return Task{}, fmt.Errorf("encode task payload: %w", err)
+		}
+		raw = encoded
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.seq++
+	now := m.now()
+	task := Task{
+		ID:        fmt.Sprintf("task-%s-%04d", kind, m.seq),
+		Kind:      kind,
+		Status:    StatusRunning,
+		Payload:   raw,
+		CreatedAt: now,
+		StartedAt: &now,
+		UpdatedAt: now,
+	}
+	m.tasks[task.ID] = task
+	_ = m.saveLocked()
+	m.emitLocked(task)
+	return task, nil
+}
+
+// Update advances an adopted (running) task's progress/message. Alias of the
+// internal progress path so domains have a clear external API.
+func (m *Manager) Update(id string, pct int, msg string) {
+	m.setProgress(id, pct, msg)
+}
+
+// Settle marks an adopted task terminal (succeeded/failed/canceled). For other
+// statuses it is a no-op. result/errMsg are optional.
+func (m *Manager) Settle(id string, status Status, result json.RawMessage, errMsg string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	task, ok := m.tasks[id]
+	if !ok {
+		return
+	}
+	if task.Status != StatusRunning && task.Status != StatusQueued {
+		return
+	}
+	now := m.now()
+	task.Status = status
+	task.UpdatedAt = now
+	task.FinishedAt = &now
+	switch status {
+	case StatusSucceeded:
+		task.Progress = 100
+		task.Result = result
+		task.Error = ""
+	case StatusFailed:
+		task.Error = errMsg
+	case StatusCanceled:
+		task.Message = "任务已取消"
+	}
+	m.tasks[id] = task
+	_ = m.saveLocked()
+	m.emitLocked(task)
 }
 
 // Stats summarises a task ledger by status.

@@ -100,7 +100,6 @@ export const dockApps: DockApp[] = [
   { id: 'sync-service', name: '同步服务', icon: backupSyncIcon },
   { id: 'iscsi-manager', name: 'iSCSI', icon: storageManagerIcon },
   { id: 'hardware-center', name: '硬件中心', icon: deviceMonitorIcon },
-  { id: 'openclaw-center', name: 'OpenClaw', icon: aiAssistantIcon },
 ];
 
 export const desktopWindows: DesktopWindowConfig[] = [
@@ -343,18 +342,6 @@ export const desktopWindows: DesktopWindowConfig[] = [
     width: 700,
     height: 480,
     z: 20,
-  },
-  {
-    id: 'openclaw-center',
-    title: 'AI & OpenClaw',
-    subtitle: '微信 / 钉钉 / 飞书机器人',
-    status: '界面就绪',
-    statusTone: 'blue',
-    x: 260,
-    y: 120,
-    width: 720,
-    height: 500,
-    z: 21,
   },
   {
     id: 'ai-assistant',

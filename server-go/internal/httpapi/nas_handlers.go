@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	hdocker "higoos/server-go/internal/docker"
 	"higoos/server-go/internal/downloads"
@@ -260,6 +262,60 @@ func (a *API) taskByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	platform.WriteJSON(w, r, http.StatusOK, task)
+}
+
+// tasksStream streams live task updates as SSE. It first replays the current
+// ledger (one `data: {task}` frame each), then pushes a frame on every task
+// state change until the client disconnects. A periodic comment keeps the
+// connection alive through proxies.
+func (a *API) tasksStream(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		platform.WriteError(w, r, http.StatusInternalServerError, "stream_unsupported", "streaming is not supported")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	writeTask := func(task any) {
+		buf, err := json.Marshal(task)
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", buf)
+		flusher.Flush()
+	}
+
+	// Subscribe before replaying the snapshot so no update is missed in between.
+	ch, unsubscribe := a.tasks.Subscribe()
+	defer unsubscribe()
+	for _, task := range a.tasks.List("") {
+		writeTask(task)
+	}
+
+	ctx := r.Context()
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case task, ok := <-ch:
+			if !ok {
+				return
+			}
+			writeTask(task)
+		case <-ticker.C:
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 func (a *API) downloadTasks(w http.ResponseWriter, r *http.Request) {

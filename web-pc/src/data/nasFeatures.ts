@@ -10,7 +10,6 @@ export type NasFeatureKey =
   | 'sync'
   | 'backup'
   | 'iscsi'
-  | 'ai'
   | 'security'
   | 'downloads'
   | 'apps'
@@ -166,17 +165,6 @@ export const nasFeatures: Record<NasFeatureKey, NasFeature[]> = {
         { label: '新建 Target', state: 'mock' },
         { label: '新建 LUN', state: 'mock' },
         { label: 'CHAP', state: 'mock' },
-      ],
-    },
-  ],
-  ai: [
-    {
-      title: 'AI 与 OpenClaw',
-      detail: '覆盖微信、钉钉、飞书机器人配置，本地/云端模型策略和工具权限审批。',
-      actions: [
-        { label: '微信机器人', state: 'mock' },
-        { label: '钉钉机器人', state: 'mock' },
-        { label: '飞书机器人', state: 'mock' },
       ],
     },
   ],

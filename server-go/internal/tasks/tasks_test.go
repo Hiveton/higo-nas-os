@@ -215,3 +215,89 @@ func TestListNewestFirstAndFilter(t *testing.T) {
 		t.Fatalf("expected newest-first order, got %s then %s", onlyA[0].ID, onlyA[1].ID)
 	}
 }
+
+// TestCancelRunningTaskCooperatively verifies a running handler that honors ctx
+// is canceled (not failed) when Cancel is called.
+func TestCancelRunningTaskCooperatively(t *testing.T) {
+	m := newTestManager(t, "")
+	started := make(chan struct{})
+	m.Register("slow", func(ctx context.Context, h *Handle) (json.RawMessage, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	m.Start(context.Background())
+	defer m.Stop()
+
+	task, err := m.Enqueue("slow", nil)
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler never started")
+	}
+	if _, err := m.Cancel(task.ID); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	waitFor(t, func() bool {
+		got, _ := m.Get(task.ID)
+		return got.Status == StatusCanceled
+	})
+}
+
+// TestAdoptDriveSettle verifies the external-task facility used by downloads.
+func TestAdoptDriveSettle(t *testing.T) {
+	m := newTestManager(t, "")
+	canceled := make(chan string, 1)
+	m.RegisterCanceler("downloads.fetch", func(id string) error {
+		canceled <- id
+		return nil
+	})
+	task, err := m.Adopt("downloads.fetch", map[string]string{"name": "demo"})
+	if err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if task.Status != StatusRunning {
+		t.Fatalf("adopted task should be running, got %s", task.Status)
+	}
+	m.Update(task.ID, 50, "下载中")
+	if got, _ := m.Get(task.ID); got.Progress != 50 {
+		t.Fatalf("progress not updated: %d", got.Progress)
+	}
+	// Cancel routes to the registered canceler for running adopted tasks.
+	if _, err := m.Cancel(task.ID); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	select {
+	case id := <-canceled:
+		if id != task.ID {
+			t.Fatalf("canceler got wrong id %s", id)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceler not invoked")
+	}
+	m.Settle(task.ID, StatusCanceled, nil, "")
+	if got, _ := m.Get(task.ID); got.Status != StatusCanceled {
+		t.Fatalf("settle failed: %s", got.Status)
+	}
+}
+
+// TestSubscribeReceivesUpdates verifies the SSE broadcast fan-out.
+func TestSubscribeReceivesUpdates(t *testing.T) {
+	m := newTestManager(t, "")
+	ch, unsubscribe := m.Subscribe()
+	defer unsubscribe()
+	if _, err := m.Adopt("demo", nil); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	select {
+	case task := <-ch:
+		if task.Kind != "demo" {
+			t.Fatalf("unexpected task kind %s", task.Kind)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no event received")
+	}
+}

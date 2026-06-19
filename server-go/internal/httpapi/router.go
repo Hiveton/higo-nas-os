@@ -345,6 +345,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/storage/tasks/snapshot", api.storageSnapshot)
 	mux.HandleFunc("/api/v1/storage/tasks/", api.storageTaskByID)
 	mux.HandleFunc("/api/v1/tasks", api.tasksList)
+	mux.HandleFunc("/api/v1/tasks/stream", api.tasksStream)
 	mux.HandleFunc("/api/v1/tasks/", api.taskByID)
 	mux.HandleFunc("/api/v1/downloads/tasks", api.downloadTasks)
 	mux.HandleFunc("/api/v1/downloads/tasks/", api.downloadTaskByID)

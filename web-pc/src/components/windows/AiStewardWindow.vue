@@ -211,7 +211,7 @@ onMounted(loadStewardState);
         </li>
       </ul>
     </section>
-    <NasFeaturePanel class="ai-steward__features" :modules="['files', 'security', 'ai']" />
+    <NasFeaturePanel class="ai-steward__features" :modules="['files', 'security']" />
   </div>
 </template>
 

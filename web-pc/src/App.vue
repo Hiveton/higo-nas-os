@@ -179,7 +179,6 @@ const featureModuleByWindowId: Record<string, NasFeatureKey> = {
   'sync-service': 'sync',
   'iscsi-manager': 'iscsi',
   'hardware-center': 'hardware',
-  'openclaw-center': 'ai',
 };
 let launchTimer: number | undefined;
 let sessionSaveTimer: number | undefined;

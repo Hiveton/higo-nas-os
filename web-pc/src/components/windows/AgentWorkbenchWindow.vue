@@ -214,7 +214,7 @@ onMounted(loadAgentWorkbench);
         {{ executionConfirmed ? '已确认' : '确认执行' }}
       </UiButton>
     </section>
-    <NasFeaturePanel class="agent-workbench__features" :modules="['ai', 'vm']" />
+    <NasFeaturePanel class="agent-workbench__features" :modules="['vm']" />
   </div>
 </template>
 
