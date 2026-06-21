@@ -25,6 +25,7 @@ import {
   UiEmptyState,
   UiProgressBar,
   UiTabs,
+  UiWindowPage,
   useConfirm,
   useToast,
   type Column,
@@ -140,33 +141,30 @@ async function onCancel(task: Task) {
 </script>
 
 <template>
-  <div class="task-center">
-    <header class="task-center__head">
-      <div class="task-center__title">
-        <ListChecks :size="20" :stroke-width="2.1" />
-        <div>
-          <h2>任务中心</h2>
-          <p>统一查看与管理所有后台任务 · {{ tasksStore.connected.value ? '实时已连接' : '轮询中' }}</p>
-        </div>
-      </div>
-      <div class="task-center__summary">
-        <UiBadge tone="primary" variant="soft" size="sm">运行 {{ stats.running }}</UiBadge>
-        <UiBadge tone="neutral" variant="soft" size="sm">排队 {{ stats.queued }}</UiBadge>
-        <UiBadge tone="success" variant="soft" size="sm">完成 {{ stats.succeeded }}</UiBadge>
-        <UiBadge v-if="stats.failed" tone="danger" variant="soft" size="sm">失败 {{ stats.failed }}</UiBadge>
-      </div>
-    </header>
+  <UiWindowPage
+    layout="stack"
+    :icon="ListChecks"
+    title="任务中心"
+    :subtitle="`统一查看与管理所有后台任务 · ${tasksStore.connected.value ? '实时已连接' : '轮询中'}`"
+  >
+    <template #actions>
+      <UiBadge tone="primary" variant="soft" size="sm">运行 {{ stats.running }}</UiBadge>
+      <UiBadge tone="neutral" variant="soft" size="sm">排队 {{ stats.queued }}</UiBadge>
+      <UiBadge tone="success" variant="soft" size="sm">完成 {{ stats.succeeded }}</UiBadge>
+      <UiBadge v-if="stats.failed" tone="danger" variant="soft" size="sm">失败 {{ stats.failed }}</UiBadge>
+    </template>
 
-    <UiTabs v-model="filter" :tabs="tabs" variant="segmented" size="sm" overflow="menu" class="task-center__tabs" />
+    <template #toolbar>
+      <UiTabs v-model="filter" :tabs="tabs" variant="segmented" size="sm" overflow="menu" />
+    </template>
 
-    <div class="task-center__body">
-      <UiDataTable
-        :columns="columns"
-        :rows="rows"
-        row-key="id"
-        density="compact"
-        :empty="{ title: '暂无任务', description: '触发下载、转码、备份等操作后会显示在这里。' }"
-      >
+    <UiDataTable
+      :columns="columns"
+      :rows="rows"
+      row-key="id"
+      density="compact"
+      :empty="{ title: '暂无任务', description: '触发下载、转码、备份等操作后会显示在这里。' }"
+    >
         <template #cell-task="{ row }">
           <div class="task-center__name">
             <component :is="kindIcon(row.kind)" :size="16" :stroke-width="2" />
@@ -214,61 +212,10 @@ async function onCancel(task: Task) {
           <UiEmptyState :icon="ListChecks" title="暂无任务" description="触发下载、转码、备份等操作后会显示在这里。" compact />
         </template>
       </UiDataTable>
-    </div>
-  </div>
+  </UiWindowPage>
 </template>
 
 <style scoped>
-.task-center {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  gap: var(--space-3);
-}
-
-.task-center__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-
-.task-center__title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  color: var(--accent);
-}
-.task-center__title h2 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-semibold);
-}
-.task-center__title p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--fs-xs);
-}
-
-.task-center__summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.task-center__tabs {
-  flex-shrink: 0;
-}
-
-.task-center__body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
 .task-center__name {
   display: flex;
   align-items: center;

@@ -70,10 +70,18 @@ type Share struct {
 	Path         string      `json:"path"`
 	AccessLevel  AccessLevel `json:"accessLevel"`
 	AllowedUsers []string    `json:"allowedUsers,omitempty"`
-	Guest        bool        `json:"guest"`
-	Enabled      bool        `json:"enabled"`
-	CreatedAt    time.Time   `json:"createdAt"`
-	CreatedBy    string      `json:"createdBy,omitempty"`
+	// WriteUsers is the subset of AllowedUsers granted read-write; the rest are
+	// read-only. Empty preserves the legacy all-or-nothing behavior.
+	WriteUsers []string `json:"writeUsers,omitempty"`
+	// DenyUsers are explicitly denied (Samba "invalid users"), overriding any
+	// group-level access — mirrors the filesystem deny ACL.
+	DenyUsers []string `json:"denyUsers,omitempty"`
+	// Recycle enables the Samba recycle VFS (deleted files go to #recycle).
+	Recycle   bool      `json:"recycle,omitempty"`
+	Guest     bool      `json:"guest"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"createdAt"`
+	CreatedBy string    `json:"createdBy,omitempty"`
 }
 
 // ProtocolBaseConfig carries host-level knobs the adapter needs when enabling a
@@ -149,6 +157,9 @@ type CreateShareRequest struct {
 	Path         string      `json:"path"`
 	AccessLevel  AccessLevel `json:"accessLevel"`
 	AllowedUsers []string    `json:"allowedUsers,omitempty"`
+	WriteUsers   []string    `json:"writeUsers,omitempty"`
+	DenyUsers    []string    `json:"denyUsers,omitempty"`
+	Recycle      bool        `json:"recycle,omitempty"`
 	Guest        bool        `json:"guest"`
 	Actor        string      `json:"actor,omitempty"`
 }
@@ -220,6 +231,8 @@ func cloneProtocols(in []Protocol) []Protocol {
 
 func cloneShare(in Share) Share {
 	in.AllowedUsers = append([]string(nil), in.AllowedUsers...)
+	in.WriteUsers = append([]string(nil), in.WriteUsers...)
+	in.DenyUsers = append([]string(nil), in.DenyUsers...)
 	return in
 }
 

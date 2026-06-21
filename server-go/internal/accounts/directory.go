@@ -69,6 +69,9 @@ type Directory interface {
 	EnsureGroup(ctx context.Context, name string) error
 	// SetGroupMembers replaces a system group's membership.
 	SetGroupMembers(ctx context.Context, name string, usernames []string) error
+	// SambaPresent returns the set of usernames that already have a Samba
+	// (tdbsam) account, so the UI can flag users still needing an SMB password.
+	SambaPresent(ctx context.Context) (map[string]bool, error)
 }
 
 // directoryConfig carries the host-tuning knobs the system directory needs.

@@ -44,6 +44,7 @@ type MediaItem struct {
 	Device      string    `json:"device"`
 	Album       string    `json:"album"`
 	Meta        string    `json:"meta"`
+	Caption     string    `json:"caption,omitempty"`
 	Status      string    `json:"status"`
 	Accent      string    `json:"accent"`
 	HasSubtitle bool      `json:"hasSubtitle"`

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bufio"
+	"crypto/subtle"
 	"log/slog"
 	"net"
 	"net/http"
@@ -80,9 +81,14 @@ func sessionGuard(api *API) middleware {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// A Bearer token (external API / MCP client) is accepted as-is; token
-			// validation is layered in P1. Treat it as an admin service principal.
-			if r.Header.Get("Authorization") != "" {
+			// A Bearer token (external API / MCP client) is accepted as an admin
+			// service principal ONLY when it matches the configured service token
+			// (HIGO_API_TOKEN), compared in constant time. A missing/non-matching
+			// token is NOT trusted — it falls through to the dev implicit-admin
+			// path (so dev keeps working) or a 401 under enforced auth. Internal
+			// loopbacks dispatch into the bare mux and never reach this guard.
+			if tok := bearerToken(r.Header.Get("Authorization")); tok != "" && cfg.APIToken != "" &&
+				subtle.ConstantTimeCompare([]byte(tok), []byte(cfg.APIToken)) == 1 {
 				r = r.WithContext(platform.WithPrincipal(r.Context(), platform.Principal{UserID: "api-token", Username: "api-token", Role: "admin"}))
 				next.ServeHTTP(w, r)
 				return
@@ -120,6 +126,19 @@ func csrfGuard(api *API) middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// bearerToken extracts the token from an Authorization header, tolerating both
+// "Bearer <token>" and a raw token value.
+func bearerToken(header string) string {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return ""
+	}
+	if len(header) >= 7 && strings.EqualFold(header[:7], "bearer ") {
+		return strings.TrimSpace(header[7:])
+	}
+	return header
 }
 
 // isAuthWhitelisted reports whether a guarded path is reachable without a

@@ -8,7 +8,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-vue-next';
-import { UiBadge, UiButton, UiEmptyState, UiIconButton } from '../ui';
+import { UiBadge, UiButton, UiEmptyState, UiIconButton, UiWindowPage, UiNavRail } from '../ui';
 import { UiConfirmDialog } from '../ui';
 import MessageBubble from '../ai/MessageBubble.vue';
 import Composer from '../ai/Composer.vue';
@@ -88,89 +88,89 @@ onMounted(() => assistantStore.init());
 </script>
 
 <template>
-  <!-- shell holds the container context so @container can restyle .ai-window itself -->
-  <div class="ai-window-shell">
-    <div class="ai-window">
+  <UiWindowPage
+    layout="chat"
+    :icon="Sparkles"
+    title="HiGo AI 助手"
+    :subtitle="modelLabel || '加载中…'"
+  >
+    <template #actions>
+      <UiBadge variant="dot" tone="primary">{{ modelLabel || '加载中…' }}</UiBadge>
+      <UiIconButton
+        :icon="showAnalysis ? PanelRightClose : PanelRightOpen"
+        :label="showAnalysis ? '隐藏分析' : '显示分析'"
+        @click="showAnalysis = !showAnalysis"
+      />
+    </template>
+
     <!-- Left: sessions -->
-    <aside class="ai-window__sessions">
-      <UiButton block :icon-left="MessageSquarePlus" :disabled="loading" @click="assistantStore.newThread()">
-        新建对话
-      </UiButton>
-      <div class="session-list">
-        <button
-          v-for="t in threads"
-          :key="t.id"
-          type="button"
-          class="session-item"
-          :class="{ 'is-active': t.id === activeId }"
-          @click="assistantStore.switchThread(t.id)"
-        >
-          <span class="session-item__title">{{ t.title || '新对话' }}</span>
-          <span class="session-item__meta">{{ t.messageCount }} 条</span>
-          <span class="session-item__del" @click.stop="pendingDelete = t.id">
-            <Trash2 :size="14" />
-          </span>
-        </button>
-      </div>
-    </aside>
+    <template #nav>
+      <UiNavRail>
+        <template #header>
+          <UiButton block :icon-left="MessageSquarePlus" :disabled="loading" @click="assistantStore.newThread()">
+            新建对话
+          </UiButton>
+        </template>
+        <div class="session-list">
+          <button
+            v-for="t in threads"
+            :key="t.id"
+            type="button"
+            class="session-item"
+            :class="{ 'is-active': t.id === activeId }"
+            @click="assistantStore.switchThread(t.id)"
+          >
+            <span class="session-item__title">{{ t.title || '新对话' }}</span>
+            <span class="session-item__meta">{{ t.messageCount }} 条</span>
+            <span class="session-item__del" @click.stop="pendingDelete = t.id">
+              <Trash2 :size="14" />
+            </span>
+          </button>
+        </div>
+      </UiNavRail>
+    </template>
 
     <!-- Center: conversation -->
-    <section class="ai-window__chat">
-      <header class="chat-head">
-        <div class="chat-head__title">
-          <Sparkles :size="16" />
-          <strong>HiGo AI 助手</strong>
+    <div ref="scrollEl" class="chat-scroll">
+      <UiEmptyState
+        v-if="isEmpty"
+        :icon="BrainCircuit"
+        title="开始与 HiGo AI 对话"
+        description="它能查询真实的存储、磁盘、设备与文件状态来回答你。"
+      >
+        <div class="suggestions">
+          <UiButton
+            v-for="s in suggestions"
+            :key="s"
+            size="sm"
+            variant="soft"
+            tone="neutral"
+            @click="handleSend(s)"
+          >
+            {{ s }}
+          </UiButton>
         </div>
-        <div class="chat-head__right">
-          <UiBadge variant="dot" tone="primary">{{ modelLabel || '加载中…' }}</UiBadge>
-          <UiIconButton
-            :icon="showAnalysis ? PanelRightClose : PanelRightOpen"
-            :label="showAnalysis ? '隐藏分析' : '显示分析'"
-            @click="showAnalysis = !showAnalysis"
-          />
-        </div>
-      </header>
+      </UiEmptyState>
 
-      <div ref="scrollEl" class="chat-scroll">
-        <UiEmptyState
-          v-if="isEmpty"
-          :icon="BrainCircuit"
-          title="开始与 HiGo AI 对话"
-          description="它能查询真实的存储、磁盘、设备与文件状态来回答你。"
-        >
-          <div class="suggestions">
-            <UiButton
-              v-for="s in suggestions"
-              :key="s"
-              size="sm"
-              variant="soft"
-              tone="neutral"
-              @click="handleSend(s)"
-            >
-              {{ s }}
-            </UiButton>
-          </div>
-        </UiEmptyState>
+      <template v-else>
+        <MessageBubble
+          v-for="(m, i) in messages"
+          :key="m.id ?? i"
+          :message="m"
+          @confirm-action="confirmAction"
+          @cancel-action="cancelAction"
+        />
+      </template>
+    </div>
 
-        <template v-else>
-          <MessageBubble
-            v-for="(m, i) in messages"
-            :key="m.id ?? i"
-            :message="m"
-            @confirm-action="confirmAction"
-            @cancel-action="cancelAction"
-          />
-        </template>
-      </div>
-
-      <footer class="chat-foot">
-        <p v-if="notice" class="chat-notice">{{ notice }}</p>
-        <Composer :sending="sending" @send="handleSend" @stop="assistantStore.stop()" />
-      </footer>
-    </section>
+    <!-- Composer -->
+    <template #composer>
+      <p v-if="notice" class="chat-notice">{{ notice }}</p>
+      <Composer :sending="sending" @send="handleSend" @stop="assistantStore.stop()" />
+    </template>
 
     <!-- Right: analysis -->
-    <aside v-if="showAnalysis" class="ai-window__analysis">
+    <template v-if="showAnalysis" #inspector>
       <h3 class="analysis-title">
         <BrainCircuit :size="15" />
         分析过程
@@ -196,7 +196,7 @@ onMounted(() => assistantStore.init());
         当前模型：{{ modelLabel || '未绑定' }}<br />
         在「设置 → 模型策略」中管理。
       </div>
-    </aside>
+    </template>
 
     <UiConfirmDialog
       :open="!!pendingDelete"
@@ -207,33 +207,10 @@ onMounted(() => assistantStore.init());
       @confirm="doDelete"
       @update:open="(v) => { if (!v) pendingDelete = ''; }"
     />
-    </div>
-  </div>
+  </UiWindowPage>
 </template>
 
 <style scoped>
-/* The shell is the query container; .ai-window is its child so @container can
-   restyle the grid itself (a container can't size-query its own element). */
-.ai-window-shell {
-  height: 100%;
-  min-height: 0;
-  container-type: inline-size;
-  container-name: aiwin;
-}
-.ai-window {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 260px;
-  height: 100%;
-  min-height: 0;
-}
-.ai-window__sessions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border-right: 1px solid var(--border);
-  overflow: hidden;
-}
 .session-list {
   display: flex;
   flex-direction: column;
@@ -247,18 +224,20 @@ onMounted(() => assistantStore.init());
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   background: transparent;
   color: var(--text);
   cursor: pointer;
   text-align: left;
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
 }
 .session-item:hover {
-  background: var(--surface-glass);
+  background: var(--accent-soft);
 }
 .session-item.is-active {
   border-color: var(--border-strong);
-  background: var(--accent-soft, var(--surface-glass));
+  background: var(--accent-soft);
 }
 .session-item__title {
   overflow: hidden;
@@ -279,34 +258,9 @@ onMounted(() => assistantStore.init());
   color: var(--accent-red);
 }
 
-.ai-window__chat {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-.chat-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
-}
-.chat-head__title {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--text-strong);
-}
-.chat-head__right {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
 .chat-scroll {
   flex: 1;
   min-height: 0;
-  padding: var(--space-4);
   overflow-y: auto;
 }
 .suggestions {
@@ -316,24 +270,12 @@ onMounted(() => assistantStore.init());
   justify-content: center;
   margin-top: var(--space-3);
 }
-.chat-foot {
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--border);
-}
 .chat-notice {
   margin: 0 0 var(--space-2);
   color: var(--text-muted);
   font-size: var(--fs-2xs);
 }
 
-.ai-window__analysis {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border-left: 1px solid var(--border);
-  overflow-y: auto;
-}
 .analysis-title {
   display: inline-flex;
   align-items: center;
@@ -364,24 +306,5 @@ onMounted(() => assistantStore.init());
   color: var(--text-soft);
   font-size: var(--fs-2xs);
   line-height: var(--lh-snug);
-}
-
-/* Hide the analysis rail first, then the session rail, as the window narrows,
-   so the conversation column is never squeezed to zero. */
-@container aiwin (max-width: 1040px) {
-  .ai-window {
-    grid-template-columns: 200px minmax(0, 1fr);
-  }
-  .ai-window__analysis {
-    display: none;
-  }
-}
-@container aiwin (max-width: 720px) {
-  .ai-window {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .ai-window__sessions {
-    display: none;
-  }
 }
 </style>

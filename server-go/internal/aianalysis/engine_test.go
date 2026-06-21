@@ -3,6 +3,7 @@ package aianalysis
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,16 +13,30 @@ import (
 
 type fakeSource struct {
 	refs    []ItemRef
+	mu      sync.Mutex
 	applied map[string]AnalyzerResult
+	enum    int
 }
 
-func (f *fakeSource) Enumerate(ctx context.Context) ([]ItemRef, error) { return f.refs, nil }
+func (f *fakeSource) Enumerate(ctx context.Context) ([]ItemRef, error) {
+	f.mu.Lock()
+	f.enum++
+	f.mu.Unlock()
+	return f.refs, nil
+}
 func (f *fakeSource) Apply(ctx context.Context, key string, res AnalyzerResult) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.applied == nil {
 		f.applied = map[string]AnalyzerResult{}
 	}
 	f.applied[key] = res
 	return nil
+}
+func (f *fakeSource) enumCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.enum
 }
 
 func testStore(t *testing.T, level string) *settings.Store {
@@ -75,6 +90,43 @@ func TestRescanEnqueuesPendingOncePerItem(t *testing.T) {
 	if got := len(mgr.List(analyzeTaskKind)); got != 2 {
 		t.Fatalf("rescan should not duplicate, got %d tasks", got)
 	}
+}
+
+func TestNotifyDebouncesRescans(t *testing.T) {
+	src := &fakeSource{refs: []ItemRef{{Key: "file:a", Domain: DomainFile, Sig: "1"}}}
+	e, _ := newTestEngine(t, testStore(t, "basic"), src)
+	e.notifyCh = make(chan DomainKind, 64)
+	e.debounce = 40 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.Start(ctx)
+
+	// Wait for the initial Rescan that Start performs.
+	waitFor(t, func() bool { return src.enumCount() >= 1 })
+	base := src.enumCount()
+
+	// A burst of notifications inside the debounce window must coalesce into a
+	// single rescan, not one rescan per signal.
+	for i := 0; i < 6; i++ {
+		e.Notify(DomainFile)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if got := src.enumCount() - base; got != 1 {
+		t.Fatalf("expected exactly 1 coalesced rescan after a burst, got %d", got)
+	}
+}
+
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("condition not met before deadline")
 }
 
 func TestRescanLevelOffDispatchesNothing(t *testing.T) {

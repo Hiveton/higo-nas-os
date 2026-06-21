@@ -19,7 +19,7 @@ import {
 import { apiClient } from '../../api/client';
 import type { DownloadTask, SpeedProfile } from '../../api/types';
 import { useI18n } from 'vue-i18n';
-import { UiBadge, UiButton, UiEmptyState, UiFormField, UiInput, UiModal } from '../ui';
+import { UiBadge, UiButton, UiEmptyState, UiFormField, UiInput, UiModal, UiWindowPage, UiSegmented } from '../ui';
 
 const { t } = useI18n();
 
@@ -69,6 +69,8 @@ const activeProfile = computed(() => {
   };
 });
 const completedCount = computed(() => tasks.value.filter((task) => task.status === '已完成').length);
+
+const categoryOptions = computed(() => categories.map((category) => ({ label: category, value: category })));
 
 const statusTone: Record<string, 'neutral' | 'primary' | 'warning' | 'success' | 'danger'> = {
   排队中: 'neutral',
@@ -204,7 +206,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="download-center">
+  <UiWindowPage
+    layout="master-detail"
+    :icon="Download"
+    title="下载中心"
+    :subtitle="`${tasks.length} 个任务 · ${completedCount} 个已完成`"
+  >
+    <template #nav>
     <aside class="download-center__control" aria-label="下载任务创建和限速">
       <section class="download-center__card">
         <header>
@@ -267,19 +275,11 @@ onBeforeUnmount(() => {
         <p>{{ activeProfile.note }}</p>
       </section>
     </aside>
+    </template>
 
-    <main class="download-center__main">
-      <nav class="download-center__categories" aria-label="下载分类">
-        <button
-          v-for="category in categories"
-          :key="category"
-          :class="{ 'download-center__category--active': selectedCategory === category }"
-          type="button"
-          @click="selectedCategory = category"
-        >
-          {{ category }}
-        </button>
-      </nav>
+    <template #toolbar>
+      <UiSegmented v-model="selectedCategory" :options="categoryOptions" size="sm" />
+    </template>
 
       <section class="download-center__queue" aria-label="下载队列">
         <button
@@ -312,8 +312,8 @@ onBeforeUnmount(() => {
           :description="tasks.length === 0 ? t('windows.download.emptyQueueHint') : t('windows.download.emptyCategoryHint')"
         />
       </section>
-    </main>
 
+    <template #inspector>
     <aside class="download-center__detail" aria-label="任务详情和完成后处理">
       <template v-if="selectedTask">
         <header>
@@ -402,6 +402,7 @@ onBeforeUnmount(() => {
         </ul>
       </section>
     </aside>
+    </template>
 
     <UiModal
       :open="!!deleteConfirmTask"
@@ -436,42 +437,31 @@ onBeforeUnmount(() => {
         </UiButton>
       </template>
     </UiModal>
-  </div>
+  </UiWindowPage>
 </template>
 
 <style scoped>
-.download-center {
-  display: grid;
-  grid-template-columns: 210px minmax(0, 1fr) 230px;
-  gap: 12px;
-  height: 100%;
-  min-height: 0;
-}
-
-.download-center__control,
-.download-center__main,
-.download-center__detail {
-  min-width: 0;
-  min-height: 0;
-}
-
 .download-center__control,
 .download-center__detail {
   display: grid;
   align-content: start;
   gap: 10px;
+  min-width: 0;
+}
+
+.download-center__control {
+  height: 100%;
   overflow: auto;
 }
 
 .download-center__card,
-.download-center__main,
 .download-center__detail,
 .download-center__task,
 .download-center__automation,
 .download-center__log {
   background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
 }
 
 .download-center__card {
@@ -492,7 +482,7 @@ onBeforeUnmount(() => {
 .download-center__task strong {
   margin: 0;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .download-center__card h3,
@@ -511,12 +501,11 @@ onBeforeUnmount(() => {
 .download-center__log li,
 .download-center__detail header p {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .download-center__sources,
 .download-center__speed,
-.download-center__categories,
 .download-center__actions {
   display: flex;
   flex-wrap: wrap;
@@ -524,8 +513,7 @@ onBeforeUnmount(() => {
 }
 
 .download-center__source,
-.download-center__speed button,
-.download-center__categories button {
+.download-center__speed button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -533,18 +521,30 @@ onBeforeUnmount(() => {
   padding: 0 9px;
   color: var(--accent);
   background: rgba(var(--surface-rgb), 0.72);
-  border: 1px solid rgba(19, 136, 255, 0.16);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 760;
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.download-center__source:hover,
+.download-center__speed button:hover {
+  background: var(--accent-soft);
 }
 
 .download-center__source--active,
-.download-center__speed-button--active,
-.download-center__category--active {
+.download-center__speed-button--active {
   color: var(--text-inverse);
   background: var(--accent);
   border-color: transparent;
+}
+
+.download-center__source--active:hover,
+.download-center__speed-button--active:hover {
+  background: var(--accent);
 }
 
 .download-center__limits {
@@ -557,22 +557,14 @@ onBeforeUnmount(() => {
 .download-center__limits div {
   padding: 8px;
   background: rgba(var(--surface-rgb), 0.58);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
 }
 
 .download-center__limits dd {
   margin: 3px 0 0;
   color: var(--text-strong);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.download-center__main {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px;
-  overflow: hidden;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
 }
 
 .download-center__queue {
@@ -580,7 +572,6 @@ onBeforeUnmount(() => {
   align-content: start;
   gap: 9px;
   min-height: 0;
-  overflow: auto;
 }
 
 .download-center__task {
@@ -590,10 +581,22 @@ onBeforeUnmount(() => {
   min-height: 96px;
   padding: 10px;
   text-align: left;
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.download-center__task:hover {
+  background: var(--accent-soft);
+  transform: translateY(-1px);
+}
+
+.download-center__task:active {
+  transform: translateY(0);
 }
 
 .download-center__task--active {
-  border-color: rgba(19, 136, 255, 0.28);
+  border-color: var(--accent);
   background: rgba(var(--surface-rgb), 0.72);
 }
 
@@ -621,7 +624,7 @@ onBeforeUnmount(() => {
   height: 9px;
   overflow: hidden;
   background: rgba(148, 163, 184, 0.18);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .download-center__progress div {
@@ -641,7 +644,7 @@ onBeforeUnmount(() => {
 
 .download-center__detail header h3 {
   margin-top: 4px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1.25;
 }
 
@@ -649,19 +652,19 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   padding: 5px 8px;
   color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 760;
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
 }
 
 .download-center__selected {
   display: flex;
   gap: 10px;
   padding: 11px;
-  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.9), rgba(255, 246, 227, 0.72));
-  border: 1px solid rgba(22, 199, 221, 0.22);
-  border-radius: var(--radius-md);
+  background: rgba(var(--surface-rgb), 0.6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
 }
 
 .download-center__selected-icon {
@@ -672,12 +675,12 @@ onBeforeUnmount(() => {
   place-items: center;
   color: var(--accent);
   background: rgba(var(--surface-rgb), 0.72);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
 }
 
 .download-center__selected p {
   margin: 5px 0 0;
-  line-height: 1.35;
+  line-height: var(--lh-snug);
 }
 
 .download-center__automation,
@@ -690,9 +693,9 @@ onBeforeUnmount(() => {
 .download-center__automation div {
   display: flex;
   gap: 7px;
-  color: var(--accent-green);
-  font-size: 11px;
-  line-height: 1.35;
+  color: var(--ink-green);
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-snug);
 }
 
 .download-center__log ul {
@@ -726,36 +729,6 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
   background: rgba(148, 163, 184, 0.1);
   border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: var(--radius-sm);
-}
-
-@media (max-width: 860px) {
-  .download-center {
-    grid-template-columns: 190px minmax(0, 1fr);
-    overflow: auto;
-  }
-
-  .download-center__detail {
-    grid-column: 1 / -1;
-    overflow: visible;
-  }
-}
-
-@media (max-width: 620px) {
-  .download-center {
-    display: block;
-    overflow: auto;
-  }
-
-  .download-center__control,
-  .download-center__main,
-  .download-center__detail {
-    margin-bottom: 10px;
-  }
-
-  .download-center__task-head,
-  .download-center__task-foot {
-    display: grid;
-  }
+  border-radius: var(--radius-control);
 }
 </style>

@@ -154,32 +154,32 @@ async function confirmDelete() {
 .sdd { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .sdd__steps { display: flex; gap: 6px; }
 .sdd__steps i {
-  flex: 1; height: 4px; border-radius: 999px;
+  flex: 1; height: 4px; border-radius: var(--radius-pill);
   background: var(--border);
 }
-.sdd__steps i.sdd__steps--on { background: var(--accent-red, #e0564a); }
+.sdd__steps i.sdd__steps--on { background: var(--accent-red); }
 .sdd__panel { display: flex; flex-direction: column; gap: 11px; }
-.sdd__risk, .sdd__final { display: flex; align-items: flex-start; gap: 10px; color: var(--accent-red, #e0564a); }
+.sdd__risk, .sdd__final { display: flex; align-items: flex-start; gap: 10px; color: var(--accent-red); }
 .sdd__risk strong, .sdd__final strong { color: var(--text-strong); margin-right: 8px; }
-.sdd__final p { margin: 6px 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
-.sdd__final p strong { color: var(--accent-red, #e0564a); }
+.sdd__final p { margin: 6px 0 0; color: var(--text-muted); font-size: var(--fs-sm); line-height: var(--lh-normal); }
+.sdd__final p strong { color: var(--accent-red); }
 .sdd__facts { display: grid; gap: 8px; margin: 0; }
-.sdd__facts > div { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.sdd__facts > div { display: flex; justify-content: space-between; gap: 12px; font-size: var(--fs-sm); }
 .sdd__facts dt { color: var(--text-muted); margin: 0; }
 .sdd__facts dd { color: var(--text-strong); margin: 0; text-align: right; word-break: break-word; }
 .sdd__impact {
-  margin: 0; padding: 10px 12px; font-size: 12px; line-height: 1.6;
+  margin: 0; padding: 10px 12px; font-size: var(--fs-xs); line-height: 1.6;
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.6);
-  border: 1px solid var(--border); border-radius: var(--radius-md);
+  border: 1px solid var(--border); border-radius: var(--radius-card);
 }
-.sdd__hint { margin: 0; color: var(--text-muted); font-size: 13px; }
+.sdd__hint { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); }
 .sdd__hint b { color: var(--text-strong); }
-.sdd__mismatch { margin: 0; color: var(--accent-red, #e0564a); font-size: 12px; }
+.sdd__mismatch { margin: 0; color: var(--accent-red); font-size: var(--fs-xs); }
 .sdd__error {
-  margin: 0; padding: 8px 11px; font-size: 12px;
-  color: var(--accent-red, #e0564a);
-  background: rgba(224, 86, 74, 0.1);
-  border: 1px solid rgba(224, 86, 74, 0.3); border-radius: var(--radius-md);
+  margin: 0; padding: 8px 11px; font-size: var(--fs-xs);
+  color: var(--accent-red);
+  background: var(--accent-red-soft);
+  border: 1px solid color-mix(in srgb, var(--accent-red) 30%, transparent); border-radius: var(--radius-card);
 }
 </style>

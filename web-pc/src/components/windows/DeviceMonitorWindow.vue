@@ -20,6 +20,7 @@ import type { Alert, Metric, ServiceStatus, SystemLog } from '../../api/types';
 import DeviceMetricsRail from './device/DeviceMetricsRail.vue';
 import DeviceMonitorMain from './device/DeviceMonitorMain.vue';
 import DeviceMonitorSide from './device/DeviceMonitorSide.vue';
+import { UiWindowPage } from '../ui';
 import './device/device-window.css';
 
 type MetricKey = string;
@@ -349,13 +350,21 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="device-monitor">
-    <DeviceMetricsRail
-      :metrics="metrics"
-      :active-metric-key="activeMetricKey"
-      :unresolved-alerts="unresolvedAlerts"
-      @select-metric="selectMetric"
-    />
+  <UiWindowPage
+    layout="dashboard"
+    :icon="Gauge"
+    title="设备监控"
+    subtitle="实时指标、性能趋势、系统日志与告警诊断"
+    :status="diagnosticState"
+  >
+    <template #nav>
+      <DeviceMetricsRail
+        :metrics="metrics"
+        :active-metric-key="activeMetricKey"
+        :unresolved-alerts="unresolvedAlerts"
+        @select-metric="selectMetric"
+      />
+    </template>
 
     <DeviceMonitorMain
       :selected-metric="selectedMetric"
@@ -374,17 +383,19 @@ onUnmounted(() => {
       @select-log="selectLog"
     />
 
-    <DeviceMonitorSide
-      :diagnostic-state="diagnosticState"
-      :selected-log="selectedLog"
-      :alerts="alerts"
-      :selected-alert-id="selectedAlertId"
-      :selected-alert="selectedAlert"
-      :service-states="serviceStates"
-      @refresh-diagnostics="refreshDiagnostics"
-      @create-alert="createAlert"
-      @select-alert="selectAlert"
-      @mute-alert="muteAlert"
-    />
-  </div>
+    <template #inspector>
+      <DeviceMonitorSide
+        :diagnostic-state="diagnosticState"
+        :selected-log="selectedLog"
+        :alerts="alerts"
+        :selected-alert-id="selectedAlertId"
+        :selected-alert="selectedAlert"
+        :service-states="serviceStates"
+        @refresh-diagnostics="refreshDiagnostics"
+        @create-alert="createAlert"
+        @select-alert="selectAlert"
+        @mute-alert="muteAlert"
+      />
+    </template>
+  </UiWindowPage>
 </template>

@@ -52,6 +52,11 @@ defineProps<{
       </div>
       <div class="overview-sparkline" aria-hidden="true">
         <svg viewBox="0 0 100 80" preserveAspectRatio="none">
+          <!-- baseline grid so an idle/flat metric still reads as a chart, not an empty panel -->
+          <line class="spark-grid" x1="0" y1="16" x2="100" y2="16" />
+          <line class="spark-grid" x1="0" y1="38" x2="100" y2="38" />
+          <line class="spark-grid" x1="0" y1="60" x2="100" y2="60" />
+          <line class="spark-baseline" x1="0" y1="74" x2="100" y2="74" />
           <path class="spark-area spark-area--down" :d="sparklineAreaPath(card, 'down')" />
           <path class="spark-line spark-line--down" :d="sparklinePath(card, 'down')" />
           <template v-if="card.id === 'network' || card.id === 'disk'">

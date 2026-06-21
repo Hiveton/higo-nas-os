@@ -45,6 +45,43 @@ func TestAuthMeRequiresSession(t *testing.T) {
 	}
 }
 
+// TestBearerTokenMustMatchConfigured locks in the fix for the old blanket-admin
+// hole: under enforced auth an arbitrary Authorization header is rejected, and
+// only the configured HIGO_API_TOKEN is trusted as an admin service principal.
+func TestBearerTokenMustMatchConfigured(t *testing.T) {
+	acct := accounts.NewService()
+	if _, err := acct.BootstrapAdmin(context.Background(), "Admin1234"); err != nil {
+		t.Fatalf("bootstrap admin: %v", err)
+	}
+	router := httpapi.NewRouter(httpapi.Dependencies{
+		Config:   platform.Config{Environment: "prod", Version: "test", APIToken: "right-token"},
+		Accounts: acct,
+	})
+
+	cases := []struct {
+		name, header string
+		want         int
+	}{
+		{"no auth", "", http.StatusUnauthorized},
+		{"bogus bearer", "Bearer anything", http.StatusUnauthorized},
+		{"wrong token", "Bearer wrong-token", http.StatusUnauthorized},
+		{"correct token", "Bearer right-token", http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/storage/pools", nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			router.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("%s: got %d, want %d", tc.name, rec.Code, tc.want)
+			}
+		})
+	}
+}
+
 func TestAuthLoginFlow(t *testing.T) {
 	router := buildAuthRouter(t)
 

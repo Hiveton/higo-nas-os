@@ -425,12 +425,12 @@ function isPinned(id: string) {
   height: 19px;
   padding: 0 5px;
   color: white;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-weight: 800;
   line-height: 19px;
   text-align: center;
   background: linear-gradient(135deg, #ff4d63, #ef4444);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.9),
     0 8px 14px rgba(239, 68, 68, 0.25);
@@ -441,7 +441,7 @@ function isPinned(id: string) {
   height: 4px;
   margin-top: 6px;
   background: transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   transition:
     width 180ms ease,
     background 180ms ease,
@@ -472,7 +472,7 @@ function isPinned(id: string) {
   text-indent: 999px;
   background: rgba(20, 184, 166, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.88);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   box-shadow: 0 4px 10px rgba(20, 184, 166, 0.25);
 }
 
@@ -484,7 +484,7 @@ function isPinned(id: string) {
   max-width: 108px;
   padding: 6px 9px;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 1.1;
   text-align: center;
@@ -505,6 +505,8 @@ function isPinned(id: string) {
 .dock__item:focus-visible .dock__tooltip {
   opacity: 1;
   transform: translate(-50%, 0);
+  /* macOS tooltips appear after a short dwell, not instantly. */
+  transition-delay: 0.45s;
 }
 
 @media (hover: hover) {
@@ -516,6 +518,24 @@ function isPinned(id: string) {
   .dock--bottom .dock__item:hover + .dock__item + .dock__item .dock__icon-wrap,
   .dock--bottom .dock__item:has(+ .dock__item + .dock__item:hover) .dock__icon-wrap {
     transform: translateY(-2px) scale(1.02);
+  }
+
+  /* Side-dock magnification parity (left/right) — neighbours ease toward the cursor. */
+  .dock--left .dock__item:hover + .dock__item .dock__icon-wrap,
+  .dock--left .dock__item:has(+ .dock__item:hover) .dock__icon-wrap {
+    transform: translateX(5px) scale(1.04);
+  }
+  .dock--left .dock__item:hover + .dock__item + .dock__item .dock__icon-wrap,
+  .dock--left .dock__item:has(+ .dock__item + .dock__item:hover) .dock__icon-wrap {
+    transform: translateX(2px) scale(1.02);
+  }
+  .dock--right .dock__item:hover + .dock__item .dock__icon-wrap,
+  .dock--right .dock__item:has(+ .dock__item:hover) .dock__icon-wrap {
+    transform: translateX(-5px) scale(1.04);
+  }
+  .dock--right .dock__item:hover + .dock__item + .dock__item .dock__icon-wrap,
+  .dock--right .dock__item:has(+ .dock__item + .dock__item:hover) .dock__icon-wrap {
+    transform: translateX(-2px) scale(1.02);
   }
 }
 

@@ -13,7 +13,7 @@ func TestServiceSeedsSuggestionsAndAuditEntries(t *testing.T) {
 	if len(suggestions) != 3 {
 		t.Fatalf("suggestions = %d, want 3", len(suggestions))
 	}
-	if suggestions[0].Title != "下载目录智能整理" || suggestions[1].Risk != RiskHigh {
+	if suggestions[0].Title != "示例 · 下载目录智能整理" || suggestions[1].Risk != RiskHigh {
 		t.Fatalf("suggestion seeds mismatch: %#v", suggestions)
 	}
 

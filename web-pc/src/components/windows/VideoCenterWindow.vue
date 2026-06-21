@@ -15,7 +15,8 @@ import {
   X,
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
-import { UiButton, UiEmptyState, UiIconButton, UiModal, useConfirm } from '../ui';
+import { aiAnalysisStore } from '../../stores/aiAnalysis';
+import { UiButton, UiEmptyState, UiIconButton, UiModal, UiTabs, UiWindowPage, useConfirm, type TabItem } from '../ui';
 
 const confirm = useConfirm();
 import type {
@@ -50,9 +51,26 @@ const tabs: Array<{ id: TabKey; label: string; icon: unknown }> = [
   { id: 'settings', label: '设置', icon: Settings },
 ];
 
+const tabItems = computed<TabItem[]>(() =>
+  tabs.map((tab) => ({
+    key: tab.id,
+    label: tab.label,
+    icon: tab.icon as TabItem['icon'],
+    badge:
+      tab.id === 'movies'
+        ? items.value.length || undefined
+        : tab.id === 'live'
+          ? liveChannels.value.length || undefined
+          : tab.id === 'tasks'
+            ? tasks.value.length || undefined
+            : undefined,
+  })),
+);
+
 const activeTab = ref<TabKey>('home');
 const loading = ref(false);
 const busyMessage = ref('');
+const analyzeBusy = ref(false);
 const statusMessage = ref('');
 const errorMessage = ref('');
 const query = ref('');
@@ -387,6 +405,17 @@ async function createTask(type: 'scrape' | 'subtitle' | 'transcode', item?: Vide
   });
 }
 
+async function analyzeVideo(item?: VideoItem) {
+  const target = item ?? selectedItem.value;
+  if (!target) return;
+  analyzeBusy.value = true;
+  await runBusy('正在加入 AI 分析队列', async () => {
+    await aiAnalysisStore.reanalyze({ scope: 'item', itemId: `video:${target.id}` });
+    statusMessage.value = `已将「${displayTitle(target)}」加入 AI 分析队列，简介 / 转写稍后回填。`;
+  });
+  analyzeBusy.value = false;
+}
+
 async function scrapeFilteredItems() {
   const targets = filteredItems.value;
   if (!targets.length) {
@@ -702,63 +731,16 @@ onMounted(loadAll);
 </script>
 
 <template>
-  <section class="video-center">
-    <aside class="video-sidebar">
-      <div class="brand">
-        <div class="brand-icon">
-          <Film :size="18" />
-        </div>
-        <div>
-          <strong>影视中心</strong>
-          <span>家庭 NAS</span>
-        </div>
-      </div>
-
-      <nav class="nav">
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          type="button"
-          :class="{ active: activeTab === tab.id }"
-          @click="switchTab(tab.id)"
-        >
-          <component :is="tab.icon" :size="16" />
-          <span>{{ tab.label }}</span>
-          <small v-if="tab.id === 'movies'">{{ items.length }}</small>
-          <small v-if="tab.id === 'live'">{{ liveChannels.length }}</small>
-          <small v-if="tab.id === 'tasks'">{{ tasks.length }}</small>
-        </button>
-      </nav>
-
-      <div class="side-card">
-        <strong>媒体库状态</strong>
-        <span>{{ libraryStatus }}</span>
-        <span v-if="libraries.length">共 {{ libraries.length }} 个库，{{ movieCount }} 部电影，{{ seriesCount }} 集剧集。</span>
-      </div>
-    </aside>
-
-    <main class="video-main">
-      <div class="video-mobile-head">
-        <div>
-          <strong>影视中心</strong>
-          <span>{{ libraryStatus }}</span>
-        </div>
-        <small>{{ movieCount }} 部电影 · {{ liveChannels.length }} 个频道</small>
-      </div>
-
-      <nav class="video-mobile-tabs">
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          type="button"
-          :class="{ active: activeTab === tab.id }"
-          @click="switchTab(tab.id)"
-        >
-          <component :is="tab.icon" :size="15" />
-          <span>{{ tab.label }}</span>
-        </button>
-      </nav>
-
+  <UiWindowPage
+    class="video-center"
+    layout="stack"
+    :icon="Film"
+    title="影视中心"
+    :subtitle="libraryStatus"
+    :status="`${movieCount} 部电影 · ${liveChannels.length} 个频道`"
+  >
+    <template #toolbar>
+      <UiTabs v-model="activeTab" :tabs="tabItems" variant="segmented" size="sm" overflow="menu" @update:model-value="(v) => switchTab(v as TabKey)" />
       <header class="toolbar">
         <div class="search">
           <Search :size="16" />
@@ -768,6 +750,7 @@ onMounted(loadAll);
         <UiButton :icon-left="Sparkles" @click="scanLibrary">扫描</UiButton>
         <UiButton variant="ghost" tone="neutral" :icon-left="Wand2" @click="scrapeFilteredItems">刮削当前列表</UiButton>
       </header>
+    </template>
 
       <div v-if="errorMessage" class="message error">{{ errorMessage }}</div>
       <div v-if="busyMessage" class="message">
@@ -798,6 +781,7 @@ onMounted(loadAll);
         v-model:library-filter="libraryFilter"
         v-model:kind-filter="kindFilter"
         v-model:transcode-profile="transcodeProfile"
+        v-model:analyze-busy="analyzeBusy"
         :libraries="libraries"
         :filtered-items="filteredItems"
         :detail-item="detailItem"
@@ -819,6 +803,7 @@ onMounted(loadAll);
         @scrape="(item) => createTask('scrape', item)"
         @subtitle="(item) => createTask('subtitle', item)"
         @transcode="(item) => createTask('transcode', item)"
+        @analyze="(item) => analyzeVideo(item)"
       />
 
       <section v-else-if="activeTab === 'live'" class="live-view">
@@ -924,7 +909,6 @@ onMounted(loadAll);
         @create-guide-source="createGuideSource"
         @save-dvr-settings="saveDvrSettings"
       />
-    </main>
 
     <UiModal
       :open="!!selectedProgram"
@@ -974,5 +958,5 @@ onMounted(loadAll);
         <track v-if="playbackSubtitle" kind="subtitles" srclang="zh" label="中文" :src="playbackSubtitle" default />
       </video>
     </section>
-  </section>
+  </UiWindowPage>
 </template>

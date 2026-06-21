@@ -23,20 +23,44 @@ const props = withDefaults(
     loading?: boolean;
     empty?: { title: string; description?: string };
     density?: 'comfortable' | 'compact';
+    /** Show a leading checkbox column bound to v-model:selected. */
+    selectable?: boolean;
+    /** Keep the header visible while the body scrolls. */
+    stickyHeader?: boolean;
   }>(),
   {
     loading: false,
     empty: () => ({ title: '暂无数据' }),
     density: 'comfortable',
+    selectable: false,
+    stickyHeader: false,
   },
 );
 
 const sort = defineModel<SortState | null>('sort', { default: null });
+const selected = defineModel<Array<string | number>>('selected', { default: () => [] });
 
 const emit = defineEmits<{ 'row-click': [row: T] }>();
 
 function keyOf(row: T): string | number {
   return typeof props.rowKey === 'function' ? props.rowKey(row) : (row[props.rowKey] as string | number);
+}
+
+function isSelected(row: T): boolean {
+  return selected.value.includes(keyOf(row));
+}
+
+function toggleRow(row: T) {
+  const key = keyOf(row);
+  selected.value = isSelected(row) ? selected.value.filter((k) => k !== key) : [...selected.value, key];
+}
+
+const allSelected = computed(
+  () => props.rows.length > 0 && props.rows.every((row) => selected.value.includes(keyOf(row))),
+);
+
+function toggleAll() {
+  selected.value = allSelected.value ? [] : props.rows.map((row) => keyOf(row));
 }
 
 function cellValue(row: T, col: Column<T>): unknown {
@@ -56,10 +80,19 @@ const isEmpty = computed(() => !props.loading && props.rows.length === 0);
 </script>
 
 <template>
-  <div class="ui-table" :class="`ui-table--${density}`">
+  <div class="ui-table" :class="[`ui-table--${density}`, { 'ui-table--sticky': stickyHeader }]">
     <table class="ui-table__el">
       <thead>
         <tr>
+          <th v-if="selectable" class="ui-table__th ui-table__th--check">
+            <input
+              type="checkbox"
+              class="ui-table__check"
+              :checked="allSelected"
+              aria-label="全选"
+              @click.stop="toggleAll"
+            />
+          </th>
           <th
             v-for="col in columns"
             :key="col.key"
@@ -82,8 +115,18 @@ const isEmpty = computed(() => !props.loading && props.rows.length === 0);
           v-for="row in rows"
           :key="keyOf(row)"
           class="ui-table__row"
+          :class="{ 'ui-table__row--selected': selectable && isSelected(row) }"
           @click="emit('row-click', row)"
         >
+          <td v-if="selectable" class="ui-table__td ui-table__td--check">
+            <input
+              type="checkbox"
+              class="ui-table__check"
+              :checked="isSelected(row)"
+              :aria-label="`选择此行`"
+              @click.stop="toggleRow(row)"
+            />
+          </td>
           <td
             v-for="col in columns"
             :key="col.key"
@@ -145,6 +188,32 @@ const isEmpty = computed(() => !props.loading && props.rows.length === 0);
 .ui-table__sort {
   margin-left: var(--space-1);
   color: var(--accent);
+}
+
+.ui-table--sticky {
+  overflow-y: auto;
+}
+.ui-table--sticky .ui-table__th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--surface-glass-strong);
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.ui-table__th--check,
+.ui-table__td--check {
+  width: 36px;
+  text-align: center;
+}
+.ui-table__check {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.ui-table__row--selected {
+  background: var(--accent-soft);
 }
 
 .ui-table__row {

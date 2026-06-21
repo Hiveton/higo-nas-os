@@ -62,12 +62,22 @@ func TestServiceCreatesUsersGroupsAndSpaceGrants(t *testing.T) {
 func TestServiceValidatesPasswordAndUniqueUsername(t *testing.T) {
 	service := NewService()
 
+	// Complexity rules are intentionally removed — a short password is accepted.
 	if _, err := service.CreateUser(context.Background(), CreateUserRequest{
 		Username:    "weak",
 		DisplayName: "Weak",
-		Password:    "123456",
+		Password:    "123qwe",
+	}); err != nil {
+		t.Fatalf("simple password should be accepted: %v", err)
+	}
+
+	// An empty password is still rejected.
+	if _, err := service.CreateUser(context.Background(), CreateUserRequest{
+		Username:    "blank",
+		DisplayName: "Blank",
+		Password:    "",
 	}); err == nil {
-		t.Fatal("expected weak password to be rejected")
+		t.Fatal("expected empty password to be rejected")
 	}
 
 	if _, err := service.CreateUser(context.Background(), CreateUserRequest{

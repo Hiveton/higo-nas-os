@@ -76,6 +76,11 @@ type Config struct {
 	// AdminBootstrapPassword optionally fixes the initial admin password
 	// (automation/imaging). Empty generates a random one printed once at boot.
 	AdminBootstrapPassword string
+	// APIToken is the shared bearer token external API / MCP clients must present
+	// (Authorization: Bearer <token>) to be trusted as an admin service principal
+	// under enforced auth. Empty means no bearer token is accepted (only session
+	// cookies and cloud device tokens authenticate).
+	APIToken string
 
 	// --- Face model / self-training framework ------------------------------
 
@@ -89,21 +94,33 @@ type Config struct {
 	// the exported labeled face dataset and returns a new model version. Empty
 	// leaves the self-training framework reserved but inert (retrain is a no-op).
 	FaceTrainerURL string
+
+	// --- Default LLM provider seeding --------------------------------------
+	// When LLMDefaultBaseURL + LLMDefaultChatModel are set and no provider has
+	// been configured yet, the LLM store seeds default providers so AI features
+	// work out of the box (typically a local Ollama/LM Studio OpenAI-compatible
+	// endpoint, no API key). User edits via the API always override these.
+	LLMDefaultBaseURL     string
+	LLMDefaultAPIKey      string
+	LLMDefaultChatModel   string
+	LLMDefaultVisionModel string
+	LLMDefaultEmbedModel  string
+	LLMDefaultASRModel    string
 }
 
 func LoadConfig() Config {
 	env := getenv("HIGO_ENV", "dev")
 	return Config{
-		AppName:      getenv("HIGO_APP_NAME", "HiGoOS"),
-		Environment:  env,
-		Version:      getenv("HIGO_VERSION", "dev"),
-		HTTPAddr:     getenv("HIGO_HTTP_ADDR", ":8080"),
-		PublicOrigin: getenv("HIGO_PUBLIC_ORIGIN", "http://localhost:5173"),
-		StateDir:     getenv("HIGO_STATE_DIR", defaultStateDir()),
-		NASRoot:      getenv("HIGO_NAS_ROOT", ""),
-		StaticDir:    getenv("HIGO_STATIC_DIR", ""),
-		DatabaseURL:  getenv("HIGO_DATABASE_URL", ""),
-		Ready:        true,
+		AppName:         getenv("HIGO_APP_NAME", "HiGoOS"),
+		Environment:     env,
+		Version:         getenv("HIGO_VERSION", "dev"),
+		HTTPAddr:        getenv("HIGO_HTTP_ADDR", ":8080"),
+		PublicOrigin:    getenv("HIGO_PUBLIC_ORIGIN", "http://localhost:5173"),
+		StateDir:        getenv("HIGO_STATE_DIR", defaultStateDir()),
+		NASRoot:         getenv("HIGO_NAS_ROOT", ""),
+		StaticDir:       getenv("HIGO_STATIC_DIR", ""),
+		DatabaseURL:     getenv("HIGO_DATABASE_URL", ""),
+		Ready:           true,
 		MCPEnabled:      getenvBool("HIGO_MCP_ENABLED", true),
 		MCPDomains:      getenv("HIGO_MCP_DOMAINS", ""),
 		RemoteProbeAddr: getenv("HIGO_REMOTE_PROBE_ADDR", ""),
@@ -121,9 +138,17 @@ func LoadConfig() Config {
 		AccountsAdminGroup:     getenv("HIGO_ACCOUNTS_ADMIN_GROUP", "higoos-admins"),
 		LoginMaxFailures:       getenvInt("HIGO_LOGIN_MAX_FAILURES", 5),
 		AdminBootstrapPassword: getenv("HIGO_ADMIN_BOOTSTRAP_PASSWORD", ""),
+		APIToken:               getenv("HIGO_API_TOKEN", ""),
 
 		FaceEmbedderURL: getenv("HIGO_FACE_EMBEDDER_URL", ""),
 		FaceTrainerURL:  getenv("HIGO_FACE_TRAINER_URL", ""),
+
+		LLMDefaultBaseURL:     getenv("HIGO_LLM_DEFAULT_BASE_URL", ""),
+		LLMDefaultAPIKey:      getenv("HIGO_LLM_DEFAULT_API_KEY", ""),
+		LLMDefaultChatModel:   getenv("HIGO_LLM_DEFAULT_CHAT_MODEL", ""),
+		LLMDefaultVisionModel: getenv("HIGO_LLM_DEFAULT_VISION_MODEL", ""),
+		LLMDefaultEmbedModel:  getenv("HIGO_LLM_DEFAULT_EMBED_MODEL", ""),
+		LLMDefaultASRModel:    getenv("HIGO_LLM_DEFAULT_ASR_MODEL", ""),
 	}
 }
 

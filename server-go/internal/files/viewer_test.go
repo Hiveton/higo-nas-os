@@ -84,3 +84,16 @@ func TestCanAccessIsolation(t *testing.T) {
 		t.Fatal("admin should access any file")
 	}
 }
+
+func TestCanAccessDeny(t *testing.T) {
+	s := &Service{}
+	// Granted team-space but explicitly denied → no access, and hidden from tree.
+	v := Viewer{Username: "alice", GrantedSpaces: []string{"team-space"}, DeniedSpaces: []string{"team-space"}}
+	if s.CanAccess(FileNode{Path: "/团队空间/contract.pdf"}, v) {
+		t.Fatal("explicit deny must block access even when granted")
+	}
+	scoped := scopeTree(sampleTree(), v)
+	if childNames(scoped)["团队空间"] {
+		t.Fatal("denied space must not appear in the scoped tree")
+	}
+}

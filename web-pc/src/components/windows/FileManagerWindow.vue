@@ -14,16 +14,30 @@ import {
   Search,
   Share2,
   ShieldCheck,
+  Sparkles,
   Tag,
   Tags,
   Trash2,
   UploadCloud,
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
+import { aiAnalysisStore } from '../../stores/aiAnalysis';
 import type { FileRow, FileTreeNode } from '../../api/types';
-import { UiButton, UiEmptyState, UiIconButton, UiInput, UiProgressBar, useConfirm } from '../ui';
+import {
+  UiButton,
+  UiEmptyState,
+  UiIconButton,
+  UiInput,
+  UiNavRail,
+  UiProgressBar,
+  UiToolbar,
+  UiWindowPage,
+  useConfirm,
+  useInputDialog,
+} from '../ui';
 
 const confirm = useConfirm();
+const inputDialog = useInputDialog();
 
 type DisplayNode = FileTreeNode & {
   modified?: string;
@@ -404,7 +418,12 @@ async function onDrop(event: DragEvent) {
 }
 
 async function createFolder() {
-  const name = window.prompt('新建文件夹名称');
+  const name = await inputDialog({
+    title: '新建文件夹',
+    label: '文件夹名称',
+    placeholder: '例如：项目资料',
+    validate: (v) => (v ? null : '请输入名称'),
+  });
   if (!name?.trim()) return;
   busyAction.value = 'folder';
   try {
@@ -436,7 +455,12 @@ function downloadSelected() {
 async function renameSelected() {
   const node = selectedNode.value;
   if (!node) return;
-  const name = window.prompt('重命名为', node.name);
+  const name = await inputDialog({
+    title: '重命名',
+    label: '新名称',
+    defaultValue: node.name,
+    validate: (v) => (v ? null : '请输入名称'),
+  });
   if (!name?.trim() || name.trim() === node.name) return;
   busyAction.value = 'rename';
   try {
@@ -512,7 +536,12 @@ async function tagSelected() {
     notice.value = '请选择一个文件再添加标签。';
     return;
   }
-  const tag = window.prompt('添加标签', '已整理');
+  const tag = await inputDialog({
+    title: '添加标签',
+    label: '标签名称',
+    defaultValue: '已整理',
+    validate: (v) => (v ? null : '请输入标签'),
+  });
   if (!tag?.trim()) return;
   busyAction.value = 'tag';
   try {
@@ -521,6 +550,23 @@ async function tagSelected() {
     await loadTree(true);
   } catch (error) {
     notice.value = `添加标签失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    busyAction.value = '';
+  }
+}
+
+async function analyzeSelected() {
+  const node = selectedNode.value;
+  if (!node || isDir(node)) {
+    notice.value = '请选择一个文件再进行 AI 分析。';
+    return;
+  }
+  busyAction.value = 'analyze';
+  try {
+    await aiAnalysisStore.reanalyze({ scope: 'item', itemId: `file:${node.id}` });
+    notice.value = `已将「${node.name}」加入 AI 分析队列，摘要 / 标签稍后回填。`;
+  } catch (error) {
+    notice.value = `AI 分析失败：${error instanceof Error ? error.message : 'unknown error'}`;
   } finally {
     busyAction.value = '';
   }
@@ -552,68 +598,83 @@ onMounted(() => {
   >
     <input ref="fileInput" class="file-manager__file-input" multiple type="file" @change="uploadFromInput" />
 
-    <aside class="file-manager__sidebar" aria-label="文件目录">
-      <div class="file-manager__search">
-        <UiInput
-          v-model="search"
-          size="sm"
-          :prefix-icon="Search"
-          aria-label="搜索文件"
-          placeholder="搜索文件名、类型、标签"
-          @enter="runSearch"
-        />
-        <UiButton variant="soft" tone="primary" size="sm" @click="runSearch">搜索</UiButton>
-      </div>
+    <UiWindowPage
+      layout="master-detail"
+      :icon="Folder"
+      title="文件管理"
+      :subtitle="currentDirectoryPath"
+      :status="notice"
+    >
+      <template #nav>
+        <UiNavRail title="文件目录" :subtitle="loading ? '正在同步' : uploading ? '正在上传' : ''">
+          <template #header>
+            <div class="file-manager__nav-header">
+              <div class="file-manager__search">
+                <UiInput
+                  v-model="search"
+                  size="sm"
+                  :prefix-icon="Search"
+                  aria-label="搜索文件"
+                  placeholder="搜索文件名、类型、标签"
+                  @enter="runSearch"
+                />
+                <UiButton variant="soft" tone="primary" size="sm" @click="runSearch">搜索</UiButton>
+              </div>
+            </div>
+          </template>
 
-      <nav class="file-manager__tree">
-        <button
-          v-for="folder in folders"
-          :key="folder.id"
-          class="file-manager__folder"
-          :class="{ 'file-manager__folder--active': folder.path === currentPath }"
-          :style="{ paddingLeft: `${10 + folder.depth * 14}px` }"
-          type="button"
-          @click="openNode(folder)"
-        >
-          <HardDrive v-if="folder.depth === 0" :size="16" />
-          <Folder v-else :size="16" />
-          <span>{{ folder.name }}</span>
-        </button>
-      </nav>
+          <button
+            v-for="folder in folders"
+            :key="folder.id"
+            class="file-manager__folder"
+            :class="{ 'file-manager__folder--active': folder.path === currentPath }"
+            :style="{ paddingLeft: `${10 + folder.depth * 14}px` }"
+            type="button"
+            @click="openNode(folder)"
+          >
+            <HardDrive v-if="folder.depth === 0" :size="16" />
+            <Folder v-else :size="16" />
+            <span>{{ folder.name }}</span>
+          </button>
 
-      <div class="file-manager__status">
-        <strong>{{ loading ? '正在同步' : uploading ? '正在上传' : '文件状态' }}</strong>
-        <span>{{ notice }}</span>
-        <UiProgressBar v-if="uploading || uploadProgress === 100" :value="uploadProgress" show-value />
-      </div>
-    </aside>
+          <template #footer>
+            <div class="file-manager__status">
+              <strong>{{ loading ? '正在同步' : uploading ? '正在上传' : '文件状态' }}</strong>
+              <span>{{ notice }}</span>
+              <UiProgressBar v-if="uploading || uploadProgress === 100" :value="uploadProgress" show-value />
+            </div>
+          </template>
+        </UiNavRail>
+      </template>
 
-    <main class="file-manager__main">
-      <header class="file-manager__pathbar">
-        <div class="file-manager__nav-controls" aria-label="目录历史导航">
-          <UiIconButton :icon="ChevronLeft" label="后退" variant="soft" size="sm" :disabled="!canGoBack" @click="goBack" />
-          <UiIconButton :icon="ChevronRight" label="前进" variant="soft" size="sm" :disabled="!canGoForward" @click="goForward" />
-        </div>
-        <form class="file-manager__path-entry" aria-label="文件路径" @submit.prevent="submitPath">
-          <input
-            v-model="pathDraft"
-            aria-label="当前文件路径"
-            spellcheck="false"
-            @focus="selectPathDraft"
-            @keydown.esc.prevent="resetPathDraft"
-            @blur="resetPathDraft"
-          />
-        </form>
-        <UiButton variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="loadTree(true)">刷新</UiButton>
-      </header>
-
-      <section class="file-manager__toolbar" aria-label="文件操作">
-        <UiButton variant="soft" tone="primary" size="sm" :icon-left="UploadCloud" :disabled="uploading" @click="chooseFiles">上传</UiButton>
-        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Download" @click="downloadSelected">下载</UiButton>
-        <UiButton variant="soft" tone="primary" size="sm" :icon-left="FolderPlus" :disabled="busyAction === 'folder'" @click="createFolder">新建文件夹</UiButton>
-        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Edit3" :disabled="busyAction === 'rename'" @click="renameSelected">重命名</UiButton>
-        <UiButton variant="soft" tone="danger" size="sm" :icon-left="Trash2" :disabled="busyAction === 'delete'" @click="deleteSelected">删除</UiButton>
-      </section>
+      <template #toolbar>
+        <UiToolbar>
+          <template #start>
+            <div class="file-manager__nav-controls" aria-label="目录历史导航">
+              <UiIconButton :icon="ChevronLeft" label="后退" variant="soft" size="sm" :disabled="!canGoBack" @click="goBack" />
+              <UiIconButton :icon="ChevronRight" label="前进" variant="soft" size="sm" :disabled="!canGoForward" @click="goForward" />
+            </div>
+            <form class="file-manager__path-entry" aria-label="文件路径" @submit.prevent="submitPath">
+              <input
+                v-model="pathDraft"
+                aria-label="当前文件路径"
+                spellcheck="false"
+                @focus="selectPathDraft"
+                @keydown.esc.prevent="resetPathDraft"
+                @blur="resetPathDraft"
+              />
+            </form>
+            <UiButton variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="loadTree(true)">刷新</UiButton>
+          </template>
+          <template #end>
+            <UiButton variant="soft" tone="primary" size="sm" :icon-left="UploadCloud" :disabled="uploading" @click="chooseFiles">上传</UiButton>
+            <UiButton variant="soft" tone="primary" size="sm" :icon-left="Download" @click="downloadSelected">下载</UiButton>
+            <UiButton variant="soft" tone="primary" size="sm" :icon-left="FolderPlus" :disabled="busyAction === 'folder'" @click="createFolder">新建文件夹</UiButton>
+            <UiButton variant="soft" tone="primary" size="sm" :icon-left="Edit3" :disabled="busyAction === 'rename'" @click="renameSelected">重命名</UiButton>
+            <UiButton variant="soft" tone="danger" size="sm" :icon-left="Trash2" :disabled="busyAction === 'delete'" @click="deleteSelected">删除</UiButton>
+          </template>
+        </UiToolbar>
+      </template>
 
       <section class="file-manager__table" aria-label="文件列表">
         <div class="file-manager__row file-manager__row--head">
@@ -652,56 +713,57 @@ onMounted(() => {
           description="可点击上传，或直接把文件拖入窗口。"
         />
       </section>
-    </main>
 
-    <aside class="file-manager__inspector" aria-label="文件详情">
-      <div class="file-manager__inspector-head">
-        <component :is="isDir(selectedNode) ? Folder : FileText" :size="24" />
-        <div>
-          <strong>{{ selectedNode?.name || '未选择文件' }}</strong>
-          <span>{{ selectedNode?.path || '选择文件后查看详情' }}</span>
+      <template #inspector>
+        <div class="file-manager__inspector-head">
+          <component :is="isDir(selectedNode) ? Folder : FileText" :size="24" />
+          <div>
+            <strong>{{ selectedNode?.name || '未选择文件' }}</strong>
+            <span>{{ selectedNode?.path || '选择文件后查看详情' }}</span>
+          </div>
         </div>
-      </div>
 
-      <dl class="file-manager__info">
-        <div>
-          <dt>类型</dt>
-          <dd>{{ iconTitle(selectedNode) }}</dd>
-        </div>
-        <div>
-          <dt>大小</dt>
-          <dd>{{ selectedNode?.size || '-' }}</dd>
-        </div>
-        <div>
-          <dt>空间</dt>
-          <dd>{{ selectedNode?.space || currentSpace || '-' }}</dd>
-        </div>
-        <div>
-          <dt>权限</dt>
-          <dd>{{ selectedNode?.permission || '继承' }}</dd>
-        </div>
-      </dl>
+        <dl class="file-manager__info">
+          <div>
+            <dt>类型</dt>
+            <dd>{{ iconTitle(selectedNode) }}</dd>
+          </div>
+          <div>
+            <dt>大小</dt>
+            <dd>{{ selectedNode?.size || '-' }}</dd>
+          </div>
+          <div>
+            <dt>空间</dt>
+            <dd>{{ selectedNode?.space || currentSpace || '-' }}</dd>
+          </div>
+          <div>
+            <dt>权限</dt>
+            <dd>{{ selectedNode?.permission || '继承' }}</dd>
+          </div>
+        </dl>
 
-      <div class="file-manager__tags">
-        <strong>标签</strong>
-        <span v-for="tag in selectedNode?.tags ?? []" :key="tag"><Tags :size="12" />{{ tag }}</span>
-        <em v-if="(selectedNode?.tags ?? []).length === 0">无标签</em>
-      </div>
-
-      <div class="file-manager__actions">
-        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Eye" :disabled="busyAction === 'preview'" @click="openPreview">预览</UiButton>
-        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Share2" :disabled="busyAction === 'share'" @click="shareSelected">分享</UiButton>
-        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Tag" :disabled="busyAction === 'tag'" @click="tagSelected">加标签</UiButton>
-      </div>
-
-      <div class="file-manager__preview">
-        <div class="file-manager__preview-title">
-          <ShieldCheck :size="15" />
-          预览与审计
+        <div class="file-manager__tags">
+          <strong>标签</strong>
+          <span v-for="tag in selectedNode?.tags ?? []" :key="tag"><Tags :size="12" />{{ tag }}</span>
+          <em v-if="(selectedNode?.tags ?? []).length === 0">无标签</em>
         </div>
-        <p>{{ previewText || selectedNode?.aiSummary || '文本文件支持直接预览；下载、删除、重命名和分享会调用后端真实接口。' }}</p>
-      </div>
-    </aside>
+
+        <div class="file-manager__actions">
+          <UiButton variant="soft" tone="primary" size="sm" :icon-left="Eye" :disabled="busyAction === 'preview'" @click="openPreview">预览</UiButton>
+          <UiButton variant="soft" tone="primary" size="sm" :icon-left="Share2" :disabled="busyAction === 'share'" @click="shareSelected">分享</UiButton>
+          <UiButton variant="soft" tone="primary" size="sm" :icon-left="Tag" :disabled="busyAction === 'tag'" @click="tagSelected">加标签</UiButton>
+          <UiButton variant="soft" tone="primary" size="sm" :icon-left="Sparkles" :disabled="busyAction === 'analyze'" @click="analyzeSelected">AI 分析</UiButton>
+        </div>
+
+        <div class="file-manager__preview">
+          <div class="file-manager__preview-title">
+            <ShieldCheck :size="15" />
+            预览与审计
+          </div>
+          <p>{{ previewText || selectedNode?.aiSummary || '文本文件支持直接预览；下载、删除、重命名和分享会调用后端真实接口。' }}</p>
+        </div>
+      </template>
+    </UiWindowPage>
 
     <div v-if="dragging" class="file-manager__drop">
       <UploadCloud :size="36" />
@@ -713,12 +775,8 @@ onMounted(() => {
 <style scoped>
 .file-manager {
   position: relative;
-  display: grid;
-  grid-template-columns: 230px minmax(0, 1fr) 310px;
-  align-items: start;
-  gap: 14px;
-  height: auto;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -726,20 +784,9 @@ onMounted(() => {
   display: none;
 }
 
-.file-manager__sidebar,
-.file-manager__main,
-.file-manager__inspector {
-  min-height: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: rgba(var(--surface-rgb), 0.62);
-}
-
-.file-manager__sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
+.file-manager__nav-header {
+  display: grid;
+  gap: var(--space-2);
 }
 
 .file-manager__search {
@@ -766,19 +813,25 @@ onMounted(() => {
   text-align: left;
   background: transparent;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
+  transition: background var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.file-manager__folder:hover:not(.file-manager__folder--active) {
+  background: var(--accent-soft);
 }
 
 .file-manager__folder--active {
   color: var(--accent);
-  background: rgba(19, 136, 255, 0.1);
+  background: var(--accent-soft);
 }
 
 .file-manager__folder span {
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -786,40 +839,14 @@ onMounted(() => {
 .file-manager__status {
   display: grid;
   gap: 5px;
-  padding: 11px;
   color: var(--text-muted);
-  background: rgba(var(--surface-rgb), 0.76);
-  border: 1px solid rgba(22, 199, 221, 0.22);
-  border-radius: var(--radius-md);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.45;
 }
 
 .file-manager__status strong {
   color: var(--text-strong);
-  font-size: 12px;
-}
-
-.file-manager__main {
-  display: grid;
-  grid-template-rows: auto auto auto;
-  align-content: start;
-  overflow: visible;
-}
-
-.file-manager__pathbar,
-.file-manager__toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.file-manager__pathbar {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
+  font-size: var(--fs-xs);
 }
 
 .file-manager__nav-controls {
@@ -830,6 +857,7 @@ onMounted(() => {
 }
 
 .file-manager__path-entry {
+  flex: 1 1 220px;
   min-width: 0;
 }
 
@@ -840,20 +868,18 @@ onMounted(() => {
   padding: 0 12px;
   color: var(--text);
   background: rgba(var(--surface-rgb), 0.72);
-  border: 1px solid rgba(100, 136, 166, 0.2);
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
   outline: 0;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--fs-xs);
+  transition: border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .file-manager__path-entry input:focus {
-  border-color: rgba(19, 136, 255, 0.42);
-  box-shadow: 0 0 0 3px rgba(19, 136, 255, 0.1);
-}
-
-.file-manager__toolbar {
-  flex-wrap: wrap;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .file-manager__table {
@@ -872,8 +898,13 @@ onMounted(() => {
   text-align: left;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.14);
-  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.file-manager__row:not(.file-manager__row--head):hover {
+  background: var(--accent-soft);
 }
 
 .file-manager__row--head {
@@ -883,16 +914,16 @@ onMounted(() => {
   min-height: 34px;
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.92);
-  font-size: 11px;
-  font-weight: 780;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
 }
 
 .file-manager__row--active {
-  background: rgba(19, 136, 255, 0.08);
+  background: var(--accent-soft);
 }
 
 .file-manager__row--uploaded {
-  background: rgba(33, 182, 111, 0.08);
+  background: var(--accent-green-soft);
 }
 
 .file-manager__name {
@@ -923,21 +954,13 @@ onMounted(() => {
 
 .file-manager__name strong {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .file-manager__name small {
   margin-top: 3px;
   color: var(--text-soft);
-  font-size: 11px;
-}
-
-.file-manager__inspector {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 14px;
-  overflow: visible;
+  font-size: var(--fs-2xs);
 }
 
 .file-manager__inspector-head {
@@ -963,15 +986,15 @@ onMounted(() => {
 
 .file-manager__inspector-head strong {
   color: var(--text-strong);
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1.3;
 }
 
 .file-manager__inspector-head span {
   margin-top: 4px;
   color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-snug);
 }
 
 .file-manager__info {
@@ -990,7 +1013,7 @@ onMounted(() => {
 .file-manager__info dt,
 .file-manager__tags em {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-style: normal;
 }
 
@@ -999,8 +1022,8 @@ onMounted(() => {
   margin: 0;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1014,7 +1037,7 @@ onMounted(() => {
 .file-manager__tags strong {
   width: 100%;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .file-manager__tags span {
@@ -1025,8 +1048,8 @@ onMounted(() => {
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.78);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 11px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-2xs);
 }
 
 .file-manager__actions {
@@ -1042,9 +1065,9 @@ onMounted(() => {
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.78);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  line-height: 1.5;
+  border-radius: var(--radius-card);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
 }
 
 .file-manager__preview-title {
@@ -1052,7 +1075,7 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   color: var(--text-strong);
-  font-weight: 780;
+  font-weight: var(--fw-bold);
 }
 
 .file-manager__preview p {
@@ -1071,8 +1094,8 @@ onMounted(() => {
   gap: 12px;
   color: var(--accent);
   background: rgba(var(--surface-rgb), 0.78);
-  border: 2px dashed rgba(19, 136, 255, 0.4);
-  border-radius: var(--radius-lg);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-window);
   backdrop-filter: blur(8px);
 }
 
@@ -1081,30 +1104,7 @@ onMounted(() => {
   font-size: 15px;
 }
 
-@media (max-width: 1120px) {
-  .file-manager {
-    grid-template-columns: 210px minmax(0, 1fr);
-  }
-
-  .file-manager__inspector {
-    display: none;
-  }
-}
-
-@media (max-width: 760px) {
-  .file-manager {
-    grid-template-columns: 1fr;
-    overflow: visible;
-  }
-
-  .file-manager__sidebar {
-    min-height: 190px;
-  }
-
-  .file-manager__main {
-    min-height: 420px;
-  }
-
+@container desktop-window-body (max-width: 760px) {
   .file-manager__row {
     grid-template-columns: minmax(180px, 1fr) 76px 74px;
   }

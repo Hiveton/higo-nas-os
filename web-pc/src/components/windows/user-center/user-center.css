@@ -2,96 +2,6 @@
    Imported once by UserCenterWindow.vue; classes are global so all panels share
    them, mirroring settings-window.css. */
 
-.uc {
-  display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
-  gap: 14px;
-  height: 100%;
-  min-height: 0;
-}
-
-/* --- left rail ----------------------------------------------------------- */
-.uc__rail {
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-  background: rgba(var(--surface-rgb), 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.uc__rail-head {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 13px 14px;
-  color: var(--accent);
-  border-bottom: 1px solid rgba(100, 136, 166, 0.14);
-}
-
-.uc__rail-head strong {
-  display: block;
-  color: var(--text-strong);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-}
-
-.uc__rail-head span {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-soft);
-  font-size: var(--fs-2xs);
-}
-
-.uc__nav {
-  display: grid;
-  align-content: start;
-  gap: 4px;
-  min-height: 0;
-  padding: 10px;
-  overflow: auto;
-}
-
-.uc__nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 9px 11px;
-  color: var(--text-muted);
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  font-family: inherit;
-  font-size: var(--fs-sm);
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
-}
-
-.uc__nav-item:hover {
-  color: var(--text-strong);
-  background: rgba(var(--surface-rgb), 0.7);
-}
-
-.uc__nav-item--active {
-  color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: inset 3px 0 0 var(--accent);
-  font-weight: var(--fw-semibold);
-}
-
-/* --- main content card --------------------------------------------------- */
-.uc__main {
-  min-height: 0;
-  overflow: auto;
-  padding: 18px 20px;
-  background: rgba(var(--surface-rgb), 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
 /* --- panel scaffolding --------------------------------------------------- */
 .uc-panel {
   display: flex;
@@ -123,7 +33,7 @@
 /* sub-cards (forms, group cards, identity cards) */
 .uc-card {
   padding: 14px 16px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   background: rgba(var(--surface-rgb), 0.62);
   border: 1px solid var(--border);
 }
@@ -143,7 +53,7 @@
 .uc-id__avatar {
   width: 46px;
   height: 46px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   display: grid;
   place-items: center;
   font-size: var(--fs-xl);
@@ -218,7 +128,7 @@
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   padding: 9px 11px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   background: var(--control-bg);
   border: 1px solid var(--control-border);
   color: var(--text-strong);
@@ -256,7 +166,7 @@
 
 .uc-stat {
   padding: 16px 18px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -296,7 +206,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   background: rgba(var(--surface-rgb), 0.62);
   border: 1px solid var(--border);
 }
@@ -336,7 +246,7 @@
   align-items: center;
   gap: 4px;
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: var(--fs-xs);
   background: var(--accent-soft);
   color: var(--accent-deep);
@@ -412,7 +322,7 @@
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 

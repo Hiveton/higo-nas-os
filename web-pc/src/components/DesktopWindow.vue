@@ -1,6 +1,32 @@
 <script setup lang="ts">
-import { X } from 'lucide-vue-next';
+import { computed, onBeforeUnmount, onMounted, nextTick, ref, watch } from 'vue';
+import { Maximize2, Menu, Minus, Plus, X } from 'lucide-vue-next';
 import type { DesktopWindowConfig } from '../api/types';
+
+// Left nav/sidebar columns that should collapse into an off-canvas drawer when
+// the window gets narrow (macOS-style), instead of stacking full-width on top of
+// the content. Right-side detail/inspector panels (__details/__inspector/__side)
+// intentionally stack below content and are left alone.
+const SIDEBAR_SELECTOR = [
+  '.ui-window-page__nav',
+  '.file-manager__sidebar',
+  '.app-center__catalog',
+  '.music-app__sidebar',
+  '.photo-media__sidebar',
+  '.system-settings__sidebar',
+  '.download-center__control',
+  '.docker-sidebar',
+  '.backup-sync__jobs',
+  '.video-sidebar',
+  '.ai-window__sessions',
+  '.agent-window__presets',
+  '.protocols__list',
+  '.uc__rail',
+  '.sf__list',
+  '.sync__list',
+  '.device-monitor__metrics',
+].join(',');
+const DRAWER_BREAKPOINT = 760;
 
 type WindowGeometry = {
   x: number;
@@ -29,6 +55,69 @@ const toneClass = `desktop-window__status--${props.window.statusTone}`;
 const resizeHandleDirections = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'] as const;
 const minWindowWidth = 340;
 const minWindowHeight = 260;
+
+// --- responsive off-canvas sidebar drawer (narrow windows) ---
+const bodyRef = ref<HTMLElement | null>(null);
+const bodyWidth = ref(Number.POSITIVE_INFINITY);
+const hasSidebar = ref(false);
+const drawerOpen = ref(false);
+let bodyResizeObserver: ResizeObserver | undefined;
+
+const drawerActive = computed(() => hasSidebar.value && bodyWidth.value <= DRAWER_BREAKPOINT);
+
+function detectSidebar() {
+  hasSidebar.value = !!bodyRef.value?.querySelector(SIDEBAR_SELECTOR);
+}
+
+function toggleDrawer() {
+  drawerOpen.value = !drawerOpen.value;
+}
+
+// Picking any nav item inside the drawer closes it (macOS-like).
+function onBodyClick(event: MouseEvent) {
+  if (!drawerActive.value || !drawerOpen.value) return;
+  const target = event.target as HTMLElement;
+  const sidebar = bodyRef.value?.querySelector(SIDEBAR_SELECTOR);
+  if (sidebar && sidebar.contains(target) && target.closest('button, a, [role="button"], [role="tab"]')) {
+    drawerOpen.value = false;
+  }
+}
+
+onMounted(() => {
+  const body = bodyRef.value;
+  if (!body) return;
+  // Seed width immediately so a window opened already-narrow starts in the
+  // right state instead of waiting for the first resize event.
+  bodyWidth.value = body.clientWidth;
+  detectSidebar();
+  if (typeof ResizeObserver !== 'undefined') {
+    bodyResizeObserver = new ResizeObserver((entries) => {
+      bodyWidth.value = entries[0].contentRect.width;
+      if (!hasSidebar.value) detectSidebar();
+    });
+    bodyResizeObserver.observe(body);
+  }
+  // Slotted window content and the post-mount geometry clamp can settle a few
+  // frames after onMounted, and the ResizeObserver's first callback doesn't
+  // always cover both. Re-measure + re-detect across a handful of frames until
+  // the sidebar is found, so the drawer engages even on first open.
+  let tries = 0;
+  const raf = globalThis.requestAnimationFrame?.bind(globalThis);
+  const recheck = () => {
+    if (!bodyRef.value) return;
+    bodyWidth.value = bodyRef.value.clientWidth;
+    if (!hasSidebar.value) detectSidebar();
+    if (!hasSidebar.value && tries++ < 6 && raf) raf(recheck);
+  };
+  if (raf) raf(recheck);
+  else nextTick(detectSidebar);
+});
+onBeforeUnmount(() => bodyResizeObserver?.disconnect());
+
+// Close the drawer whenever we leave the compact range.
+watch(drawerActive, (active) => {
+  if (!active) drawerOpen.value = false;
+});
 
 function clampWindowPosition(x: number, y: number, width = props.window.width, height = props.window.height) {
   const viewportWidth = globalThis.window.innerWidth;
@@ -172,14 +261,30 @@ function startWindowResize(event: PointerEvent, direction: string) {
           type="button"
           aria-label="最小化"
           @click.stop="emit('minimize')"
-        />
+        >
+          <Minus :size="11" stroke-width="3" />
+        </button>
         <button
           class="desktop-window__dot desktop-window__dot--green"
           type="button"
           :aria-label="maximized ? '还原窗口' : '最大化'"
           @click.stop="emit('toggle-maximize')"
-        />
+        >
+          <component :is="maximized ? Minus : Maximize2" :size="9" stroke-width="3" />
+        </button>
       </div>
+
+      <button
+        v-if="drawerActive"
+        class="desktop-window__menu-btn"
+        type="button"
+        :aria-label="`${window.title} 菜单`"
+        :aria-expanded="drawerOpen"
+        @click.stop="toggleDrawer"
+        @pointerdown.stop
+      >
+        <Menu :size="16" stroke-width="2.2" />
+      </button>
 
       <div class="desktop-window__heading">
         <h2>{{ window.title }}</h2>
@@ -189,8 +294,22 @@ function startWindowResize(event: PointerEvent, direction: string) {
       <span class="desktop-window__status" :class="toneClass">{{ window.status }}</span>
     </header>
 
-    <section class="desktop-window__body">
+    <section
+      ref="bodyRef"
+      class="desktop-window__body"
+      :class="{
+        'desktop-window__body--drawer': drawerActive,
+        'desktop-window__body--drawer-open': drawerOpen,
+      }"
+      @click="onBodyClick"
+    >
       <slot />
+      <div
+        v-if="drawerActive && drawerOpen"
+        class="desktop-window__drawer-backdrop"
+        aria-hidden="true"
+        @click="drawerOpen = false"
+      />
     </section>
 
     <span
@@ -217,7 +336,7 @@ function startWindowResize(event: PointerEvent, direction: string) {
     linear-gradient(180deg, rgba(var(--surface-rgb), 0.86), rgba(var(--surface-rgb), 0.68)),
     var(--surface-glass);
   border: 1px solid rgba(255, 255, 255, 0.62);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-window);
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(28px) saturate(1.28);
   -webkit-backdrop-filter: blur(28px) saturate(1.28);
@@ -225,15 +344,14 @@ function startWindowResize(event: PointerEvent, direction: string) {
   container-name: desktop-window;
   container-type: inline-size;
   transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    opacity 160ms ease,
-    transform 160ms ease;
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-md) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
 }
 
 .desktop-window--active {
   border-color: rgba(19, 136, 255, 0.36);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-window);
 }
 
 .desktop-window--maximized {
@@ -247,7 +365,7 @@ function startWindowResize(event: PointerEvent, direction: string) {
 }
 
 .desktop-window:not(.desktop-window--active) {
-  opacity: 0.93;
+  opacity: 0.97;
 }
 
 .desktop-window__titlebar {
@@ -283,10 +401,9 @@ function startWindowResize(event: PointerEvent, direction: string) {
   align-items: center;
   justify-content: center;
   padding: 0;
-  color: rgba(101, 32, 32, 0);
   background: transparent;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .desktop-window__dot::before {
@@ -294,29 +411,75 @@ function startWindowResize(event: PointerEvent, direction: string) {
   width: 13px;
   height: 13px;
   content: "";
-  border-radius: 999px;
-  box-shadow: inset 0 0 0 1px rgba(24, 35, 54, 0.12);
+  border-radius: var(--radius-pill);
+  /* macOS-style 3D sheen: top highlight + inner ring for depth */
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.6),
+    inset 0 0 0 0.5px rgba(24, 35, 54, 0.18);
+  transition: filter var(--duration-fast) var(--ease-standard);
 }
 
 .desktop-window__dot svg {
   position: relative;
   z-index: 1;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
+/* Reveal the action glyphs when hovering anywhere on the title bar (macOS). */
+.desktop-window__titlebar:hover .desktop-window__dot svg,
+.desktop-window__dot:hover svg {
+  opacity: 1;
+}
+
+.desktop-window__dot--red {
+  color: rgba(76, 0, 3, 0.7);
+}
 .desktop-window__dot--red::before {
-  background: #ff5f57;
+  background: radial-gradient(circle at 50% 32%, var(--win-close), var(--win-close-2) 72%);
 }
 
+.desktop-window__dot--yellow {
+  color: rgba(89, 49, 0, 0.7);
+}
 .desktop-window__dot--yellow::before {
-  background: #ffbd2e;
+  background: radial-gradient(circle at 50% 32%, var(--win-min), var(--win-min-2) 72%);
 }
 
+.desktop-window__dot--green {
+  color: rgba(0, 64, 13, 0.7);
+}
 .desktop-window__dot--green::before {
-  background: #28c840;
+  background: radial-gradient(circle at 50% 32%, var(--win-max), var(--win-max-2) 72%);
 }
 
-.desktop-window__dot--red:hover {
-  color: rgba(101, 32, 32, 0.78);
+.desktop-window__dot:active::before {
+  filter: brightness(0.92);
+}
+
+/* Dim the lights when the window is not focused, like macOS. */
+.desktop-window:not(.desktop-window--active) .desktop-window__dot::before {
+  background: rgba(150, 162, 178, 0.5);
+  box-shadow: inset 0 0 0 0.5px rgba(24, 35, 54, 0.16);
+}
+
+.desktop-window__menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  color: var(--text);
+  background: var(--surface-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.desktop-window__menu-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .desktop-window__heading {
@@ -327,7 +490,7 @@ function startWindowResize(event: PointerEvent, direction: string) {
   margin: 0;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 760;
   line-height: 1.18;
   text-overflow: ellipsis;
@@ -338,7 +501,7 @@ function startWindowResize(event: PointerEvent, direction: string) {
   margin: 4px 0 0;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -349,29 +512,31 @@ function startWindowResize(event: PointerEvent, direction: string) {
   align-items: center;
   min-height: 24px;
   padding: 0 10px;
-  color: var(--accent);
-  font-size: 11px;
+  /* Theme-aware ink so the small pill text stays legible on its own soft tint
+     in both light and dark mode (see --ink-* in tokens.css / base.css). */
+  color: var(--ink-blue);
+  font-size: var(--fs-2xs);
   font-weight: 700;
   white-space: nowrap;
   background: rgba(19, 136, 255, 0.12);
   border: 1px solid rgba(19, 136, 255, 0.18);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .desktop-window__status--green {
-  color: var(--accent-green);
+  color: var(--ink-green);
   background: rgba(34, 181, 115, 0.12);
   border-color: rgba(34, 181, 115, 0.22);
 }
 
 .desktop-window__status--orange {
-  color: var(--accent-orange);
+  color: var(--ink-orange);
   background: rgba(245, 158, 11, 0.14);
   border-color: rgba(245, 158, 11, 0.25);
 }
 
 .desktop-window__status--red {
-  color: var(--accent-red);
+  color: var(--ink-red);
   background: rgba(239, 68, 68, 0.12);
   border-color: rgba(239, 68, 68, 0.22);
 }

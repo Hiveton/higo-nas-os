@@ -8,14 +8,23 @@ import {
   UiFormField,
   UiInput,
   UiModal,
+  UiTabs,
   useToast,
 } from '../../ui';
+import type { TabItem } from '../../ui';
 import { accountsStore } from '../../../stores/accounts';
 import type { AccountGroup } from '../../../api/types';
+import FolderPermTab from './FolderPermTab.vue';
 
 const toast = useToast();
 const busy = ref('');
 const form = ref({ name: '', description: '' });
+
+const groupTabs: TabItem[] = [
+  { key: 'members', label: '成员' },
+  { key: 'folders', label: '共享文件夹权限' },
+];
+const gtab = ref('members');
 
 function userLabel(id: string) {
   const u = accountsStore.users.value.find((x) => x.id === id);
@@ -52,6 +61,7 @@ const selectedCount = computed(() => editor.selected.size);
 function openMembers(group: AccountGroup) {
   editor.group = group;
   editor.selected = new Set(group.userIds ?? []);
+  gtab.value = 'members';
   editor.open = true;
 }
 
@@ -105,26 +115,35 @@ async function saveMembers() {
           <span v-if="!(group.userIds ?? []).length" class="uc-panel__sub">暂无成员</span>
         </div>
         <div class="uc-actions" style="margin-top: 12px">
-          <UiButton variant="soft" size="sm" @click="openMembers(group)">管理成员</UiButton>
+          <UiButton variant="soft" size="sm" @click="openMembers(group)">编辑</UiButton>
         </div>
       </article>
     </div>
 
-    <UiModal :open="editor.open" :title="`管理成员 · ${editor.group?.name ?? ''}`" size="sm" @update:open="editor.open = $event">
-      <p class="uc-panel__sub" style="margin-bottom: 10px">勾选属于该组的用户（已选 {{ selectedCount }} 人）</p>
-      <div class="uc-checklist">
-        <label v-for="u in accountsStore.users.value" :key="u.id" class="uc-check-row">
-          <UiCheckbox :model-value="editor.selected.has(u.id)" @update:model-value="toggle(u.id, $event)" />
-          <span class="uc-check-name">
-            <strong>{{ u.displayName || u.username }}</strong>
-            <small>{{ u.username }} · {{ u.role === 'admin' ? '管理员' : u.role === 'guest' ? '访客' : '成员' }}</small>
-          </span>
-        </label>
-        <p v-if="!accountsStore.users.value.length" class="uc-panel__sub">暂无用户</p>
+    <UiModal :open="editor.open" :title="`编辑用户组 · ${editor.group?.name ?? ''}`" size="md" @update:open="editor.open = $event">
+      <UiTabs v-model="gtab" :tabs="groupTabs" variant="underline" size="sm" />
+
+      <div v-show="gtab === 'members'">
+        <p class="uc-panel__sub" style="margin-bottom: 10px">勾选属于该组的用户（已选 {{ selectedCount }} 人）</p>
+        <div class="uc-checklist">
+          <label v-for="u in accountsStore.users.value" :key="u.id" class="uc-check-row">
+            <UiCheckbox :model-value="editor.selected.has(u.id)" @update:model-value="toggle(u.id, $event)" />
+            <span class="uc-check-name">
+              <strong>{{ u.displayName || u.username }}</strong>
+              <small>{{ u.username }} · {{ u.role === 'admin' ? '管理员' : u.role === 'guest' ? '访客' : '成员' }}</small>
+            </span>
+          </label>
+          <p v-if="!accountsStore.users.value.length" class="uc-panel__sub">暂无用户</p>
+        </div>
       </div>
+
+      <div v-show="gtab === 'folders'">
+        <FolderPermTab v-if="editor.group" subject-type="group" :subject-id="editor.group.id" />
+      </div>
+
       <template #footer>
-        <UiButton variant="ghost" @click="editor.open = false">取消</UiButton>
-        <UiButton :loading="editor.saving" @click="saveMembers">保存成员</UiButton>
+        <UiButton variant="ghost" @click="editor.open = false">关闭</UiButton>
+        <UiButton v-if="gtab === 'members'" :loading="editor.saving" @click="saveMembers">保存成员</UiButton>
       </template>
     </UiModal>
   </section>

@@ -48,6 +48,65 @@ func NewStoreWithStateDir(stateDir string) (*Store, error) {
 	return store, nil
 }
 
+// SeedConfig describes a default provider to create on a fresh install. A
+// self-hosted NAS typically points BaseURL at a local OpenAI-compatible server
+// (Ollama / LM Studio / vLLM) with no API key.
+type SeedConfig struct {
+	BaseURL     string
+	APIKey      string
+	Kind        ProviderKind // defaults to openai
+	ChatModel   string
+	VisionModel string
+	EmbedModel  string
+	ASRModel    string
+}
+
+// SeedDefaultsIfEmpty creates default providers from cfg ONLY when the store has
+// no providers yet — so persisted state and any user edit always win. It is a
+// no-op when cfg lacks a base URL or chat model. Returns the number seeded.
+func (s *Store) SeedDefaultsIfEmpty(cfg SeedConfig) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.providers) > 0 {
+		return 0, nil
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	if baseURL == "" || strings.TrimSpace(cfg.ChatModel) == "" {
+		return 0, nil
+	}
+	kind := cfg.Kind
+	if kind == "" {
+		kind = KindOpenAI
+	}
+	add := func(name string, purpose Purpose, model string) {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return
+		}
+		s.nextID++
+		s.providers = append(s.providers, Provider{
+			ID:        fmt.Sprintf("provider-%03d", s.nextID),
+			Name:      name,
+			Kind:      kind,
+			Purpose:   purpose,
+			BaseURL:   baseURL,
+			APIKey:    strings.TrimSpace(cfg.APIKey),
+			Model:     model,
+			Enabled:   true,
+			IsDefault: true, // per-purpose default; purposes don't collide
+			CreatedAt: s.now().UTC(),
+		})
+	}
+	add("默认对话模型", PurposeChat, cfg.ChatModel)
+	add("默认视觉模型", PurposeVision, cfg.VisionModel)
+	add("默认向量模型", PurposeEmbedding, cfg.EmbedModel)
+	add("默认语音模型", PurposeASR, cfg.ASRModel)
+	if err := s.saveLocked(); err != nil {
+		return 0, err
+	}
+	return len(s.providers), nil
+}
+
 // List returns masked views of every provider.
 func (s *Store) List() []ProviderView {
 	s.mu.RLock()

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -36,24 +37,82 @@ func (a *API) aiAnalysisRecords(w http.ResponseWriter, r *http.Request) {
 		platform.WriteError(w, r, http.StatusServiceUnavailable, "aianalysis_unavailable", "AI 分析引擎不可用")
 		return
 	}
-	q := r.URL.Query()
-	domain := aianalysis.DomainKind(strings.TrimSpace(q.Get("domain")))
-	state := aianalysis.ItemState(strings.TrimSpace(q.Get("state")))
-	page, _ := strconv.Atoi(q.Get("page"))
-	size, _ := strconv.Atoi(q.Get("size"))
+	query := r.URL.Query()
+	domain := aianalysis.DomainKind(strings.TrimSpace(query.Get("domain")))
+	state := aianalysis.ItemState(strings.TrimSpace(query.Get("state")))
+	q := strings.TrimSpace(query.Get("q"))
+	page, _ := strconv.Atoi(query.Get("page"))
+	size, _ := strconv.Atoi(query.Get("size"))
 	if page <= 0 {
 		page = 1
 	}
 	if size <= 0 {
 		size = 50
 	}
-	records, total := a.aianalysis.Records(domain, state, page, size)
+	records, total := a.aianalysis.Records(domain, state, q, page, size)
 	platform.WriteJSON(w, r, http.StatusOK, map[string]any{
 		"records":  records,
 		"total":    total,
 		"page":     page,
 		"pageSize": size,
 	})
+}
+
+// aiAnalysisRecordByKey returns one record's full state by its domain-prefixed
+// key (e.g. "file:abc"). The key arrives URL-encoded because it contains a colon.
+func (a *API) aiAnalysisRecordByKey(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	if a.aianalysis == nil {
+		platform.WriteError(w, r, http.StatusServiceUnavailable, "aianalysis_unavailable", "AI 分析引擎不可用")
+		return
+	}
+	raw := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/ai-analysis/records/"), "/")
+	key, err := url.PathUnescape(raw)
+	if err != nil {
+		key = raw
+	}
+	if key == "" {
+		platform.WriteError(w, r, http.StatusBadRequest, "missing_key", "缺少记录 key")
+		return
+	}
+	rec, ok := a.aianalysis.RecordByKey(key)
+	if !ok {
+		platform.WriteError(w, r, http.StatusNotFound, "record_not_found", "未找到分析记录")
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, rec)
+}
+
+// aiAnalysisBatch performs a batch operation over a set of record keys. Today the
+// only op is "reanalyze" (reset to pending and dispatch).
+func (a *API) aiAnalysisBatch(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	if a.aianalysis == nil {
+		platform.WriteError(w, r, http.StatusServiceUnavailable, "aianalysis_unavailable", "AI 分析引擎不可用")
+		return
+	}
+	var body struct {
+		Op   string   `json:"op"`
+		Keys []string `json:"keys"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	op := strings.TrimSpace(body.Op)
+	if op == "" {
+		op = "reanalyze"
+	}
+	if op != "reanalyze" {
+		platform.WriteError(w, r, http.StatusBadRequest, "unsupported_op", "不支持的批量操作: "+op)
+		return
+	}
+	reset := a.aianalysis.ReanalyzeKeys(body.Keys)
+	platform.WriteJSON(w, r, http.StatusOK, map[string]any{"reset": reset, "status": a.aianalysis.Status()})
 }
 
 // aiAnalysisReanalyze forces re-analysis of one item, a whole domain or

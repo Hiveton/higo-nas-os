@@ -4,7 +4,7 @@ import { ArchiveRestore, CheckCircle2, CloudUpload, DatabaseBackup, Pause, Play,
 import { apiClient } from '../../api/client';
 import type { BackupJob } from '../../api/types';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
-import { UiButton, UiProgressBar } from '../ui';
+import { UiButton, UiProgressBar, UiWindowPage, UiNavRail, UiNavItem, UiStatGrid, UiStat } from '../ui';
 
 const fallbackJobs: BackupJob[] = [
   {
@@ -129,45 +129,35 @@ onMounted(loadBackupJobs);
 </script>
 
 <template>
-  <div class="backup-sync">
-    <section class="backup-sync__summary" aria-label="备份同步摘要">
-      <article>
-        <CloudUpload :size="18" />
-        <span>进行中</span>
-        <strong>{{ activeJobs }} 个</strong>
-      </article>
-      <article>
-        <ArchiveRestore :size="18" />
-        <span>平均进度</span>
-        <strong>{{ averageProgress }}%</strong>
-      </article>
-      <article>
-        <CheckCircle2 :size="18" />
-        <span>已完成</span>
-        <strong>{{ completedJobs }} 个</strong>
-      </article>
-    </section>
-
-    <main class="backup-sync__main">
-      <aside class="backup-sync__jobs" aria-label="备份任务列表">
-        <header>
-          <h3><DatabaseBackup :size="15" /> 备份任务</h3>
-          <span>{{ jobs.length }} 组</span>
-        </header>
-        <button
+  <UiWindowPage
+    layout="master-detail"
+    :icon="DatabaseBackup"
+    title="备份与同步"
+    :subtitle="selectedJob.name"
+    :status="actionState"
+  >
+    <template #nav>
+      <UiNavRail title="备份任务" :subtitle="`${jobs.length} 组`">
+        <UiNavItem
           v-for="job in jobs"
           :key="job.id"
-          class="backup-sync__job"
-          :class="{ 'backup-sync__job--active': job.id === selectedJobId }"
-          type="button"
-          @click="selectJob(job.id)"
-        >
-          <strong>{{ job.name }}</strong>
-          <span>{{ job.source }} -> {{ job.target }}</span>
-          <small>{{ job.state }} · {{ job.progress }}% · {{ job.nextRun }}</small>
-        </button>
-      </aside>
+          :label="job.name"
+          :hint="`${job.state} · ${job.progress}% · ${job.nextRun}`"
+          :active="job.id === selectedJobId"
+          @select="selectJob(job.id)"
+        />
+      </UiNavRail>
+    </template>
 
+    <UiStatGrid>
+      <UiStat :icon="CloudUpload" label="进行中" :value="`${activeJobs} 个`" tone="primary" />
+      <UiStat :icon="ArchiveRestore" label="平均进度" :value="`${averageProgress}%`" tone="info" />
+      <UiStat :icon="CheckCircle2" label="已完成" :value="`${completedJobs} 个`" tone="success" />
+    </UiStatGrid>
+
+    <NasFeaturePanel :modules="['backup', 'sync']" />
+
+    <template #inspector>
       <section class="backup-sync__detail" aria-label="备份任务详情">
         <header>
           <div>
@@ -218,139 +208,20 @@ onMounted(loadBackupJobs);
           <UiButton variant="soft" size="sm" :disabled="!selectedJob.enabled" @click="saveBackupSchedule(true, scheduleHours)">保存计划</UiButton>
         </div>
       </section>
-    </main>
-
-    <section class="backup-sync__audit" aria-label="备份操作反馈">
-      <ShieldCheck :size="15" />
-      <span>{{ actionState }}</span>
-    </section>
-
-    <NasFeaturePanel :modules="['backup', 'sync']" />
-  </div>
+    </template>
+  </UiWindowPage>
 </template>
 
 <style scoped>
-.backup-sync {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
-  gap: 12px;
-  height: 100%;
-  min-height: 0;
-  overflow: auto;
-}
-
-.backup-sync__summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.backup-sync__summary article {
-  display: grid;
-  gap: 4px;
-  justify-items: center;
-  padding: 12px 8px;
-  color: var(--accent);
-  background: rgba(var(--surface-rgb), 0.56);
-}
-
-.backup-sync__summary span,
 .backup-sync__grid span,
-.backup-sync__jobs header span,
 .backup-sync__detail header p {
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
-.backup-sync__summary strong,
 .backup-sync__grid strong {
   color: var(--text-strong);
-  font-size: 13px;
-}
-
-.backup-sync__main {
-  display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  gap: 12px;
-  min-height: 0;
-}
-
-.backup-sync__jobs,
-.backup-sync__detail,
-.backup-sync__audit {
-  min-width: 0;
-  background: rgba(var(--surface-rgb), 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.backup-sync__jobs {
-  overflow: auto;
-}
-
-.backup-sync__jobs header,
-.backup-sync__detail header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 11px 12px;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.14);
-}
-
-.backup-sync__jobs header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: rgba(var(--surface-rgb), 0.92);
-}
-
-.backup-sync h3 {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 13px;
-}
-
-.backup-sync__job {
-  display: grid;
-  gap: 5px;
-  width: 100%;
-  min-height: 78px;
-  padding: 12px;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.12);
-}
-
-.backup-sync__job--active {
-  background: rgba(19, 136, 255, 0.08);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.backup-sync__job strong,
-.backup-sync__job span,
-.backup-sync__job small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.backup-sync__job strong {
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.backup-sync__job span,
-.backup-sync__job small {
-  color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .backup-sync__detail {
@@ -358,11 +229,33 @@ onMounted(loadBackupJobs);
   grid-template-rows: auto auto auto auto auto;
   align-content: start;
   overflow: hidden;
+  min-width: 0;
+  background: rgba(var(--surface-rgb), 0.5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.backup-sync__detail header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.backup-sync__detail h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
 }
 
 .backup-sync__detail header strong {
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .backup-sync__meter {
@@ -382,12 +275,11 @@ onMounted(loadBackupJobs);
   min-width: 0;
   padding: 10px;
   background: rgba(var(--surface-rgb), 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.12);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
 }
 
-.backup-sync__policy,
-.backup-sync__audit {
+.backup-sync__policy {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -395,9 +287,9 @@ onMounted(loadBackupJobs);
   padding: 9px 10px;
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.62);
-  border: 1px solid rgba(19, 136, 255, 0.12);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-2xs);
 }
 
 .backup-sync__actions {
@@ -422,18 +314,13 @@ onMounted(loadBackupJobs);
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .backup-sync__schedule input[type='number'] {
   width: 52px;
   padding: 3px 6px;
   border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
   border-radius: 6px;
-  background: var(--surface-1, #fff);
-}
-
-.backup-sync__audit {
-  margin: 0;
-  color: var(--text-strong);
+  background: var(--surface-1, var(--surface-solid));
 }
 </style>

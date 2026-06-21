@@ -2,6 +2,7 @@ package aianalysis
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -112,6 +113,14 @@ func (l *Ledger) pending() []Record {
 }
 
 // get returns a record snapshot.
+// recordMatches reports whether a record matches a lowercased free-text query
+// against its title, source path and error message.
+func recordMatches(rec Record, q string) bool {
+	return strings.Contains(strings.ToLower(rec.Title), q) ||
+		strings.Contains(strings.ToLower(rec.SourcePath), q) ||
+		strings.Contains(strings.ToLower(rec.Error), q)
+}
+
 func (l *Ledger) get(key string) (Record, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -271,12 +280,16 @@ func (l *Ledger) stats() DomainStats {
 }
 
 // filtered returns records (optionally filtered by state) sorted newest first.
-func (l *Ledger) filtered(state ItemState) []Record {
+func (l *Ledger) filtered(state ItemState, q string) []Record {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	q = strings.ToLower(strings.TrimSpace(q))
 	out := make([]Record, 0, len(l.records))
 	for _, rec := range l.records {
 		if state != "" && rec.State != state {
+			continue
+		}
+		if q != "" && !recordMatches(rec, q) {
 			continue
 		}
 		out = append(out, rec)

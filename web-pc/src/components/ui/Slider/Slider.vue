@@ -82,7 +82,7 @@ function onInput(event: Event) {
   -webkit-appearance: none;
   width: 16px;
   height: 16px;
-  background: #fff;
+  background: var(--text-inverse);
   border: 1px solid var(--accent);
   border-radius: 50%;
   box-shadow: 0 1px 3px rgba(15, 35, 60, 0.3);
@@ -91,7 +91,7 @@ function onInput(event: Event) {
 .ui-slider__input::-moz-range-thumb {
   width: 16px;
   height: 16px;
-  background: #fff;
+  background: var(--text-inverse);
   border: 1px solid var(--accent);
   border-radius: 50%;
 }

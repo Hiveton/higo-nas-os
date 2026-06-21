@@ -67,6 +67,8 @@ type Item struct {
 	StreamURL         string       `json:"streamUrl"`
 	SubtitleURL       string       `json:"subtitleUrl,omitempty"`
 	Overview          string       `json:"overview"`
+	AIOverview        string       `json:"aiOverview,omitempty"`
+	AITranscript      string       `json:"aiTranscript,omitempty"`
 	Tagline           string       `json:"tagline,omitempty"`
 	ContentRating     string       `json:"contentRating,omitempty"`
 	ReleaseDate       string       `json:"releaseDate,omitempty"`

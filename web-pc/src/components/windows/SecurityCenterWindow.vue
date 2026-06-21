@@ -1,23 +1,30 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import {
-  ArchiveRestore,
   CheckCircle2,
-  EyeOff,
   FileWarning,
-  Filter,
+  Flame,
   History,
-  KeyRound,
   Link2Off,
+  Network,
+  Radar,
   ShieldAlert,
   ShieldCheck,
-  UserRoundCog,
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
-import type { AiPolicy, AuditEntry, FileShare, IdentityPolicy, RiskAction, RiskLevel } from '../../api/types';
+import type {
+  AiPolicy,
+  AuditEntry,
+  FileShare,
+  FirewallState,
+  IdentityPolicy,
+  ListeningPort,
+  RiskAction,
+  RiskLevel,
+} from '../../api/types';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
 import ActivityLogPanel from './security/ActivityLogPanel.vue';
-import { UiBadge, UiButton, UiCheckbox, UiSegmented } from '../ui';
+import { UiBadge, UiButton, UiCheckbox, UiSegmented, UiWindowPage, UiStatGrid, UiStat, UiPanel } from '../ui';
 import type { UiTone } from '../ui';
 
 type RiskFilter = '全部' | RiskLevel;
@@ -120,21 +127,50 @@ function selectRisk(id: string) {
   eventState.value = `正在查看风险动作：${selectedRisk.value.title}`;
 }
 
+const hostPorts = ref<ListeningPort[]>([]);
+const firewall = ref<FirewallState | null>(null);
+const scanningHost = ref(false);
+const openToAll = computed(() => hostPorts.value.filter((p) => p.exposure === '公开监听').length);
+
+function portTone(risk: string): UiTone {
+  if (risk === 'high') return 'danger';
+  if (risk === 'medium') return 'warning';
+  return 'success';
+}
+
+async function rescanHost() {
+  scanningHost.value = true;
+  try {
+    const result = await apiClient.security.scanHost();
+    hostPorts.value = result.ports ?? [];
+    firewall.value = result.firewall ?? null;
+    eventState.value = `主机扫描完成：${result.ports?.length ?? 0} 个监听端口，${result.openToAll} 个对外暴露，防火墙${result.firewall?.active ? '已启用' : '未启用'}。`;
+  } catch (error) {
+    eventState.value = `主机扫描失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    scanningHost.value = false;
+  }
+}
+
 async function loadSecurityState() {
   loading.value = true;
   try {
-    const [nextIdentities, nextPolicies, nextRisks, nextShares, nextAudit] = await Promise.all([
+    const [nextIdentities, nextPolicies, nextRisks, nextShares, nextAudit, nextPorts, nextFirewall] = await Promise.all([
       apiClient.security.getIdentities(),
       apiClient.security.getAiPolicies(),
       apiClient.security.getRiskActions(),
       apiClient.security.getShares(),
       apiClient.security.getAudit(),
+      apiClient.security.getHostPorts(),
+      apiClient.security.getFirewall(),
     ]);
     identities.value = nextIdentities;
     aiPolicies.value = nextPolicies;
     riskActions.value = nextRisks;
     shareLinks.value = nextShares;
     auditEntries.value = nextAudit;
+    hostPorts.value = nextPorts;
+    firewall.value = nextFirewall;
     selectedRiskId.value = filteredRisks.value[0]?.id ?? nextRisks[0]?.id ?? '';
     eventState.value = '安全中心已连接后端，身份、AI 可见性、风险动作、分享和审计已同步。';
   } catch (error) {
@@ -263,41 +299,65 @@ onMounted(loadSecurityState);
 </script>
 
 <template>
-  <div class="security-center">
-    <section class="security-center__overview" aria-label="安全中心概览">
-      <div>
-        <ShieldCheck :size="18" />
-        <span>{{ loading ? '同步中' : '身份策略' }}</span>
-        <strong>{{ identities.length }} 组</strong>
-      </div>
-      <div>
-        <Link2Off :size="18" />
-        <span>有效外链</span>
-        <strong>{{ activeShareCount }}</strong>
-      </div>
-      <div>
-        <ShieldAlert :size="18" />
-        <span>高风险待确认</span>
-        <strong>{{ highRiskPending }}</strong>
-      </div>
-      <div>
-        <History :size="18" />
-        <span>审计记录</span>
-        <strong>{{ auditEntries.length }}</strong>
-      </div>
-    </section>
+  <UiWindowPage
+    layout="master-detail"
+    :icon="ShieldCheck"
+    title="安全中心"
+    subtitle="身份 · 权限 · 分享 · AI 可见性"
+    :status="eventState"
+  >
+    <template #toolbar>
+      <UiSegmented
+        :model-value="riskFilter"
+        :options="riskFilterOptions"
+        size="sm"
+        @change="(v) => setRiskFilter(v as RiskFilter)"
+      />
+    </template>
 
-    <section class="security-center__risks" aria-label="风险分级与确认">
-      <header>
-        <h3><Filter :size="15" /> 风险分级</h3>
-        <UiSegmented
-          :model-value="riskFilter"
-          :options="riskFilterOptions"
-          size="sm"
-          @change="(v) => setRiskFilter(v as RiskFilter)"
-        />
-      </header>
+    <template #inspector>
+      <UiPanel title="身份与权限" framed>
+        <div class="security-center__permission-grid">
+          <article v-for="identity in identities" :key="identity.role">
+            <strong>{{ identity.role }}</strong>
+            <small>{{ identity.name }}</small>
+            <UiCheckbox
+              v-model="identity.mfa"
+              label="多因素认证"
+              :disabled="busyIdentityId === (identity.id ?? identity.role)"
+              @change="recordPermissionChange(identity, '多因素认证', identity.mfa)"
+            />
+            <UiCheckbox
+              v-model="identity.fileAcl"
+              label="文件 ACL"
+              :disabled="busyIdentityId === (identity.id ?? identity.role)"
+              @change="recordPermissionChange(identity, '文件 ACL', identity.fileAcl)"
+            />
+            <UiCheckbox
+              v-model="identity.appAdmin"
+              label="应用管理"
+              :disabled="busyIdentityId === (identity.id ?? identity.role)"
+              @change="recordPermissionChange(identity, '应用管理', identity.appAdmin)"
+            />
+            <UiCheckbox
+              v-model="identity.aiTools"
+              label="Agent 工具"
+              :disabled="busyIdentityId === (identity.id ?? identity.role)"
+              @change="recordPermissionChange(identity, 'Agent 工具', identity.aiTools)"
+            />
+          </article>
+        </div>
+      </UiPanel>
+    </template>
 
+    <UiStatGrid>
+      <UiStat :icon="ShieldCheck" :label="loading ? '同步中' : '身份策略'" :value="`${identities.length} 组`" tone="primary" />
+      <UiStat :icon="Link2Off" label="有效外链" :value="activeShareCount" tone="info" />
+      <UiStat :icon="ShieldAlert" label="高风险待确认" :value="highRiskPending" :tone="highRiskPending > 0 ? 'danger' : 'success'" />
+      <UiStat :icon="History" label="审计记录" :value="auditEntries.length" tone="neutral" />
+    </UiStatGrid>
+
+    <UiPanel title="风险分级" framed>
       <div class="security-center__risk-list">
         <article
           v-for="action in filteredRisks"
@@ -333,50 +393,9 @@ onMounted(loadSecurityState);
           </div>
         </article>
       </div>
-    </section>
+    </UiPanel>
 
-    <section class="security-center__permissions" aria-label="身份与权限">
-      <header>
-        <h3><UserRoundCog :size="15" /> 身份与权限</h3>
-        <span>{{ eventState }}</span>
-      </header>
-      <div class="security-center__permission-grid">
-        <article v-for="identity in identities" :key="identity.role">
-          <strong>{{ identity.role }}</strong>
-          <small>{{ identity.name }}</small>
-          <UiCheckbox
-            v-model="identity.mfa"
-            label="多因素认证"
-            :disabled="busyIdentityId === (identity.id ?? identity.role)"
-            @change="recordPermissionChange(identity, '多因素认证', identity.mfa)"
-          />
-          <UiCheckbox
-            v-model="identity.fileAcl"
-            label="文件 ACL"
-            :disabled="busyIdentityId === (identity.id ?? identity.role)"
-            @change="recordPermissionChange(identity, '文件 ACL', identity.fileAcl)"
-          />
-          <UiCheckbox
-            v-model="identity.appAdmin"
-            label="应用管理"
-            :disabled="busyIdentityId === (identity.id ?? identity.role)"
-            @change="recordPermissionChange(identity, '应用管理', identity.appAdmin)"
-          />
-          <UiCheckbox
-            v-model="identity.aiTools"
-            label="Agent 工具"
-            :disabled="busyIdentityId === (identity.id ?? identity.role)"
-            @change="recordPermissionChange(identity, 'Agent 工具', identity.aiTools)"
-          />
-        </article>
-      </div>
-    </section>
-
-    <section class="security-center__ai" aria-label="AI 数据访问控制">
-      <header>
-        <h3><EyeOff :size="15" /> AI 数据访问控制</h3>
-        <span>{{ selectedRisk.title }}</span>
-      </header>
+    <UiPanel title="AI 数据访问控制" framed>
       <div class="security-center__policy-list">
         <article v-for="policy in aiPolicies" :key="policy.space">
           <div>
@@ -397,13 +416,9 @@ onMounted(loadSecurityState);
           />
         </article>
       </div>
-    </section>
+    </UiPanel>
 
-    <section class="security-center__shares" aria-label="分享链接安全检查">
-      <header>
-        <h3><KeyRound :size="15" /> 分享链接安全检查</h3>
-        <span>公开分享、密码、有效期</span>
-      </header>
+    <UiPanel title="分享链接安全检查" framed>
       <div class="security-center__share-list">
         <article v-for="link in shareLinks" :key="link.id" :class="{ 'security-center__share--revoked': !link.active }">
           <div>
@@ -423,13 +438,56 @@ onMounted(loadSecurityState);
           </UiButton>
         </article>
       </div>
-    </section>
+    </UiPanel>
 
-    <section class="security-center__audit" aria-label="审计与回滚">
-      <header>
-        <h3><ArchiveRestore :size="15" /> 审计与回滚</h3>
-        <span>输入、工具、影响范围、确认与撤销</span>
-      </header>
+    <UiPanel title="主机安全扫描" framed>
+      <template #actions>
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="Radar" :loading="scanningHost" @click="rescanHost">
+          重新扫描
+        </UiButton>
+      </template>
+
+      <div class="security-center__host-summary">
+        <div class="host-stat">
+          <Network :size="16" />
+          <div>
+            <strong>{{ hostPorts.length }}</strong>
+            <small>监听端口</small>
+          </div>
+        </div>
+        <div class="host-stat" :class="{ 'host-stat--warn': openToAll > 0 }">
+          <ShieldAlert :size="16" />
+          <div>
+            <strong>{{ openToAll }}</strong>
+            <small>对外暴露</small>
+          </div>
+        </div>
+        <div class="host-stat" :class="firewall?.active ? 'host-stat--ok' : 'host-stat--warn'">
+          <Flame :size="16" />
+          <div>
+            <strong>{{ firewall?.active ? '已启用' : '未启用' }}</strong>
+            <small>{{ firewall?.backend ?? '防火墙' }}</small>
+          </div>
+        </div>
+      </div>
+      <p v-if="firewall?.summary" class="security-center__host-fw">{{ firewall.summary }}</p>
+
+      <div class="security-center__port-list">
+        <article v-for="p in hostPorts" :key="`${p.protocol}-${p.address}-${p.port}`" class="port-row">
+          <div class="port-row__main">
+            <strong>{{ p.address }}:{{ p.port }}</strong>
+            <small>{{ p.protocol.toUpperCase() }} · {{ p.process || '未知进程' }}</small>
+          </div>
+          <div class="port-row__meta">
+            <UiBadge tone="neutral" variant="soft" size="sm">{{ p.exposure }}</UiBadge>
+            <UiBadge :tone="portTone(p.risk)" variant="dot" size="sm">{{ p.risk }}</UiBadge>
+          </div>
+        </article>
+        <p v-if="!hostPorts.length" class="security-center__port-empty">暂无监听端口数据，点击「重新扫描」获取。</p>
+      </div>
+    </UiPanel>
+
+    <UiPanel title="审计与回滚" framed>
       <div class="security-center__audit-list">
         <article v-for="entry in auditEntries" :key="entry.id">
           <FileWarning :size="15" />
@@ -448,123 +506,116 @@ onMounted(loadSecurityState);
           </UiButton>
         </article>
       </div>
-    </section>
+    </UiPanel>
 
-    <section class="security-center__activity" aria-label="操作记录">
-      <header>
-        <h3><History :size="15" /> 操作记录</h3>
-        <span>页面访问与有意义的操作审计</span>
-      </header>
+    <UiPanel title="操作记录" framed>
       <div class="security-center__activity-body">
         <ActivityLogPanel />
       </div>
-    </section>
+    </UiPanel>
+
     <NasFeaturePanel class="security-center__features" :modules="['security', 'files']" />
-  </div>
+  </UiWindowPage>
 </template>
 
 <style scoped>
-.security-center {
+.security-center__host-summary {
   display: grid;
-  grid-template-columns: minmax(260px, 1.1fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 12px;
-  height: 100%;
-  min-height: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.security-center__features {
-  grid-column: 1 / -1;
-}
-
-.security-center__activity {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  max-height: 360px;
-  overflow: hidden;
-}
-
-.security-center__activity-body {
-  min-height: 0;
-  padding: 10px;
-  overflow: hidden;
-}
-
-.security-center__overview,
-.security-center__risks,
-.security-center__permissions,
-.security-center__ai,
-.security-center__shares,
-.security-center__audit,
-.security-center__activity {
-  min-height: 0;
-  background: rgba(var(--surface-rgb), 0.5);
+.host-stat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(var(--surface-rgb), 0.6);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
 }
 
-.security-center__overview {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-}
-
-.security-center__overview div {
-  display: grid;
-  gap: 3px;
-  justify-items: center;
-  padding: 10px 6px;
-  color: var(--accent);
-  background: rgba(var(--surface-rgb), 0.44);
-}
-
-.security-center__overview span {
-  color: var(--text-soft);
-  font-size: 10px;
-}
-
-.security-center__overview strong {
+.host-stat strong {
+  display: block;
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: var(--fs-lg);
 }
 
-.security-center header {
+.host-stat small {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.host-stat--warn {
+  border-color: color-mix(in srgb, var(--accent-orange) 40%, var(--border));
+  color: var(--ink-orange);
+}
+
+.host-stat--ok {
+  border-color: color-mix(in srgb, var(--accent-green) 40%, var(--border));
+}
+
+.security-center__host-fw {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.security-center__port-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.port-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  min-width: 0;
-  padding: 11px 12px;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.14);
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(var(--surface-rgb), 0.6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
 }
 
-.security-center h3 {
+.port-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.port-row__main strong {
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono, monospace);
+}
+
+.port-row__main small {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.port-row__meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.security-center__port-empty {
   margin: 0;
-  color: var(--text-strong);
-  font-size: 12px;
-  white-space: nowrap;
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
 }
 
-.security-center header span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-soft);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.security-center__risks {
-  grid-row: 2 / span 2;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
+.security-center__activity-body {
+  min-height: 240px;
 }
 
 .security-center__risk-list,
@@ -575,8 +626,6 @@ onMounted(loadSecurityState);
   align-content: start;
   gap: 9px;
   min-height: 0;
-  padding: 10px;
-  overflow: auto;
 }
 
 .security-center__risk-card,
@@ -586,8 +635,8 @@ onMounted(loadSecurityState);
 .security-center__audit-list article {
   min-width: 0;
   background: rgba(var(--surface-rgb), 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.12);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
 }
 
 .security-center__risk-card {
@@ -596,6 +645,11 @@ onMounted(loadSecurityState);
   gap: 8px;
   padding: 11px;
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+}
+
+.security-center__risk-card:hover {
+  background: var(--accent-soft);
 }
 
 .security-center__risk-card--active {
@@ -614,7 +668,7 @@ onMounted(loadSecurityState);
 .security-center__share-list strong,
 .security-center__audit-list strong {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .security-center__risk-card p,
@@ -625,8 +679,8 @@ onMounted(loadSecurityState);
 .security-center__audit-list small {
   overflow-wrap: anywhere;
   color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-snug);
 }
 
 .security-center__risk-card p {
@@ -648,22 +702,11 @@ onMounted(loadSecurityState);
   justify-self: end;
 }
 
-.security-center__permissions,
-.security-center__ai,
-.security-center__shares,
-.security-center__audit {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-}
-
 .security-center__permission-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 9px;
   min-height: 0;
-  padding: 10px;
-  overflow: auto;
 }
 
 .security-center__permission-grid article {
@@ -696,27 +739,10 @@ onMounted(loadSecurityState);
 }
 
 .security-center__audit-list svg {
-  color: var(--accent-orange);
+  color: var(--ink-orange);
 }
 
-@media (max-width: 860px) {
-  .security-center {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto;
-    overflow: auto;
-  }
-
-  .security-center__overview,
-  .security-center__risks {
-    grid-column: auto;
-    grid-row: auto;
-  }
-
-  .security-center__overview,
-  .security-center__permission-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
+@container desktop-window-body (max-width: 760px) {
   .security-center__policy-list article,
   .security-center__share-list article,
   .security-center__audit-list article {

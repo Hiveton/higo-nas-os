@@ -49,7 +49,7 @@ const html = computed(() => renderMarkdown(props.source));
 }
 .markdown :deep(code) {
   padding: 1px 5px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   background: var(--surface-glass);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.92em;
@@ -59,7 +59,7 @@ const html = computed(() => renderMarkdown(props.source));
   padding: var(--space-3);
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   background: var(--surface-glass);
 }
 .markdown :deep(pre code) {

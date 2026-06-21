@@ -202,6 +202,9 @@ func (s *Service) PreviewCreateShare(ctx context.Context, key ProtocolKey, req C
 		Path:         filepath.Clean(strings.TrimSpace(req.Path)),
 		AccessLevel:  level,
 		AllowedUsers: append([]string(nil), req.AllowedUsers...),
+		WriteUsers:   append([]string(nil), req.WriteUsers...),
+		DenyUsers:    append([]string(nil), req.DenyUsers...),
+		Recycle:      req.Recycle,
 		Guest:        req.Guest || level == AccessPublic,
 		Enabled:      true,
 		CreatedAt:    s.now().UTC(),
@@ -229,6 +232,60 @@ func (s *Service) PreviewDeleteShare(ctx context.Context, id string, actor strin
 	share := cloneShare(s.shares[idx])
 	impact := fmt.Sprintf("将移除共享目录「%s」(%s)，对应客户端将无法再访问该目录。", share.Name, share.Path)
 	return s.registerPreviewLocked(pendingChange{Kind: changeShareDelete, Protocol: share.Protocol, Share: share, Risk: audit.RiskMedium, Impact: impact, Actor: actor}), nil
+}
+
+// UpsertShare creates or replaces the share for (protocol, path) in one call,
+// driving the internal preview→confirm pair. Used by the sharedfolders facade to
+// project a folder's permission table onto the protocol config (e.g. smb.conf).
+func (s *Service) UpsertShare(ctx context.Context, key ProtocolKey, req CreateShareRequest) (Share, error) {
+	if err := s.RemoveShareByPath(ctx, key, req.Path); err != nil {
+		return Share{}, err
+	}
+	preview, err := s.PreviewCreateShare(ctx, key, req)
+	if err != nil {
+		return Share{}, err
+	}
+	res, err := s.Confirm(ctx, ConfirmRequest{ConfirmationID: preview.ConfirmationID, Actor: req.Actor})
+	if err != nil {
+		return Share{}, err
+	}
+	if res.Share != nil {
+		return *res.Share, nil
+	}
+	return Share{}, nil
+}
+
+// RemoveShareByPath deletes the share at (protocol, path) if one exists; a no-op
+// otherwise.
+func (s *Service) RemoveShareByPath(ctx context.Context, key ProtocolKey, path string, actor ...string) error {
+	existing, ok := s.shareByPath(ctx, key, path)
+	if !ok {
+		return nil
+	}
+	who := ""
+	if len(actor) > 0 {
+		who = actor[0]
+	}
+	preview, err := s.PreviewDeleteShare(ctx, existing.ID, who)
+	if err != nil {
+		return err
+	}
+	_, err = s.Confirm(ctx, ConfirmRequest{ConfirmationID: preview.ConfirmationID, Actor: who})
+	return err
+}
+
+func (s *Service) shareByPath(ctx context.Context, key ProtocolKey, path string) (Share, bool) {
+	shares, err := s.Shares(ctx, key)
+	if err != nil {
+		return Share{}, false
+	}
+	target := filepath.Clean(strings.TrimSpace(path))
+	for _, sh := range shares {
+		if sh.Protocol == key && filepath.Clean(sh.Path) == target {
+			return cloneShare(sh), true
+		}
+	}
+	return Share{}, false
 }
 
 // UpdateConfig applies new settings to one protocol directly — the human user

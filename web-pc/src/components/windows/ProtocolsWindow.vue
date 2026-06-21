@@ -24,6 +24,7 @@ import {
   UiSelect,
   UiSpinner,
   UiSwitch,
+  UiWindowPage,
   useConfirm,
   useToast,
 } from '../ui';
@@ -341,26 +342,15 @@ function messageOf(error: unknown): string {
 </script>
 
 <template>
-  <div class="protocols">
-    <header class="protocols__hero">
-      <div class="protocols__hero-text">
-        <p><Network :size="13" /> SMB / NFS / WebDAV / DLNA</p>
-        <h3>共享协议</h3>
-      </div>
-      <div class="protocols__hero-meta">
-        <UiBadge tone="success" variant="soft">{{ enabledCount }} 个已启用</UiBadge>
-        <UiButton variant="ghost" size="sm" :icon-left="RefreshCcw" :disabled="loading" @click="store.loadDashboard()">
-          刷新
-        </UiButton>
-      </div>
-    </header>
+  <UiWindowPage layout="master-detail" :icon="Network" title="共享协议" subtitle="SMB / NFS / WebDAV / DLNA">
+    <template #actions>
+      <UiBadge tone="success" variant="soft">{{ enabledCount }} 个已启用</UiBadge>
+      <UiButton variant="ghost" size="sm" :icon-left="RefreshCcw" :disabled="loading" @click="store.loadDashboard()">
+        刷新
+      </UiButton>
+    </template>
 
-    <p v-if="usingFallback" class="protocols__offline">
-      <ShieldAlert :size="14" /> 暂时无法连接后端，展示的是本地占位数据，操作不会生效。
-    </p>
-
-    <div class="protocols__body">
-      <!-- Left: protocol list with inline toggles -->
+    <template #nav>
       <aside class="protocols__list">
         <article
           v-for="p in protocols"
@@ -391,9 +381,13 @@ function messageOf(error: unknown): string {
           </div>
         </article>
       </aside>
+    </template>
 
-      <!-- Right: selected protocol detail -->
-      <section v-if="selectedProtocol" class="protocols__detail">
+    <p v-if="usingFallback" class="protocols__offline">
+      <ShieldAlert :size="14" /> 暂时无法连接后端，展示的是本地占位数据，操作不会生效。
+    </p>
+
+    <section v-if="selectedProtocol" class="protocols__detail">
         <div class="detail-head">
           <div class="detail-head__title">
             <h4>{{ selectedProtocol.displayName }}</h4>
@@ -527,11 +521,10 @@ function messageOf(error: unknown): string {
         </section>
       </section>
 
-      <section v-else class="protocols__detail protocols__detail--empty">
-        <UiSpinner v-if="loading" />
-        <UiEmptyState v-else title="选择一个协议" description="从左侧选择 SMB / NFS / WebDAV / DLNA 查看详情与设置。" />
-      </section>
-    </div>
+    <section v-else class="protocols__detail protocols__detail--empty">
+      <UiSpinner v-if="loading" />
+      <UiEmptyState v-else title="选择一个协议" description="从左侧选择 SMB / NFS / WebDAV / DLNA 查看详情与设置。" />
+    </section>
 
     <!-- Audit drawer -->
     <section class="protocols__audit">
@@ -585,75 +578,29 @@ function messageOf(error: unknown): string {
         <UiButton variant="solid" tone="primary" :loading="busy" @click="submitAddShare">创建共享</UiButton>
       </template>
     </UiModal>
-  </div>
+  </UiWindowPage>
 </template>
 
 <style scoped>
-.protocols {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  height: 100%;
-  min-height: 0;
-}
-
-.protocols__hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: rgba(var(--surface-rgb), 0.55);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.protocols__hero-text p {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--fs-xs);
-}
-
-.protocols__hero-text h3 {
-  margin: 4px 0 0;
-  color: var(--text-strong);
-  font-size: var(--fs-lg);
-}
-
-.protocols__hero-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
+/* Page/hero/body layout now provided by UiWindowPage. Content styles only. */
 .protocols__offline {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   margin: 0;
   padding: var(--space-2) var(--space-3);
-  color: var(--accent-orange);
+  color: var(--ink-orange);
   background: color-mix(in srgb, var(--accent-orange) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent-orange) 30%, transparent);
   border-radius: var(--radius-md);
   font-size: var(--fs-xs);
 }
 
-.protocols__body {
-  display: grid;
-  grid-template-columns: 248px 1fr;
-  gap: var(--space-3);
-  flex: 1;
-  min-height: 0;
-}
-
 .protocols__list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  height: 100%;
   overflow: auto;
   padding-right: 2px;
 }
@@ -963,11 +910,7 @@ function messageOf(error: unknown): string {
   gap: var(--space-3);
 }
 
-@media (max-width: 760px) {
-  .protocols__body {
-    grid-template-columns: 1fr;
-  }
-
+@container desktop-window-body (max-width: 760px) {
   .config-grid {
     grid-template-columns: 1fr;
   }

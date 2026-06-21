@@ -50,6 +50,27 @@ func registerSecurity(r *registry) {
 			return c.SecurityInspect(ctx)
 		})
 
+	addTool(r, "security", "higo.security.host.ports",
+		"List the host's currently-listening TCP/UDP ports with exposure and risk.",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.SecurityHostPorts(ctx)
+		})
+
+	addTool(r, "security", "higo.security.host.firewall",
+		"Report the host firewall backend (nftables/ufw/iptables) and whether it is active.",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.SecurityHostFirewall(ctx)
+		})
+
+	addTool(r, "security", "higo.security.host.scan",
+		"Run a full host security scan: listening ports + firewall + count of ports exposed on all interfaces. Audited.",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.SecurityHostScan(ctx)
+		})
+
 	addTool(r, "security", "higo.security.identities.list",
 		"List security identities and their effective permissions.",
 		readOnly(),

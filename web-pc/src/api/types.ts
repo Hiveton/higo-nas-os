@@ -266,10 +266,74 @@ export type ProtocolShare = {
   path: string;
   accessLevel: ProtocolAccessLevel;
   allowedUsers?: string[];
+  writeUsers?: string[];
   guest: boolean;
   enabled: boolean;
   createdAt: string;
   createdBy?: string;
+};
+
+// --- shared folders (unified user/group permission + SMB/NFS) ---------------
+
+export type SharedFolderAccess = 'none' | 'read' | 'read_write' | 'deny';
+
+export type SharedFolderPermission = {
+  subjectType: 'user' | 'group';
+  subjectId: string;
+  subjectName?: string;
+  access: SharedFolderAccess;
+};
+
+export type SharedFolderService = {
+  protocol: ProtocolKey;
+  enabled: boolean;
+  guest?: boolean;
+  mountHint: string;
+};
+
+export type FolderSnapshot = {
+  name: string;
+  createdAt: string;
+};
+
+export type SharedFolderView = {
+  id: string;
+  name: string;
+  spaceId: string;
+  relPath: string;
+  dirKey: string;
+  smbEnabled: boolean;
+  nfsEnabled: boolean;
+  guest: boolean;
+  // advanced (fnOS/DSM): recycle bin / quota / encryption / Btrfs subvolume
+  recycle?: boolean;
+  quotaBytes?: number;
+  encrypted?: boolean;
+  subvolume?: boolean;
+  createdAt: string;
+  createdBy?: string;
+  absPath: string;
+  spaceName: string;
+  fileSystem?: string;
+  advancedOk?: boolean;
+  permissions: SharedFolderPermission[];
+  services: SharedFolderService[];
+  snapshots?: FolderSnapshot[];
+};
+
+export type SharedFolderDeletePreview = {
+  folderId: string;
+  name: string;
+  absPath: string;
+  impact: string;
+  confirmationId: string;
+  requiresConfirmation: boolean;
+};
+
+export type SambaSyncReport = {
+  users: { userId: string; username: string; inSamba: boolean }[];
+  missing: number;
+  note?: string;
 };
 
 export type ProtocolPreview = {
@@ -304,6 +368,140 @@ export type ProtocolConfirmResult = {
   protocol?: Protocol;
   share?: ProtocolShare;
   audit: ProtocolAuditEntry;
+};
+
+// --- iSCSI targets (LIO/targetcli) -----------------------------------------
+
+export type ISCSITarget = {
+  iqn: string;
+  luns: number;
+  acls: readonly string[];
+  portals: readonly string[];
+};
+
+export type ISCSICaps = {
+  available: boolean;
+  backend: string;
+  portal: string;
+  note?: string;
+};
+
+export type ISCSIAuditEntry = {
+  id: string;
+  event: string;
+  actor?: string;
+  target?: string;
+  action: string;
+  result: string;
+  time: string;
+};
+
+// --- virtual machines (libvirt/KVM) ----------------------------------------
+
+export type VM = {
+  name: string;
+  uuid?: string;
+  state: string; // running | shut off | paused | ...
+  vcpus: number;
+  memoryMB: number;
+  autostart: boolean;
+  persistent: boolean;
+  title?: string;
+};
+
+export type VmHostCaps = {
+  libvirtAvailable: boolean;
+  kvmAvailable: boolean;
+  version?: string;
+  hypervisor: string;
+  note?: string;
+};
+
+export type VmAuditEntry = {
+  id: string;
+  event: string;
+  actor?: string;
+  vm?: string;
+  action: string;
+  result: string;
+  time: string;
+};
+
+// --- folder sync (device/directory synchronization) ------------------------
+
+export type SyncDirection = 'mirror' | 'two-way';
+export type SyncConflictPolicy = 'newer' | 'source' | 'target' | 'manual';
+
+export type SyncRunStats = {
+  copied: number;
+  skipped: number;
+  bytes: number;
+  conflicts: number;
+};
+
+export type SyncPair = {
+  id: string;
+  name: string;
+  source: string;
+  target: string;
+  direction: SyncDirection;
+  conflictPolicy: SyncConflictPolicy;
+  includes?: readonly string[];
+  bandwidthLimit?: string;
+  enabled: boolean;
+  intervalHours?: number;
+  state: string;
+  progress: number;
+  lastRun?: string;
+  lastStats?: SyncRunStats;
+  createdAt: string;
+  createdBy?: string;
+};
+
+export type SyncConflict = {
+  id: string;
+  pairId: string;
+  relPath: string;
+  detail: string;
+  resolved: boolean;
+  resolution?: string;
+  detectedAt: string;
+};
+
+export type SyncAuditEntry = {
+  id: string;
+  event: string;
+  actor?: string;
+  pairId?: string;
+  result: string;
+  time: string;
+};
+
+// --- security host scan (listening ports + firewall) -----------------------
+
+export type ListeningPort = {
+  protocol: string;
+  address: string;
+  port: number;
+  process?: string;
+  pid?: number;
+  exposure: string; // 公开监听 | 局域网 | 仅本机
+  risk: string; // low | medium | high
+};
+
+export type FirewallState = {
+  backend: string; // nftables | ufw | iptables | none
+  active: boolean;
+  rules: number;
+  summary: string;
+  detail?: string[];
+};
+
+export type HostScanResult = {
+  ports: ListeningPort[];
+  firewall: FirewallState;
+  openToAll: number;
+  scannedAt: string;
 };
 
 export type StoragePool = {
@@ -919,6 +1117,7 @@ export type MediaItem = {
   device: string;
   album: string;
   meta: string;
+  caption?: string;
   status: string;
   accent?: string;
   hasSubtitle?: boolean;
@@ -1036,6 +1235,8 @@ export type VideoItem = {
   streamUrl: string;
   subtitleUrl?: string;
   overview: string;
+  aiOverview?: string;
+  aiTranscript?: string;
   tagline?: string;
   contentRating?: string;
   releaseDate?: string;
@@ -1236,6 +1437,7 @@ export type AiAnalysisResult = {
   place?: string;
   device?: string;
   transcript?: string;
+  techMeta?: Record<string, unknown>;
   embedded?: boolean;
 };
 
@@ -1267,6 +1469,48 @@ export type AiAnalysisReanalyzePayload =
   | { scope: 'domain'; domain: AiAnalysisDomain }
   | { scope: 'all' };
 
+export type AiAnalysisBatchResult = {
+  reset: number;
+  status: AiAnalysisStatus;
+};
+
+export type FaceCluster = {
+  label: string;
+  count: number;
+};
+
+export type FaceTrainingStats = {
+  totalSamples: number;
+  confirmedSamples: number;
+  namedPeople: number;
+  models: number;
+  activeModel?: string;
+};
+
+export type FaceModelVersion = {
+  id: string;
+  createdAt: string;
+  sampleCount: number;
+  source: string;
+  note?: string;
+  active: boolean;
+};
+
+export type FaceFrameworkStatus = {
+  embedderName: string;
+  embedderReady: boolean;
+  trainerName: string;
+  trainerReady: boolean;
+  clusters: FaceCluster[];
+  training: FaceTrainingStats;
+  models: FaceModelVersion[];
+};
+
+export type FaceLabelResult = {
+  confirmed: number;
+  faces: FaceFrameworkStatus;
+};
+
 export type AccessPolicy = {
   key: string;
   name: string;
@@ -1287,6 +1531,17 @@ export type ShareScanResult = {
   checks: string[];
 };
 
+export type TunnelInfo = {
+  backend: string; // wireguard | devstub | none
+  up: boolean;
+  interface: string;
+  publicKey: string;
+  listenPort: number;
+  address: string;
+  peers: number;
+  note?: string;
+};
+
 export type RemoteStatus = {
   enabled: boolean;
   channelEnabled?: boolean;
@@ -1302,6 +1557,7 @@ export type RemoteStatus = {
   activePolicy?: AccessPolicy;
   policies?: AccessPolicy[];
   feedback?: string;
+  tunnel?: TunnelInfo;
 };
 
 export type RemoteDevice = {

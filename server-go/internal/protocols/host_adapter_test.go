@@ -144,6 +144,32 @@ func TestHostAdapterApplySharesSMBWritesStanzas(t *testing.T) {
 	}
 }
 
+func TestHostAdapterApplySharesSMBWriteList(t *testing.T) {
+	rr := &recordingRunner{}
+	a := tempHostAdapter(t, rr.run)
+	shares := []Share{
+		{Name: "团队", Path: "/srv/team", AccessLevel: AccessAccount, AllowedUsers: []string{"alice", "bob"}, WriteUsers: []string{"alice"}, Enabled: true},
+	}
+	if err := a.Apply(context.Background(), ProtocolSMB, ProtocolConfig{}, shares); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	content, err := os.ReadFile(a.sambaInclude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	// Read-only baseline + write list promotes only alice → bob is read-only.
+	if !strings.Contains(text, "[团队]") || !strings.Contains(text, "valid users = alice bob") {
+		t.Fatalf("share missing valid users:\n%s", text)
+	}
+	if !strings.Contains(text, "read only = yes") {
+		t.Fatalf("expected read-only baseline for per-user write split:\n%s", text)
+	}
+	if !strings.Contains(text, "write list = alice") {
+		t.Fatalf("expected write list = alice:\n%s", text)
+	}
+}
+
 func TestHostAdapterApplySharesNFSWritesDropInOnly(t *testing.T) {
 	rr := &recordingRunner{}
 	a := tempHostAdapter(t, rr.run)

@@ -48,15 +48,19 @@ import HardwareCenterWindow from './components/windows/HardwareCenterWindow.vue'
 import SystemSettingsWindow from './components/windows/SystemSettingsWindow.vue';
 import RemoteAccessWindow from './components/windows/RemoteAccessWindow.vue';
 import ProtocolsWindow from './components/windows/ProtocolsWindow.vue';
+import SyncWindow from './components/windows/SyncWindow.vue';
+import VmWindow from './components/windows/VmWindow.vue';
+import IscsiWindow from './components/windows/IscsiWindow.vue';
 import TaskCenterWindow from './components/windows/TaskCenterWindow.vue';
 import FeatureModuleWindow from './components/windows/FeatureModuleWindow.vue';
 import UserCenterWindow from './components/windows/UserCenterWindow.vue';
+import ProfileSettingsWindow from './components/windows/ProfileSettingsWindow.vue';
 import { desktopStore } from './stores/desktop';
 import { authStore } from './stores/auth';
 import { settingsStore } from './stores/settings';
 import { activityStore } from './stores/activity';
 import { setLocale } from './i18n';
-import { UiToastHost, UiConfirmHost, useToast, useConfirm } from './components/ui';
+import { UiToastHost, UiConfirmHost, UiInputDialogHost, useToast, useConfirm } from './components/ui';
 import { apiClient } from './api/client';
 import { assistantStore } from './stores/assistant';
 import type { DesktopApp, DesktopSession, DesktopWindowConfig } from './api/types';
@@ -108,7 +112,7 @@ const confirm = useConfirm();
 // screen, 'authenticated' renders the desktop.
 const authPhase = computed(() => authStore.phase.value);
 // Admin-only desktop windows: non-admins get a toast instead of opening them.
-const adminOnlyWindows = new Set(['security-center']);
+const adminOnlyWindows = new Set(['security-center', 'user-center']);
 
 const defaultPinnedDockAppIds = [
   'file-manager',
@@ -192,11 +196,9 @@ const contextMenu = ref<ContextMenuState>({
   source: 'desktop',
   items: [],
 });
-const featureModuleByWindowId: Record<string, NasFeatureKey> = {
-  'virtual-machine': 'vm',
-  'sync-service': 'sync',
-  'iscsi-manager': 'iscsi',
-};
+// All feature windows now have dedicated components; this map is kept (empty)
+// as the fallback hook for any future not-yet-built window.
+const featureModuleByWindowId: Record<string, NasFeatureKey> = {};
 let launchTimer: number | undefined;
 let sessionSaveTimer: number | undefined;
 let isHydratingSession = false;
@@ -1153,7 +1155,7 @@ async function handleTopbarAction(action: string) {
     return;
   }
   if (action === 'profile') {
-    openApp('user-center');
+    openApp('profile-settings');
     return;
   }
   if (action === 'permissions') {
@@ -1218,11 +1220,19 @@ watch(
   { deep: true },
 );
 
+// handleOpenAppEvent lets any window request opening another app (e.g. the AI
+// analysis center linking to 系统设置) without threading openApp through props.
+function handleOpenAppEvent(event: Event) {
+  const id = (event as CustomEvent<string>).detail;
+  if (typeof id === 'string' && id) openApp(id);
+}
+
 onMounted(async () => {
   handleViewportResize();
   window.addEventListener('resize', handleViewportResize);
   window.addEventListener('click', handleGlobalClick);
   window.addEventListener('keydown', handleGlobalKeydown);
+  window.addEventListener('higoos:open-app', handleOpenAppEvent);
   // Detect the session before loading the desktop, so an unauthenticated user
   // never triggers a wall of 401s against the protected API surface.
   await authStore.refresh();
@@ -1244,6 +1254,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleViewportResize);
   window.removeEventListener('click', handleGlobalClick);
   window.removeEventListener('keydown', handleGlobalKeydown);
+  window.removeEventListener('higoos:open-app', handleOpenAppEvent);
   if (launchTimer) window.clearInterval(launchTimer);
   if (sessionSaveTimer) window.clearTimeout(sessionSaveTimer);
 });
@@ -1277,6 +1288,7 @@ onUnmounted(() => {
         @contextmenu-app="openDesktopAppContextMenu"
       />
 
+      <TransitionGroup name="window">
       <DesktopWindow
         v-for="window in openWindows"
         :key="window.id"
@@ -1316,7 +1328,11 @@ onUnmounted(() => {
         <AIAnalysisWindow v-else-if="window.id === 'ai-analysis'" />
         <RemoteAccessWindow v-else-if="window.id === 'remote-access'" />
         <ProtocolsWindow v-else-if="window.id === 'file-protocols'" />
+        <SyncWindow v-else-if="window.id === 'sync-service'" />
+        <VmWindow v-else-if="window.id === 'virtual-machine'" />
+        <IscsiWindow v-else-if="window.id === 'iscsi-manager'" />
         <UserCenterWindow v-else-if="window.id === 'user-center'" />
+        <ProfileSettingsWindow v-else-if="window.id === 'profile-settings'" />
         <FeatureModuleWindow
           v-else-if="featureModuleByWindowId[window.id]"
           :module-key="featureModuleByWindowId[window.id]"
@@ -1324,6 +1340,7 @@ onUnmounted(() => {
           :subtitle="window.subtitle"
         />
       </DesktopWindow>
+      </TransitionGroup>
 
       <section v-if="activeUtilityApp" class="utility-launcher" aria-label="应用启动反馈">
         <img :src="activeUtilityApp.icon" :alt="activeUtilityApp.name" />
@@ -1364,10 +1381,50 @@ onUnmounted(() => {
 
     <UiToastHost />
     <UiConfirmHost />
+    <UiInputDialogHost />
   </main>
 </template>
 
 <style scoped>
+/* Window lifecycle motion (open / close / minimize) — macOS-like pop.
+   Uses animations (not transitions) so it overrides .desktop-window's own
+   transition cleanly regardless of stylesheet order. */
+.window-enter-active {
+  animation: window-pop-in var(--duration-slow) var(--ease-spring);
+  transform-origin: 50% 60%;
+}
+.window-leave-active {
+  animation: window-pop-out var(--duration-md) var(--ease-emphasized) forwards;
+  transform-origin: 50% 60%;
+  pointer-events: none;
+}
+@keyframes window-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes window-pop-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .window-enter-active,
+  .window-leave-active {
+    animation: none;
+  }
+}
+
 .boot-splash {
   position: fixed;
   inset: 0;

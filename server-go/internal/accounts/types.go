@@ -31,6 +31,9 @@ const (
 	AccessReadOnly  SpaceAccess = "read"
 	AccessReadWrite SpaceAccess = "read_write"
 	AccessManage    SpaceAccess = "manage"
+	// AccessDeny is an explicit deny that overrides any allow the subject would
+	// otherwise inherit (e.g. via group membership) — Synology DSM's "拒绝".
+	AccessDeny SpaceAccess = "deny"
 )
 
 type User struct {

@@ -29,13 +29,39 @@ function position() {
   };
 }
 
+function menuItems(): HTMLElement[] {
+  const menu = menuRef.value;
+  if (!menu) return [];
+  return [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])')];
+}
+
 function toggle() {
   open.value = !open.value;
-  if (open.value) nextTick(position);
+  if (open.value) {
+    nextTick(() => {
+      position();
+      menuItems()[0]?.focus();
+    });
+  }
 }
 
 function close() {
   open.value = false;
+}
+
+// Roving arrow-key navigation across menu items (WAI-ARIA menu pattern).
+function onMenuKeydown(e: KeyboardEvent) {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  const items = menuItems();
+  if (!items.length) return;
+  e.preventDefault();
+  const current = items.indexOf(document.activeElement as HTMLElement);
+  let next = current;
+  if (e.key === 'ArrowDown') next = current < items.length - 1 ? current + 1 : 0;
+  else if (e.key === 'ArrowUp') next = current > 0 ? current - 1 : items.length - 1;
+  else if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = items.length - 1;
+  items[next]?.focus();
 }
 
 useDismiss({ ref: menuRef, active: open, onDismiss: close });
@@ -66,6 +92,7 @@ defineExpose({ close });
             minWidth: matchWidth ? `${coords.width}px` : undefined,
           }"
           @click="trigger === 'click' ? close() : undefined"
+          @keydown="onMenuKeydown"
         >
           <slot :close="close" />
         </div>

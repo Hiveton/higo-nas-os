@@ -142,7 +142,7 @@ async function submit() {
   border: 1px solid rgba(255, 255, 255, 0.22);
   box-shadow: 0 24px 60px rgba(2, 6, 23, 0.5);
   backdrop-filter: blur(26px) saturate(160%);
-  color: #f8fafc;
+  color: var(--text-inverse);
 }
 
 .login__brand {
@@ -153,19 +153,19 @@ async function submit() {
 }
 
 .login__logo {
-  color: #7dd3fc;
+  color: var(--accent-cyan);
 }
 
 .login__title {
   margin: 0;
-  font-size: 24px;
+  font-size: var(--fs-2xl);
   font-weight: 700;
   letter-spacing: 0.5px;
 }
 
 .login__subtitle {
   margin: 2px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: rgba(248, 250, 252, 0.7);
 }
 
@@ -176,7 +176,7 @@ async function submit() {
 }
 
 .login__label {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: rgba(248, 250, 252, 0.82);
   margin-top: 6px;
@@ -187,13 +187,13 @@ async function submit() {
   align-items: center;
   justify-content: space-between;
   margin: 8px 0 4px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .login__error {
   margin: 2px 0 6px;
   font-size: 12.5px;
-  color: #fca5a5;
+  color: var(--accent-red);
 }
 
 .login__hint {

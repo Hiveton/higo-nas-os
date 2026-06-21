@@ -90,7 +90,8 @@ svg {
   --surface-dark-glass: rgba(5, 9, 15, 0.88);
   --border: rgba(151, 176, 206, 0.24);
   --border-strong: rgba(178, 202, 231, 0.34);
-  --shadow-window: 0 34px 96px rgba(0, 0, 0, 0.66), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+  --shadow-window: 0 36px 90px rgba(0, 0, 0, 0.62), 0 10px 30px rgba(0, 0, 0, 0.5),
+    0 1px 0 rgba(255, 255, 255, 0.1) inset;
   --dark-panel: rgba(7, 11, 18, 0.9);
   --dark-panel-soft: rgba(10, 16, 26, 0.84);
   --dark-panel-strong: rgba(4, 8, 14, 0.95);
@@ -103,6 +104,13 @@ svg {
   --control-bg-strong: rgba(18, 28, 44, 0.72);
   --control-border: rgba(160, 184, 214, 0.2);
   --surface-rgb: 32, 46, 66;
+  /* Lightened ink tones — legible on the dark soft tints (see tokens.css). */
+  --ink-blue: #6db8ff;
+  --ink-green: #43d18a;
+  --ink-orange: #f3b24d;
+  --ink-red: #ff8585;
+  --ink-cyan: #4fd6e6;
+  --ink-violet: #a99bff;
   background-color: #05080d;
 }
 
@@ -133,11 +141,19 @@ svg {
     --surface-dark-glass: rgba(5, 9, 15, 0.88);
     --border: rgba(151, 176, 206, 0.24);
     --border-strong: rgba(178, 202, 231, 0.34);
-    --shadow-window: 0 34px 96px rgba(0, 0, 0, 0.66), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+    --shadow-window: 0 36px 90px rgba(0, 0, 0, 0.62), 0 10px 30px rgba(0, 0, 0, 0.5),
+    0 1px 0 rgba(255, 255, 255, 0.1) inset;
     --control-bg: rgba(14, 22, 36, 0.6);
     --control-bg-strong: rgba(18, 28, 44, 0.72);
     --control-border: rgba(160, 184, 214, 0.2);
     --surface-rgb: 32, 46, 66;
+    /* Lightened ink tones — legible on the dark soft tints (see tokens.css). */
+    --ink-blue: #6db8ff;
+    --ink-green: #43d18a;
+    --ink-orange: #f3b24d;
+    --ink-red: #ff8585;
+    --ink-cyan: #4fd6e6;
+    --ink-violet: #a99bff;
     background-color: #05080d;
   }
 
@@ -1182,6 +1198,9 @@ svg {
   .desktop-window__body .remote-access__main.remote-access__main,
   .desktop-window__body .security-center.security-center,
   .desktop-window__body .system-settings.system-settings,
+  .desktop-window__body .sf.sf,
+  .desktop-window__body .sync.sync,
+  .desktop-window__body .uc.uc,
   .desktop-window__body .device-monitor.device-monitor {
     grid-template-columns: minmax(0, 1fr) !important;
   }
@@ -1198,6 +1217,9 @@ svg {
     .security-center,
     .storage-monitor,
     .system-settings,
+    .sf,
+    .sync,
+    .uc,
     .device-monitor
   ) {
     height: auto !important;
@@ -1322,9 +1344,7 @@ svg {
     .download-center__categories,
     .file-manager__nav-controls,
     .docker-resource-tabs,
-    .docker-detail-tabs,
-    .system-settings__nav,
-    .music-app__nav
+    .docker-detail-tabs
   ) {
     display: flex !important;
     flex-flow: row nowrap !important;
@@ -1347,9 +1367,7 @@ svg {
     .download-center__categories,
     .file-manager__nav-controls,
     .docker-resource-tabs,
-    .docker-detail-tabs,
-    .system-settings__nav,
-    .music-app__nav
+    .docker-detail-tabs
   )::-webkit-scrollbar {
     display: none;
   }
@@ -1362,9 +1380,7 @@ svg {
     .download-center__categories,
     .file-manager__nav-controls,
     .docker-resource-tabs,
-    .docker-detail-tabs,
-    .system-settings__nav,
-    .music-app__nav
+    .docker-detail-tabs
   ) > * {
     flex: 0 0 auto !important;
     width: auto !important;
@@ -1504,6 +1520,84 @@ svg {
     display: flex;
     flex-wrap: wrap;
   }
+}
+
+/* macOS-style off-canvas sidebar drawer. When a narrow window has a left nav,
+   DesktopWindow tags its body `--drawer` (+ `--drawer-open` while open) and shows
+   a titlebar hamburger. The left nav slides off-canvas instead of stacking full
+   width on top of the content. Must override the narrow-width container-query
+   rules above (hence !important + later source order). */
+.desktop-window__body--drawer {
+  position: relative;
+}
+.desktop-window__body--drawer :is(
+  .ui-window-page__nav,
+  .file-manager__sidebar,
+  .app-center__catalog,
+  .music-app__sidebar,
+  .photo-media__sidebar,
+  .system-settings__sidebar,
+  .download-center__control,
+  .docker-sidebar,
+  .backup-sync__jobs,
+  .video-sidebar,
+  .ai-window__sessions,
+  .agent-window__presets,
+  .protocols__list,
+  .uc__rail,
+  .sf__list,
+  .sync__list,
+  .device-monitor__metrics
+) {
+  position: absolute !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: min(300px, 82%) !important;
+  max-width: 82% !important;
+  max-height: none !important;
+  margin: 0 !important;
+  overflow-y: auto !important;
+  transform: translateX(-103%);
+  transition: transform var(--duration-md) var(--ease-out);
+  z-index: 6;
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  box-shadow: var(--shadow-lg);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--blur-lg)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(var(--glass-saturate));
+}
+.desktop-window__body--drawer-open {
+  overflow: hidden !important; /* freeze content scroll so the drawer overlay stays put */
+}
+.desktop-window__body--drawer-open :is(
+  .ui-window-page__nav,
+  .file-manager__sidebar,
+  .app-center__catalog,
+  .music-app__sidebar,
+  .photo-media__sidebar,
+  .system-settings__sidebar,
+  .download-center__control,
+  .docker-sidebar,
+  .backup-sync__jobs,
+  .video-sidebar,
+  .ai-window__sessions,
+  .agent-window__presets,
+  .protocols__list,
+  .uc__rail,
+  .sf__list,
+  .sync__list,
+  .device-monitor__metrics
+) {
+  transform: translateX(0);
+}
+.desktop-window__drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: rgba(10, 28, 48, 0.3);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
 }
 
 .window__title,

@@ -81,10 +81,13 @@ function onClick(event: MouseEvent) {
     background var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out),
     box-shadow var(--duration-fast) var(--ease-out);
-  /* tone resolves to a single accent var consumed by all variants */
+  /* tone resolves to a single accent var consumed by all variants.
+     --btn-ink is a darker text tone for the light-background variants
+     (soft/ghost/outline) so small labels stay legible (~4.5:1). */
   --btn-accent: var(--accent);
   --btn-accent-deep: var(--accent-deep);
   --btn-soft: var(--accent-soft);
+  --btn-ink: var(--ink-blue);
 }
 
 /* Sizes */
@@ -113,31 +116,37 @@ function onClick(event: MouseEvent) {
   --btn-accent: var(--text-strong);
   --btn-accent-deep: var(--text);
   --btn-soft: var(--surface-glass);
+  --btn-ink: var(--text);
 }
 .ui-btn--primary {
   --btn-accent: var(--accent);
   --btn-accent-deep: var(--accent-deep);
   --btn-soft: var(--accent-soft);
+  --btn-ink: var(--ink-blue);
 }
 .ui-btn--success {
   --btn-accent: var(--accent-green);
   --btn-accent-deep: var(--accent-green);
   --btn-soft: var(--accent-green-soft);
+  --btn-ink: var(--ink-green);
 }
 .ui-btn--warning {
   --btn-accent: var(--accent-orange);
   --btn-accent-deep: var(--accent-orange);
   --btn-soft: var(--accent-orange-soft);
+  --btn-ink: var(--ink-orange);
 }
 .ui-btn--danger {
   --btn-accent: var(--accent-red);
   --btn-accent-deep: var(--accent-red);
   --btn-soft: var(--accent-red-soft);
+  --btn-ink: var(--ink-red);
 }
 .ui-btn--info {
   --btn-accent: var(--accent-cyan);
   --btn-accent-deep: var(--accent-cyan);
   --btn-soft: rgba(22, 199, 221, 0.13);
+  --btn-ink: var(--ink-cyan);
 }
 
 /* Variants */
@@ -153,17 +162,17 @@ function onClick(event: MouseEvent) {
 }
 
 .ui-btn--soft {
-  color: var(--btn-accent);
+  color: var(--btn-ink);
   background: var(--btn-soft);
 }
 
 .ui-btn--ghost {
-  color: var(--btn-accent);
+  color: var(--btn-ink);
   background: transparent;
 }
 
 .ui-btn--outline {
-  color: var(--btn-accent);
+  color: var(--btn-ink);
   background: transparent;
   border-color: var(--btn-accent);
 }
@@ -190,8 +199,12 @@ function onClick(event: MouseEvent) {
   opacity: 0.55;
 }
 
-.ui-btn__label {
+/* `.ui-btn .ui-btn__label` (two classes) outranks stray `.container span`
+   rules in window stylesheets, so a button's label always keeps the button's
+   own color instead of being greyed out by a generic descendant selector. */
+.ui-btn .ui-btn__label {
   overflow: hidden;
+  color: inherit;
   text-overflow: ellipsis;
 }
 </style>

@@ -331,6 +331,7 @@ func collectFileInfos(node files.FileNode, out *[]steward.FileInfo) {
 		*out = append(*out, steward.FileInfo{
 			ID: node.ID, Name: node.Name, Path: node.Path, Type: node.Type,
 			Space: node.Space, SizeBytes: node.SizeBytes, Modified: node.Modified,
+			Tags: node.Tags, Summary: node.Summary,
 		})
 	}
 	for _, child := range node.Children {
@@ -563,6 +564,42 @@ func (a *API) securityAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	platform.WriteJSON(w, r, http.StatusOK, mapSecurityAudit(entries))
+}
+
+func (a *API) securityHostPorts(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	ports, err := a.security.ScanPorts(r.Context())
+	if err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "security_ports_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, ports)
+}
+
+func (a *API) securityHostFirewall(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	fw, err := a.security.Firewall(r.Context())
+	if err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "security_firewall_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, fw)
+}
+
+func (a *API) securityHostScan(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	result, err := a.security.Scan(r.Context(), actorFromRequest(r))
+	if err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "security_scan_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, result)
 }
 
 func (a *API) securityAuditByID(w http.ResponseWriter, r *http.Request) {

@@ -41,7 +41,19 @@ import DockerRegistryPanel from './docker/DockerRegistryPanel.vue';
 import DockerNetworksPanel from './docker/DockerNetworksPanel.vue';
 import DockerVolumesPanel from './docker/DockerVolumesPanel.vue';
 import CreateContainerDialog from './docker/CreateContainerDialog.vue';
-import { UiBadge, UiButton, UiCheckbox, UiEmptyState, UiInput, UiModal, UiSlider, UiTabs, useConfirm } from '../ui';
+import {
+  UiBadge,
+  UiButton,
+  UiCheckbox,
+  UiEmptyState,
+  UiInput,
+  UiModal,
+  UiNavRail,
+  UiSlider,
+  UiTabs,
+  UiWindowPage,
+  useConfirm,
+} from '../ui';
 import type { UiTone } from '../ui';
 import './docker/docker-window.css';
 
@@ -1080,58 +1092,68 @@ onUnmounted(() => {
 
 <template>
   <div class="docker-window" :class="{ 'docker-window--dark': isDarkTheme }">
-    <aside class="docker-sidebar" aria-label="Docker 资源">
-      <header class="docker-sidebar__header">
-        <h3>
-          <svg class="docker-glyph" viewBox="0 0 1024 1024" aria-hidden="true">
-            <path :d="dockerIconPath" />
-          </svg>
-          Docker
-        </h3>
+    <UiWindowPage
+      layout="master-detail"
+      title="Docker"
+      :subtitle="resourceTab"
+      :status="actionState"
+    >
+      <template #actions>
         <UiButton variant="soft" size="sm" :icon-left="RefreshCw" :disabled="loading" @click="loadDockerRuntime()">刷新</UiButton>
-      </header>
+      </template>
 
-      <nav class="docker-resource-tabs" aria-label="资源类型">
-        <button
-          v-for="tab in resourceTabs"
-          :key="tab"
-          type="button"
-          :class="{ 'is-active': resourceTab === tab }"
-          @click="resourceTab = tab"
-        >
-          <span>
-            <Boxes v-if="tab === '概览'" :size="16" />
-            <Container v-else-if="tab === '容器'" :size="16" />
-            <Boxes v-else-if="tab === 'Compose'" :size="16" />
-            <HardDrive v-else-if="tab === '本地镜像'" :size="16" />
-            <ImageDown v-else-if="tab === '镜像仓库'" :size="16" />
-            <Network v-else-if="tab === '网络'" :size="16" />
-            <Database v-else :size="16" />
-            {{ tab }}
-          </span>
-          <b>{{ resourceCounts[tab] }}</b>
-        </button>
-      </nav>
+      <template #nav>
+        <UiNavRail title="Docker">
+          <template #header>
+            <h3 class="docker-nav-title">
+              <svg class="docker-glyph" viewBox="0 0 1024 1024" aria-hidden="true">
+                <path :d="dockerIconPath" />
+              </svg>
+              Docker
+            </h3>
+          </template>
 
-      <section class="docker-sidebar__block docker-stack-list">
-        <h3><Boxes :size="14" /> Compose 栈</h3>
-        <button
-          v-for="stack in stackScopes"
-          :key="stack.name"
-          type="button"
-          :class="{ 'is-active': selectedStackName === stack.name }"
-          @click="selectStack(stack.name)"
-        >
-          <span>
-            <strong>{{ stack.name === 'all' ? '全部容器' : stack.name }}</strong>
-            <small>{{ stack.services }} 个容器 · {{ stack.status }}</small>
-          </span>
-          <b>{{ stack.name === 'all' ? runningCount : stack.services }}</b>
-        </button>
-      </section>
-    </aside>
+          <nav class="docker-resource-tabs" aria-label="资源类型">
+            <button
+              v-for="tab in resourceTabs"
+              :key="tab"
+              type="button"
+              :class="{ 'is-active': resourceTab === tab }"
+              @click="resourceTab = tab"
+            >
+              <span>
+                <Boxes v-if="tab === '概览'" :size="16" />
+                <Container v-else-if="tab === '容器'" :size="16" />
+                <Boxes v-else-if="tab === 'Compose'" :size="16" />
+                <HardDrive v-else-if="tab === '本地镜像'" :size="16" />
+                <ImageDown v-else-if="tab === '镜像仓库'" :size="16" />
+                <Network v-else-if="tab === '网络'" :size="16" />
+                <Database v-else :size="16" />
+                {{ tab }}
+              </span>
+              <b>{{ resourceCounts[tab] }}</b>
+            </button>
+          </nav>
 
-    <main class="docker-main">
+          <section class="docker-sidebar__block docker-stack-list">
+            <h3><Boxes :size="14" /> Compose 栈</h3>
+            <button
+              v-for="stack in stackScopes"
+              :key="stack.name"
+              type="button"
+              :class="{ 'is-active': selectedStackName === stack.name }"
+              @click="selectStack(stack.name)"
+            >
+              <span>
+                <strong>{{ stack.name === 'all' ? '全部容器' : stack.name }}</strong>
+                <small>{{ stack.services }} 个容器 · {{ stack.status }}</small>
+              </span>
+              <b>{{ stack.name === 'all' ? runningCount : stack.services }}</b>
+            </button>
+          </section>
+        </UiNavRail>
+      </template>
+
       <DockerOverviewPanel
         v-if="resourceTab === '概览'"
         :containers="containers"
@@ -1357,32 +1379,34 @@ onUnmounted(() => {
         @select="(name) => selectedVolumeName = name"
         @remove="(name) => removeVolume(name)"
       />
-    </main>
 
-    <aside class="docker-inspector" aria-label="Docker 状态">
-      <header>
-        <h3><ListFilter :size="15" /> 状态</h3>
-        <span>{{ actionState }}</span>
-      </header>
-      <section>
-        <strong>容器</strong>
-        <p>{{ runningCount }} 运行 · {{ stoppedCount }} 停止 · {{ restartingCount }} 重启中</p>
-      </section>
-      <section>
-        <strong>资源</strong>
-        <p>{{ images.length }} 镜像 · {{ volumes.length }} 卷 · {{ networks.length }} 网络 · {{ allExposedPorts.length }} 端口</p>
-      </section>
-      <section v-if="selectedContainer">
-        <strong>当前容器</strong>
-        <p>{{ selectedContainer.name }}</p>
-        <p>{{ selectedContainer.status }} · {{ selectedContainer.memoryText }}</p>
-      </section>
-      <section v-if="selectedVolume">
-        <strong>当前卷</strong>
-        <p>{{ selectedVolume.name }}</p>
-        <p>{{ selectedVolume.mountpoint || selectedVolume.driver }}</p>
-      </section>
-    </aside>
+      <template #inspector>
+        <aside class="docker-inspector" aria-label="Docker 状态">
+          <header>
+            <h3><ListFilter :size="15" /> 状态</h3>
+            <span>{{ actionState }}</span>
+          </header>
+          <section>
+            <strong>容器</strong>
+            <p>{{ runningCount }} 运行 · {{ stoppedCount }} 停止 · {{ restartingCount }} 重启中</p>
+          </section>
+          <section>
+            <strong>资源</strong>
+            <p>{{ images.length }} 镜像 · {{ volumes.length }} 卷 · {{ networks.length }} 网络 · {{ allExposedPorts.length }} 端口</p>
+          </section>
+          <section v-if="selectedContainer">
+            <strong>当前容器</strong>
+            <p>{{ selectedContainer.name }}</p>
+            <p>{{ selectedContainer.status }} · {{ selectedContainer.memoryText }}</p>
+          </section>
+          <section v-if="selectedVolume">
+            <strong>当前卷</strong>
+            <p>{{ selectedVolume.name }}</p>
+            <p>{{ selectedVolume.mountpoint || selectedVolume.driver }}</p>
+          </section>
+        </aside>
+      </template>
+    </UiWindowPage>
 
     <CreateContainerDialog
       :open="createDialogOpen"

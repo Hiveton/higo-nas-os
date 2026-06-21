@@ -145,6 +145,11 @@ func aclSubject(spec GrantSpec) string {
 
 func aclPerms(access SpaceAccess) string {
 	switch access {
+	case AccessDeny:
+		// A named-user/group ACL entry with no permissions denies the subject —
+		// POSIX ACL evaluates the most specific matching entry, so this overrides
+		// any access the subject would inherit from the owning/named group.
+		return "---"
 	case AccessReadOnly:
 		return "rX" // read + traverse dirs only
 	default: // read_write / manage

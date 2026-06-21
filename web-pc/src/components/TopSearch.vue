@@ -75,7 +75,21 @@ watch(query, (q) => {
   debounce = setTimeout(() => runSearch(trimmed), 250);
 });
 
+// indexEnabled is fetched lazily on first search; false means semantic search is
+// running on the keyword fallback (no pgvector DB / embedding model configured).
+const indexEnabled = ref<boolean | null>(null);
+
 async function runSearch(q: string) {
+  if (indexEnabled.value === null) {
+    void apiClient.aiAnalysis
+      .getStatus()
+      .then((s) => {
+        indexEnabled.value = s.indexEnabled;
+      })
+      .catch(() => {
+        indexEnabled.value = null;
+      });
+  }
   try {
     const result = await apiClient.assistant.semanticSearch({ query: q, limit: 8 });
     if (query.value.trim() === q) {
@@ -256,6 +270,9 @@ defineExpose({ focus: () => inputRef.value?.focus() });
 
         <p v-if="loading" class="topsearch__hint">搜索中…</p>
         <p v-else-if="rows.length <= 1" class="topsearch__hint">回车让 AI 助手回答，或继续输入</p>
+        <p v-if="!loading && indexEnabled === false" class="topsearch__hint">
+          当前为关键字匹配。启用语义检索需配置数据库与向量模型（系统设置 → 模型策略）。
+        </p>
       </template>
     </div>
   </label>
@@ -272,8 +289,8 @@ defineExpose({ focus: () => inputRef.value?.focus() });
   padding: 0 10px 0 13px;
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.62);
-  border: 1px solid rgba(93, 133, 164, 0.18);
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 .topsearch input {
@@ -292,12 +309,12 @@ defineExpose({ focus: () => inputRef.value?.focus() });
   min-width: 36px;
   padding: 3px 7px;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-family: inherit;
   text-align: center;
   background: rgba(var(--surface-rgb), 0.72);
-  border: 1px solid rgba(100, 136, 166, 0.18);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
 }
 .topsearch__panel {
   position: absolute;
@@ -311,7 +328,7 @@ defineExpose({ focus: () => inputRef.value?.focus() });
   padding: 10px;
   overflow-y: auto;
   background: rgba(var(--surface-rgb), 0.94);
-  border: 1px solid rgba(100, 136, 166, 0.2);
+  border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(20px) saturate(1.2);
@@ -319,8 +336,8 @@ defineExpose({ focus: () => inputRef.value?.focus() });
 .topsearch__group {
   margin: 0 0 2px;
   color: var(--text-soft);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
 }
 .topsearch__row {
   display: flex;
@@ -334,10 +351,14 @@ defineExpose({ focus: () => inputRef.value?.focus() });
   border: 0;
   border-radius: 9px;
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.topsearch__row:hover {
+  background: var(--accent-soft);
 }
 .topsearch__row.is-active {
   background: rgba(var(--surface-rgb), 0.6);
-  box-shadow: inset 0 0 0 1px rgba(100, 136, 166, 0.2);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 .topsearch__row svg {
   flex: 0 0 auto;
@@ -346,7 +367,7 @@ defineExpose({ focus: () => inputRef.value?.focus() });
 .topsearch__label {
   flex: 0 1 auto;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -355,15 +376,15 @@ defineExpose({ focus: () => inputRef.value?.focus() });
   padding: 1px 7px;
   color: var(--accent);
   font-size: 10px;
-  font-weight: 700;
-  background: var(--accent-soft, rgba(19, 136, 255, 0.12));
-  border-radius: 999px;
+  font-weight: var(--fw-bold);
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
 }
 .topsearch__sub {
   flex: 1 1 auto;
   overflow: hidden;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   text-align: right;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -372,6 +393,6 @@ defineExpose({ focus: () => inputRef.value?.focus() });
   margin: 4px 0 0;
   padding: 0 9px;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 </style>

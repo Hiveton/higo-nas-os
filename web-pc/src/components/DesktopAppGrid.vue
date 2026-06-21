@@ -193,21 +193,26 @@ onUnmounted(() => {
   align-content: start;
   gap: 6px;
   padding: 6px 6px 5px;
-  color: rgba(255, 255, 255, 0.96);
+  color: var(--text-inverse);
   text-align: center;
-  text-shadow: 0 1px 3px rgba(9, 34, 58, 0.54);
+  /* Multi-layer dark halo keeps white labels legible on ANY wallpaper
+     (incl. light ones), the macOS desktop-icon approach. */
+  text-shadow:
+    0 0 2px rgba(9, 34, 58, 0.55),
+    0 1px 2px rgba(9, 34, 58, 0.78),
+    0 1px 7px rgba(9, 34, 58, 0.45);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   cursor: grab;
   pointer-events: auto;
   touch-action: none;
   user-select: none;
   transition:
-    background 150ms ease,
-    border-color 150ms ease,
-    box-shadow 150ms ease,
-    transform 150ms ease;
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
 }
 
 .desktop-app:hover,
@@ -253,12 +258,12 @@ onUnmounted(() => {
   padding: 0 5px;
   color: var(--text-inverse);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   line-height: 18px;
   text-shadow: none;
-  background: linear-gradient(135deg, #ff4d63, #ef4444);
+  background: linear-gradient(135deg, var(--badge-danger), var(--accent-red));
   border: 1px solid rgba(255, 255, 255, 0.82);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .desktop-app__name {
@@ -266,8 +271,8 @@ onUnmounted(() => {
   width: 100%;
   min-height: 30px;
   overflow: hidden;
-  font-size: 12px;
-  font-weight: 760;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   line-height: 1.15;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -320,7 +325,7 @@ onUnmounted(() => {
   }
 
   .desktop-app__name {
-    font-size: 11px;
+    font-size: var(--fs-2xs);
   }
 }
 </style>

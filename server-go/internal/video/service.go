@@ -64,6 +64,20 @@ type Service struct {
 	activeDVR    map[string]*exec.Cmd
 	dvrOnce      sync.Once
 	runner       *tasks.Manager
+	// changeNotify is an optional near-real-time trigger for the AI analysis
+	// engine, invoked after a scan changes the item set. Defined locally (no
+	// import of the analysis package) to avoid an import cycle. nil-safe.
+	changeNotify func()
+}
+
+// SetChangeNotifier wires the near-real-time analysis trigger. Pass nil to
+// disable. Safe to call once at construction.
+func (s *Service) SetChangeNotifier(fn func()) { s.changeNotify = fn }
+
+func (s *Service) notifyChange() {
+	if s.changeNotify != nil {
+		s.changeNotify()
+	}
 }
 
 type snapshot struct {
@@ -404,6 +418,7 @@ func (s *Service) Scan(ctx context.Context) (ScanResult, error) {
 	if err != nil {
 		return ScanResult{}, err
 	}
+	s.notifyChange()
 	return ScanResult{
 		ID:        "video-scan-" + now.Format("20060102150405"),
 		State:     "done",
@@ -454,11 +469,13 @@ func (s *Service) Item(ctx context.Context, id string) (Item, error) {
 }
 
 // ApplyAnalysis writes the result of a background AI analysis pass back onto a
-// video item: an LLM/vision overview, derived tags, and ffprobe technical
-// metadata. It accepts plain values so the video package never depends on the
-// analysis engine. Empty values are left untouched so a partial (degraded) pass
-// does not clobber existing metadata.
-func (s *Service) ApplyAnalysis(id, overview string, tags []string, container, codec, resolution string, durationSeconds int) error {
+// video item: an LLM/vision overview, ASR transcript, derived tags, and ffprobe
+// technical metadata. It accepts plain values so the video package never depends
+// on the analysis engine. The AI overview is kept in a dedicated field so it does
+// not clobber a scraped synopsis; the front-end shows both with distinct sources.
+// Empty values are left untouched so a partial (degraded) pass does not clobber
+// existing metadata.
+func (s *Service) ApplyAnalysis(id, overview, transcript string, tags []string, container, codec, resolution string, durationSeconds int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.items {
@@ -466,7 +483,15 @@ func (s *Service) ApplyAnalysis(id, overview string, tags []string, container, c
 			continue
 		}
 		if ov := strings.TrimSpace(overview); ov != "" {
-			s.items[i].Overview = ov
+			s.items[i].AIOverview = ov
+			// Fall back to the main overview field when no scraped synopsis exists,
+			// so AI analysis still populates the primary description.
+			if strings.TrimSpace(s.items[i].Overview) == "" {
+				s.items[i].Overview = ov
+			}
+		}
+		if tr := strings.TrimSpace(transcript); tr != "" {
+			s.items[i].AITranscript = tr
 		}
 		if len(tags) > 0 {
 			s.items[i].Tags = mergeUniqueStrings(s.items[i].Tags, tags)
@@ -569,12 +594,19 @@ func (s *Service) CreateScrapeTask(ctx context.Context, request CreateTaskReques
 
 func (s *Service) CreateSubtitleTask(ctx context.Context, request CreateTaskRequest) (Task, error) {
 	return s.createItemTask(ctx, "subtitle", request.ItemID, "", func(item *Item) string {
-		if item.SubtitleURL == "" {
-			item.Status = "未发现旁路字幕"
-			return "未发现同名 srt/vtt 字幕，可放入同目录后重新扫描。"
+		if item.SubtitleURL != "" {
+			item.Status = "字幕已关联"
+			return "已关联同名旁路字幕。"
 		}
-		item.Status = "字幕已关联"
-		return "已关联同名旁路字幕。"
+		// No sidecar subtitle: fall back to the AI speech transcript produced by the
+		// global analysis engine (ASR). The transcript has no cue timings, so it is
+		// surfaced as a viewable transcript rather than a timed .srt track.
+		if strings.TrimSpace(item.AITranscript) != "" {
+			item.Status = "AI 转写可用"
+			return "未发现旁路字幕，已改用 AI 语音转写（见详情 → AI 分析）。"
+		}
+		item.Status = "未发现旁路字幕"
+		return "未发现同名 srt/vtt 字幕。可放入同目录后重新扫描，或配置语音模型后对该视频运行「AI 分析」自动转写。"
 	})
 }
 

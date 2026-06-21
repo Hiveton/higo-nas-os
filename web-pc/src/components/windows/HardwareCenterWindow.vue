@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { Cpu, HardDrive, LayoutGrid, Network, Thermometer, RefreshCw } from 'lucide-vue-next';
-import { UiTabs, UiBadge, UiButton } from '../ui';
+import { UiTabs, UiBadge, UiButton, UiWindowPage } from '../ui';
 import type { TabItem } from '../ui';
 import { hardwareStore, loadInventory } from '../../stores/hardware';
 import { monitoringStore } from '../../stores/monitoring';
@@ -64,30 +64,29 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="hardware-center">
-    <header class="hardware-center__header">
-      <div>
-        <h3><LayoutGrid :size="18" /> 硬件中心</h3>
-        <p>{{ inventory?.host?.hostname || '硬件控制台' }} · 清单 + 实时指标 + 硬盘健康</p>
-      </div>
-      <div class="hardware-center__header-meta">
-        <UiBadge v-if="adapterLabel" :tone="adapterTone" size="sm">{{ adapterLabel }}</UiBadge>
-        <UiButton size="sm" tone="neutral" variant="ghost" :icon-left="RefreshCw" :disabled="hardwareStore.loading.value" @click="refresh">
-          刷新
-        </UiButton>
-      </div>
-    </header>
+  <UiWindowPage
+    layout="dashboard"
+    :icon="LayoutGrid"
+    title="硬件中心"
+    :subtitle="`${inventory?.host?.hostname || '硬件控制台'} · 清单 + 实时指标 + 硬盘健康`"
+  >
+    <template #actions>
+      <UiBadge v-if="adapterLabel" :tone="adapterTone" size="sm">{{ adapterLabel }}</UiBadge>
+      <UiButton size="sm" tone="neutral" variant="ghost" :icon-left="RefreshCw" :disabled="hardwareStore.loading.value" @click="refresh">
+        刷新
+      </UiButton>
+    </template>
 
-    <div class="hardware-center__body">
+    <template #toolbar>
       <UiTabs v-model="activeTab" :tabs="tabs" variant="underline" size="sm" overflow="menu" />
+    </template>
 
-      <div class="hardware-center__panel">
-        <OverviewPanel v-if="activeTab === 'overview'" :inventory="inventory" :live="live" />
-        <CpuMemoryPanel v-else-if="activeTab === 'compute'" :inventory="inventory" :live="live" />
-        <StorageSmartPanel v-else-if="activeTab === 'storage'" />
-        <NetworkPanel v-else-if="activeTab === 'network'" :inventory="inventory" :live="live" />
-        <SensorsPanel v-else-if="activeTab === 'sensors'" :inventory="inventory" :live="live" />
-      </div>
+    <div class="hardware-center__panel">
+      <OverviewPanel v-if="activeTab === 'overview'" :inventory="inventory" :live="live" />
+      <CpuMemoryPanel v-else-if="activeTab === 'compute'" :inventory="inventory" :live="live" />
+      <StorageSmartPanel v-else-if="activeTab === 'storage'" />
+      <NetworkPanel v-else-if="activeTab === 'network'" :inventory="inventory" :live="live" />
+      <SensorsPanel v-else-if="activeTab === 'sensors'" :inventory="inventory" :live="live" />
     </div>
-  </div>
+  </UiWindowPage>
 </template>

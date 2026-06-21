@@ -418,10 +418,15 @@ func (s *Service) saveLocked() error {
 
 func (s *Service) seed() {
 	now := s.now().UTC()
+	// Seed suggestions are illustrative examples shown before the first real
+	// analysis. They carry no Operations (cannot be confirmed) and are replaced by
+	// real, operation-bearing suggestions on the first 重新分析 / ReplaceSuggestions.
+	const examplePrefix = "示例 · "
+	const exampleNote = "（示例数据，点击「重新分析」生成基于真实文件的建议）"
 	seeds := []Suggestion{
-		{ID: "download-cleanup", Title: "下载目录智能整理", Detail: "31 张发票、12 个安装包和 4 个重复压缩包可按规则归档。", Count: "47 项", Risk: RiskMedium, Action: "预览整理", Status: SuggestionPending, UpdateAt: now},
-		{ID: "expired-share-links", Title: "过期分享链接", Detail: "发现 3 个公开链接仍可访问，包含团队空间资料。", Count: "3 个", Risk: RiskHigh, Action: "查看权限", Status: SuggestionPending, UpdateAt: now},
-		{ID: "similar-photo-cleanup", Title: "相似照片清理", Detail: "五一旅行相册中有 86 张连拍相似照片，可保留清晰版本。", Count: "1.6 GB", Risk: RiskLow, Action: "智能筛选", Status: SuggestionPending, UpdateAt: now},
+		{ID: "download-cleanup", Title: examplePrefix + "下载目录智能整理", Detail: "31 张发票、12 个安装包和 4 个重复压缩包可按规则归档。" + exampleNote, Count: "47 项", Risk: RiskMedium, Action: "预览整理", Status: SuggestionPending, UpdateAt: now},
+		{ID: "expired-share-links", Title: examplePrefix + "过期分享链接", Detail: "发现 3 个公开链接仍可访问，包含团队空间资料。" + exampleNote, Count: "3 个", Risk: RiskHigh, Action: "查看权限", Status: SuggestionPending, UpdateAt: now},
+		{ID: "similar-photo-cleanup", Title: examplePrefix + "相似照片清理", Detail: "五一旅行相册中有 86 张连拍相似照片，可保留清晰版本。" + exampleNote, Count: "1.6 GB", Risk: RiskLow, Action: "智能筛选", Status: SuggestionPending, UpdateAt: now},
 	}
 	for _, suggestion := range seeds {
 		s.suggestions[suggestion.ID] = suggestion

@@ -28,13 +28,19 @@ func (a staticAdapter) SmartReports(context.Context) ([]SmartReport, error) {
 }
 
 type recordingProvisioner struct {
-	plans []SpaceProvisionPlan
-	err   error
+	plans     []SpaceProvisionPlan
+	teardowns []SpaceProvisionPlan
+	err       error
 }
 
 func (p *recordingProvisioner) Provision(_ context.Context, plan SpaceProvisionPlan) error {
 	p.plans = append(p.plans, plan)
 	return p.err
+}
+
+func (p *recordingProvisioner) Deprovision(_ context.Context, plan SpaceProvisionPlan) error {
+	p.teardowns = append(p.teardowns, plan)
+	return nil
 }
 
 func boolPtr(value bool) *bool {
@@ -400,6 +406,42 @@ func TestDeleteSpaceTwoPhaseGovernance(t *testing.T) {
 	auditTrail := service.Audit()
 	if len(auditTrail) != 1 || auditTrail[0].SpaceID != space.ID || auditTrail[0].Result != "confirmed" {
 		t.Fatalf("unexpected audit trail: %#v", auditTrail)
+	}
+
+	// Confirm tore down the underlying storage (so the disk isn't orphaned).
+	if len(provisioner.teardowns) != 1 || provisioner.teardowns[0].MountPath != space.MountPath {
+		t.Fatalf("expected one teardown for %s, got %#v", space.MountPath, provisioner.teardowns)
+	}
+}
+
+func TestCommandProvisionerDeprovisionRemovesFstabEntry(t *testing.T) {
+	root := t.TempDir()
+	fstab := root + "/fstab"
+	keep := "UUID=other /srv/higoos/nas/keep btrfs defaults,nofail 0 2"
+	drop := "UUID=gone /srv/higoos/nas/9 btrfs defaults,nofail 0 2"
+	if err := os.WriteFile(fstab, []byte(keep+"\n"+drop+"\n"), 0o644); err != nil {
+		t.Fatalf("seed fstab: %v", err)
+	}
+	var commands []string
+	provisioner := &commandSpaceProvisioner{
+		fstabPath: fstab,
+		runner: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			commands = append(commands, name)
+			return nil, nil // findmnt returns empty -> not mounted -> no umount
+		},
+	}
+	if err := provisioner.Deprovision(context.Background(), SpaceProvisionPlan{
+		FileSystem: FileSystemBTRFS,
+		MountPath:  "/srv/higoos/nas/9",
+	}); err != nil {
+		t.Fatalf("deprovision: %v", err)
+	}
+	out, _ := os.ReadFile(fstab)
+	if strings.Contains(string(out), "/srv/higoos/nas/9") {
+		t.Fatalf("fstab still contains removed mount: %q", out)
+	}
+	if !strings.Contains(string(out), "/srv/higoos/nas/keep") {
+		t.Fatalf("fstab lost the unrelated entry: %q", out)
 	}
 }
 

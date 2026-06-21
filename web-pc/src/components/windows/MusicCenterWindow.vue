@@ -23,7 +23,7 @@ import {
   Volume2,
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
-import { UiButton } from '../ui';
+import { UiButton, UiWindowPage } from '../ui';
 import type { MusicAlbum, MusicLibrarySettings, MusicScanResult, MusicTrack } from '../../api/types';
 import MusicSidebar from './music/MusicSidebar.vue';
 import MusicLibraryPanel from './music/MusicLibraryPanel.vue';
@@ -464,7 +464,15 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
 </script>
 
 <template>
-  <div class="music-app" :class="{ 'music-app--player': isPlayerFocusMode }">
+  <UiWindowPage
+    class="music-app"
+    :class="{ 'music-app--player': isPlayerFocusMode }"
+    layout="master-detail"
+    :icon="Disc3"
+    title="音乐中心"
+    :subtitle="albumSummary"
+    :status="statusMessage"
+  >
     <audio
       ref="audioRef"
       preload="metadata"
@@ -475,14 +483,16 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
       @timeupdate="handleTimeUpdate"
     />
 
-    <MusicSidebar
-      :sidebar-items="sidebarItems"
-      :active-view="activeView"
-      :status-message="statusMessage"
-      :settings="settings"
-      :format-date="formatDate"
-      @select-item="selectSidebarItem"
-    />
+    <template #nav>
+      <MusicSidebar
+        :sidebar-items="sidebarItems"
+        :active-view="activeView"
+        :status-message="statusMessage"
+        :settings="settings"
+        :format-date="formatDate"
+        @select-item="selectSidebarItem"
+      />
+    </template>
 
     <main class="music-app__stage">
       <header class="music-app__topbar">
@@ -618,13 +628,15 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
       </template>
     </main>
 
-    <MusicDetailsPanel
-      v-if="!isPlayerFocusMode"
-      :selected-track="selectedTrack"
-      :cover-url="coverUrl"
-      :format-date="formatDate"
-    />
+    <template v-if="!isPlayerFocusMode" #inspector>
+      <MusicDetailsPanel
+        :selected-track="selectedTrack"
+        :cover-url="coverUrl"
+        :format-date="formatDate"
+      />
+    </template>
 
+    <template #composer>
     <section class="music-mini">
       <canvas ref="miniSpectrumRef" class="music-mini__spectrum" aria-hidden="true" />
       <button class="music-mini__cover" type="button" aria-label="打开播放器" @click="openPlayer">
@@ -682,5 +694,6 @@ function normalizeSettings(value: MusicLibrarySettings): MusicLibrarySettings {
         <button type="button"><List :size="17" /> 队列 <small>{{ filteredTracks.length }}</small></button>
       </div>
     </section>
-  </div>
+    </template>
+  </UiWindowPage>
 </template>

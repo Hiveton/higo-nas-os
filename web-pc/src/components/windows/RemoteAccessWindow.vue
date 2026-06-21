@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import {
-  AlertTriangle,
   CheckCircle2,
   Copy,
   Globe2,
   KeyRound,
   Link2,
-  LockKeyhole,
   Network,
   RefreshCw,
   Router,
@@ -21,7 +19,7 @@ import {
 import { remoteStore } from '../../stores/remote';
 import type { AccessPolicy, RemoteDevice, RemoteLoginAlert } from '../../api/types';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
-import { UiButton } from '../ui';
+import { UiButton, UiWindowPage, UiNavRail, UiStatGrid, UiStat, UiPanel } from '../ui';
 
 type PolicyKey = string;
 
@@ -35,6 +33,13 @@ const scanState = ref<'idle' | 'safe' | 'risk'>('idle');
 
 const remoteDomain = computed(() => remoteStore.status.value?.domain ?? `home-${domainTokenVersion.value}.higo.link`);
 const channelState = computed(() => (remoteEnabled.value ? '在线' : '已暂停'));
+const tunnel = computed(() => remoteStore.status.value?.tunnel ?? null);
+const tunnelLabel = computed(() => {
+  const t = tunnel.value;
+  if (!t || t.backend === 'none') return '未配置';
+  if (!t.up) return '未连接';
+  return t.backend === 'wireguard' ? `WireGuard · :${t.listenPort}` : `${t.backend} · :${t.listenPort}`;
+});
 const tunnelState = computed(() =>
   remoteEnabled.value
     ? (remoteStore.status.value?.tunnelState ?? `${tunnelMode.value} · TLS 1.3 · 52ms`)
@@ -106,12 +111,13 @@ const fallbackLoginAlerts = ref<RemoteLoginAlert[]>([
   },
 ]);
 
-const shareChecks = ref([
-  '公开分享范围',
-  '过期时间',
-  '下载权限',
-  '敏感文件标签',
-]);
+// The default check list is shown before a scan runs; once the backend
+// share-scan returns, its real `checks` replace these labels.
+const defaultShareChecks = ['公开分享范围', '过期时间', '下载权限', '敏感文件标签'];
+const shareChecks = computed(() => {
+  const checks = remoteStore.shareScan.value?.checks;
+  return checks && checks.length ? checks : defaultShareChecks;
+});
 
 const devices = computed(() => (remoteStore.devices.value.length > 0 ? remoteStore.devices.value : fallbackDevices.value));
 const policies = computed(() =>
@@ -259,266 +265,110 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="remote-access">
-    <section class="remote-access__hero" aria-label="远程通道">
-      <div>
-        <p>远程访问中心</p>
-        <strong>{{ remoteDomain }}</strong>
-        <span>{{ tunnelState }}</span>
-      </div>
-      <div class="remote-access__hero-actions">
-        <UiButton variant="soft" size="sm" :icon-left="Copy" @click="copyDomainToken">复制令牌</UiButton>
-        <UiButton variant="soft" size="sm" :icon-left="RefreshCw" @click="rotateDomainToken">轮换</UiButton>
-        <UiButton size="sm" :icon-left="remoteEnabled ? ShieldOff : ShieldCheck" @click="toggleRemoteChannel">
-          {{ remoteEnabled ? '暂停通道' : '启动通道' }}
-        </UiButton>
-      </div>
-    </section>
+  <UiWindowPage
+    layout="master-detail"
+    :icon="Globe2"
+    :title="remoteDomain"
+    :subtitle="tunnelState"
+    :status="feedback"
+    status-tone="success"
+  >
+    <template #actions>
+      <UiButton variant="soft" size="sm" :icon-left="Copy" @click="copyDomainToken">复制令牌</UiButton>
+      <UiButton variant="soft" size="sm" :icon-left="RefreshCw" @click="rotateDomainToken">轮换</UiButton>
+      <UiButton size="sm" :icon-left="remoteEnabled ? ShieldOff : ShieldCheck" @click="toggleRemoteChannel">
+        {{ remoteEnabled ? '暂停通道' : '启动通道' }}
+      </UiButton>
+    </template>
 
-    <section class="remote-access__status" aria-label="远程访问状态">
-      <article>
-        <Globe2 :size="17" />
-        <span>远程域名</span>
-        <strong>{{ channelState }}</strong>
-      </article>
-      <article>
-        <Network :size="17" />
-        <span>内网穿透</span>
-        <strong>{{ tunnelMode }}</strong>
-      </article>
-      <article>
-        <KeyRound :size="17" />
-        <span>MFA</span>
-        <strong>{{ mfaEnabled ? '已启用' : '已关闭' }}</strong>
-      </article>
-      <article>
-        <Smartphone :size="17" />
-        <span>设备绑定</span>
-        <strong>{{ boundDevices }} 台</strong>
-      </article>
-    </section>
-
-    <main class="remote-access__main">
-      <section class="remote-access__devices" aria-label="设备绑定">
-        <header>
-          <h3><Smartphone :size="15" /> 设备绑定</h3>
-          <span>{{ boundDevices }} / {{ devices.length }}</span>
-        </header>
-        <button
-          v-for="device in devices"
-          :key="device.id"
-          class="remote-access__device"
-          :class="{ 'remote-access__device--bound': device.bound }"
-          type="button"
-          @click="toggleDevice(device.id)"
-        >
-          <UserCheck :size="16" />
-          <span>
-            <strong>{{ device.name }}</strong>
-            <small>{{ device.role }} · {{ device.location }} · {{ device.lastSeen }}</small>
-          </span>
-          <b>{{ device.bound ? '解绑' : '绑定' }}</b>
-        </button>
-      </section>
-
-      <section class="remote-access__policy" aria-label="访问策略">
-        <header>
-          <h3><LockKeyhole :size="15" /> 访问策略</h3>
-          <span>{{ activePolicyDetail.risk }}</span>
-        </header>
-        <div class="remote-access__policy-grid">
+    <template #nav>
+      <UiNavRail title="设备绑定" :subtitle="`${boundDevices} / ${devices.length}`">
+        <div class="remote-access__devices" aria-label="设备绑定">
           <button
-            v-for="policy in policies"
-            :key="policy.key"
-            class="remote-access__policy-card"
-            :class="{ 'remote-access__policy-card--active': policy.key === activePolicy }"
+            v-for="device in devices"
+            :key="device.id"
+            class="remote-access__device"
+            :class="{ 'remote-access__device--bound': device.bound }"
             type="button"
-            @click="selectPolicy(policy.key)"
+            @click="toggleDevice(device.id)"
           >
-            <strong>{{ policy.name }}</strong>
-            <span>{{ policy.scope }}</span>
-            <small>{{ policy.risk }}</small>
+            <UserCheck :size="16" />
+            <span>
+              <strong>{{ device.name }}</strong>
+              <small>{{ device.role }} · {{ device.location }} · {{ device.lastSeen }}</small>
+            </span>
+            <b>{{ device.bound ? '解绑' : '绑定' }}</b>
           </button>
         </div>
-        <div class="remote-access__toggles">
-          <UiButton variant="soft" size="sm" :icon-left="Router" @click="toggleTunnelMode">{{ tunnelMode }}</UiButton>
-          <UiButton variant="soft" size="sm" :icon-left="mfaEnabled ? ShieldCheck : ShieldOff" @click="toggleMfa">
-            {{ mfaEnabled ? '关闭 MFA' : '启用 MFA' }}
-          </UiButton>
-        </div>
-      </section>
+      </UiNavRail>
+    </template>
 
-      <section class="remote-access__security" aria-label="异地登录提醒和分享链接安全检查">
-        <header>
-          <h3><AlertTriangle :size="15" /> 安全提醒</h3>
-          <UiButton variant="soft" size="sm" :icon-left="ScanLine" @click="scanShareLinks">扫描分享链接</UiButton>
-        </header>
+    <UiStatGrid>
+      <UiStat :icon="Globe2" label="远程域名" :value="channelState" tone="primary" />
+      <UiStat :icon="Network" label="内网穿透" :value="tunnelMode" tone="info" />
+      <UiStat :icon="Network" label="真实隧道" :value="tunnelLabel" tone="info" />
+      <UiStat :icon="KeyRound" label="MFA" :value="mfaEnabled ? '已启用' : '已关闭'" :tone="mfaEnabled ? 'success' : 'warning'" />
+      <UiStat :icon="Smartphone" label="设备绑定" :value="`${boundDevices} 台`" tone="success" />
+    </UiStatGrid>
 
-        <div class="remote-access__login-alerts">
-          <article v-for="alert in loginAlerts" :key="alert.id">
-            <Wifi :size="15" />
-            <div>
-              <strong>{{ alert.location }} 异地登录</strong>
-              <span>{{ alert.device }} · {{ alert.action }} · {{ alert.state }}</span>
-            </div>
-          </article>
-        </div>
+    <UiPanel title="访问策略" framed>
+      <template #actions>
+        <UiButton variant="soft" size="sm" :icon-left="Router" @click="toggleTunnelMode">{{ tunnelMode }}</UiButton>
+        <UiButton variant="soft" size="sm" :icon-left="mfaEnabled ? ShieldCheck : ShieldOff" @click="toggleMfa">
+          {{ mfaEnabled ? '关闭 MFA' : '启用 MFA' }}
+        </UiButton>
+      </template>
+      <div class="remote-access__policy-grid">
+        <button
+          v-for="policy in policies"
+          :key="policy.key"
+          class="remote-access__policy-card"
+          :class="{ 'remote-access__policy-card--active': policy.key === activePolicy }"
+          type="button"
+          @click="selectPolicy(policy.key)"
+        >
+          <strong>{{ policy.name }}</strong>
+          <span>{{ policy.scope }}</span>
+          <small>{{ policy.risk }}</small>
+        </button>
+      </div>
+    </UiPanel>
 
-        <div class="remote-access__share-check" :class="`remote-access__share-check--${scanState}`">
+    <UiPanel title="安全提醒" framed>
+      <template #actions>
+        <UiButton variant="soft" size="sm" :icon-left="ScanLine" @click="scanShareLinks">扫描分享链接</UiButton>
+      </template>
+      <div class="remote-access__login-alerts">
+        <article v-for="alert in loginAlerts" :key="alert.id">
+          <Wifi :size="15" />
           <div>
-            <Link2 :size="17" />
-            <strong>{{ shareScanMessage }}</strong>
+            <strong>{{ alert.location }} 异地登录</strong>
+            <span>{{ alert.device }} · {{ alert.action }} · {{ alert.state }}</span>
           </div>
-          <span v-for="item in shareChecks" :key="item">
-            <CheckCircle2 :size="12" />
-            {{ item }}
-          </span>
-        </div>
-      </section>
-    </main>
+        </article>
+      </div>
 
-    <section class="remote-access__audit" aria-label="安全治理反馈">
-      <ShieldCheck :size="16" />
-      <span>{{ feedback }}</span>
-    </section>
+      <div class="remote-access__share-check" :class="`remote-access__share-check--${scanState}`">
+        <div>
+          <Link2 :size="17" />
+          <strong>{{ shareScanMessage }}</strong>
+        </div>
+        <span v-for="item in shareChecks" :key="item">
+          <CheckCircle2 :size="12" />
+          {{ item }}
+        </span>
+      </div>
+    </UiPanel>
+
     <NasFeaturePanel :modules="['remote', 'protocols']" />
-  </div>
+  </UiWindowPage>
 </template>
 
 <style scoped>
-.remote-access {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
-  gap: 12px;
-  height: 100%;
-  min-height: 0;
-}
-
-.remote-access__hero,
-.remote-access__status,
-.remote-access__devices,
-.remote-access__policy,
-.remote-access__security,
-.remote-access__audit {
+.remote-access__devices {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  background: rgba(var(--surface-rgb), 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.remote-access__hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.92), rgba(255, 246, 227, 0.78));
-}
-
-.remote-access__hero p,
-.remote-access__hero strong,
-.remote-access__hero span {
-  display: block;
-  margin: 0;
-}
-
-.remote-access__hero p {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.remote-access__hero strong {
-  margin-top: 3px;
-  color: var(--text-strong);
-  font-size: 20px;
-}
-
-.remote-access__hero span {
-  margin-top: 5px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.remote-access button {
-  font-family: inherit;
-}
-
-.remote-access__hero-actions,
-.remote-access__toggles,
-.remote-access__security header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.remote-access__status {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-}
-
-.remote-access__status article {
-  display: grid;
-  gap: 4px;
-  justify-items: center;
-  padding: 10px 6px;
-  color: var(--accent);
-  background: rgba(var(--surface-rgb), 0.36);
-}
-
-.remote-access__status span {
-  color: var(--text-soft);
-  font-size: 10px;
-}
-
-.remote-access__status strong {
-  overflow: hidden;
-  max-width: 100%;
-  color: var(--text-strong);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.remote-access__main {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 250px;
-  gap: 12px;
-  min-height: 0;
-}
-
-.remote-access__devices,
-.remote-access__policy,
-.remote-access__security {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-height: 0;
-  overflow: hidden;
-}
-
-.remote-access header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 11px;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.14);
-}
-
-.remote-access h3 {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 12px;
-}
-
-.remote-access header span {
-  color: var(--text-soft);
-  font-size: 11px;
 }
 
 .remote-access__device {
@@ -532,12 +382,18 @@ onMounted(async () => {
   text-align: left;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.12);
+  border-bottom: 1px solid var(--border);
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
-.remote-access__device--bound {
-  color: var(--accent-green);
-  background: rgba(34, 181, 115, 0.07);
+.remote-access__device:hover {
+  background: var(--accent-soft);
+}
+
+.remote-access__device--bound,
+.remote-access__device--bound:hover {
+  color: var(--ink-green);
+  background: var(--accent-green-soft);
 }
 
 .remote-access__device strong,
@@ -550,7 +406,7 @@ onMounted(async () => {
 
 .remote-access__device strong {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .remote-access__device small {
@@ -561,15 +417,14 @@ onMounted(async () => {
 
 .remote-access__device b {
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .remote-access__policy-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
   align-content: start;
-  padding: 12px;
 }
 
 .remote-access__policy-card {
@@ -580,54 +435,50 @@ onMounted(async () => {
   padding: 12px;
   text-align: left;
   background: rgba(var(--surface-rgb), 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.14);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
 }
 
-.remote-access__policy-card--active {
-  background: rgba(19, 136, 255, 0.08);
-  border-color: rgba(19, 136, 255, 0.24);
+.remote-access__policy-card:hover {
+  background: var(--accent-soft);
+}
+
+.remote-access__policy-card--active,
+.remote-access__policy-card--active:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .remote-access__policy-card strong {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .remote-access__policy-card span {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.38;
 }
 
 .remote-access__policy-card small {
-  color: var(--accent-orange);
+  color: var(--ink-orange);
   font-size: 10px;
-  font-weight: 760;
-}
-
-.remote-access__toggles {
-  align-content: start;
-  padding: 0 12px 12px;
-}
-
-.remote-access__security {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  font-weight: var(--fw-bold);
 }
 
 .remote-access__login-alerts {
   display: grid;
   gap: 8px;
-  padding: 11px;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.12);
 }
 
 .remote-access__login-alerts article {
   display: flex;
   gap: 8px;
   min-width: 0;
-  color: var(--accent-orange);
+  color: var(--ink-orange);
 }
 
 .remote-access__login-alerts strong,
@@ -637,14 +488,14 @@ onMounted(async () => {
 
 .remote-access__login-alerts strong {
   color: var(--text-strong);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .remote-access__login-alerts span {
   margin-top: 3px;
   color: var(--text-muted);
   font-size: 10px;
-  line-height: 1.35;
+  line-height: var(--lh-snug);
 }
 
 .remote-access__share-check {
@@ -665,7 +516,7 @@ onMounted(async () => {
 
 .remote-access__share-check strong {
   color: var(--text-strong);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.42;
 }
 
@@ -677,75 +528,22 @@ onMounted(async () => {
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.72);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .remote-access__share-check--risk div {
-  color: var(--accent-orange);
+  color: var(--ink-orange);
 }
 
 .remote-access__share-check--safe div {
-  color: var(--accent-green);
+  color: var(--ink-green);
 }
 
-.remote-access__audit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 10px 12px;
-  color: var(--accent-green);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.remote-access__audit span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (max-width: 760px) {
-  .remote-access {
-    display: block;
-    overflow: auto;
-  }
-
-  .remote-access__hero,
-  .remote-access__status,
-  .remote-access__main,
-  .remote-access__audit {
-    margin-bottom: 12px;
-  }
-
-  .remote-access__hero {
-    display: grid;
-  }
-
-  .remote-access__status {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .remote-access__main {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .remote-access__devices,
-  .remote-access__policy,
-  .remote-access__security {
-    min-height: 220px;
-  }
-
+@container desktop-window-body (max-width: 760px) {
   .remote-access__policy-grid {
     grid-template-columns: 1fr;
-  }
-
-  .remote-access__audit span {
-    white-space: normal;
   }
 }
 </style>

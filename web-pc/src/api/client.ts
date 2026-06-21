@@ -1,11 +1,15 @@
 import { DELETE, GET, POST, PUT, buildApiUrl, createEventStream, streamSSE } from './runtime';
 import type { ChatStreamHandlers } from './runtime';
 import type {
+  AiAnalysisBatchResult,
   AiAnalysisDomain,
+  AiAnalysisRecord,
   AiAnalysisRecordPage,
   AiAnalysisReanalyzePayload,
   AiAnalysisState,
   AiAnalysisStatus,
+  FaceFrameworkStatus,
+  FaceLabelResult,
   AiPolicy,
   AiProvider,
   AiProviderInput,
@@ -76,6 +80,11 @@ import type {
   ProtocolConfirmResult,
   ProtocolPreview,
   ProtocolShare,
+  SharedFolderView,
+  SharedFolderAccess,
+  SharedFolderDeletePreview,
+  FolderSnapshot,
+  SambaSyncReport,
   RemoteDevice,
   RemoteLoginAlert,
   RemoteStatus,
@@ -87,6 +96,12 @@ import type {
   SettingsState,
   SpeedProfile,
   StewardSuggestion,
+  ListeningPort,
+  FirewallState,
+  HostScanResult,
+  SyncPair,
+  SyncConflict,
+  SyncAuditEntry,
   StorageSpace,
   StorageDeletePreview,
   StoragePool,
@@ -104,6 +119,12 @@ import type {
   VideoLibrarySettings,
   VideoScanResult,
   VideoTask,
+  VM,
+  VmHostCaps,
+  VmAuditEntry,
+  ISCSITarget,
+  ISCSICaps,
+  ISCSIAuditEntry,
 } from './types';
 
 type Id = string | number;
@@ -252,6 +273,37 @@ export const apiClient = {
       PUT<AccountGroup>(`/api/v1/accounts/groups/${pathId(id)}/members`, { userIds }),
     grantSpace: (payload: RecordPayload) => POST<AccountSpaceGrant>('/api/v1/accounts/grants', payload),
     deleteGrant: (id: Id) => DELETE<TaskResponse>(`/api/v1/accounts/grants/${pathId(id)}`),
+    sambaSync: () => POST<SambaSyncReport>('/api/v1/accounts/samba-sync', {}),
+  },
+
+  sharedFolders: {
+    list: () => GET<SharedFolderView[]>('/api/v1/shared-folders'),
+    create: (payload: RecordPayload) => POST<SharedFolderView>('/api/v1/shared-folders', payload),
+    setPermissions: (id: Id, payload: RecordPayload) =>
+      PUT<SharedFolderView>(`/api/v1/shared-folders/${pathId(id)}/permissions`, payload),
+    // Set one subject's access across many folders (user/group editor permission tab).
+    setSubjectPermissions: (payload: {
+      subjectType: 'user' | 'group';
+      subjectId: string;
+      perms: { folderId: string; access: SharedFolderAccess }[];
+      actor?: string;
+    }) => POST<{ ok: boolean }>('/api/v1/shared-folders/permissions/by-subject', payload),
+    setService: (id: Id, payload: RecordPayload) =>
+      PUT<SharedFolderView>(`/api/v1/shared-folders/${pathId(id)}/services`, payload),
+    // Advanced settings: recycle bin / quota / encryption intent.
+    setAdvanced: (
+      id: Id,
+      payload: { recycle?: boolean; quotaBytes?: number; encrypted?: boolean; actor?: string },
+    ) => PUT<SharedFolderView>(`/api/v1/shared-folders/${pathId(id)}/advanced`, payload),
+    listSnapshots: (id: Id) => GET<FolderSnapshot[]>(`/api/v1/shared-folders/${pathId(id)}/snapshots`),
+    createSnapshot: (id: Id, payload: { name?: string; actor?: string }) =>
+      POST<FolderSnapshot>(`/api/v1/shared-folders/${pathId(id)}/snapshots`, payload),
+    deleteSnapshot: (id: Id, name: string) =>
+      DELETE<{ deleted: boolean }>(`/api/v1/shared-folders/${pathId(id)}/snapshots/${pathId(name)}`),
+    deletePreview: (id: Id, actor = 'shared-folders') =>
+      POST<SharedFolderDeletePreview>(`/api/v1/shared-folders/${pathId(id)}/delete/preview`, { actor }),
+    deleteConfirm: (id: Id, payload: RecordPayload) =>
+      POST<{ deleted: boolean }>(`/api/v1/shared-folders/${pathId(id)}/delete/confirm`, payload),
   },
 
   steward: {
@@ -298,12 +350,20 @@ export const apiClient = {
 
   aiAnalysis: {
     getStatus: () => GET<AiAnalysisStatus>('/api/v1/ai-analysis/status'),
-    listRecords: (query?: { domain?: AiAnalysisDomain; state?: AiAnalysisState; page?: number; size?: number }) =>
+    listRecords: (query?: { domain?: AiAnalysisDomain; state?: AiAnalysisState; q?: string; page?: number; size?: number }) =>
       GET<AiAnalysisRecordPage>('/api/v1/ai-analysis/records', { query }),
+    getRecord: (key: string) => GET<AiAnalysisRecord>(`/api/v1/ai-analysis/records/${encodeURIComponent(key)}`),
     reanalyze: (payload: AiAnalysisReanalyzePayload) => POST<AiAnalysisStatus>('/api/v1/ai-analysis/reanalyze', payload),
+    batchReanalyze: (keys: string[]) =>
+      POST<AiAnalysisBatchResult>('/api/v1/ai-analysis/batch', { op: 'reanalyze', keys }),
     rescan: () => POST<AiAnalysisStatus>('/api/v1/ai-analysis/rescan', {}),
     pause: () => POST<AiAnalysisStatus>('/api/v1/ai-analysis/pause', {}),
     resume: () => POST<AiAnalysisStatus>('/api/v1/ai-analysis/resume', {}),
+    /** Face self-training framework: clusters, dataset stats, trained models. */
+    getFaces: () => GET<FaceFrameworkStatus>('/api/v1/ai-analysis/faces'),
+    labelFace: (clusterId: string, name: string) =>
+      POST<FaceLabelResult>('/api/v1/ai-analysis/faces/label', { clusterId, name }),
+    retrainFaces: () => POST<{ taskId: string }>('/api/v1/ai-analysis/faces/retrain', {}),
     /** Live SSE stream of aggregate analysis status snapshots. */
     streamProgress: () => createEventStream('/api/v1/ai-analysis/progress/stream'),
   },
@@ -450,6 +510,40 @@ export const apiClient = {
       POST<BackupJob>(`/api/v1/backups/jobs/${pathId(id)}/schedule`, payload),
   },
 
+  iscsi: {
+    getTargets: () => GET<ISCSITarget[]>('/api/v1/iscsi/targets'),
+    getCapabilities: () => GET<ISCSICaps>('/api/v1/iscsi/capabilities'),
+    getAudit: () => GET<ISCSIAuditEntry[]>('/api/v1/iscsi/audit'),
+    createTarget: (payload?: RecordPayload) => POST<ISCSITarget>('/api/v1/iscsi/targets', payload ?? {}),
+    deleteTarget: (iqn: string) => DELETE<{ iqn: string; deleted: boolean }>(`/api/v1/iscsi/targets/${pathId(iqn)}`),
+    addLun: (iqn: string, payload: RecordPayload) => POST<RecordPayload>(`/api/v1/iscsi/targets/${pathId(iqn)}/luns`, payload),
+    addAcl: (iqn: string, payload: RecordPayload) => POST<RecordPayload>(`/api/v1/iscsi/targets/${pathId(iqn)}/acls`, payload),
+  },
+
+  vm: {
+    getMachines: () => GET<VM[]>('/api/v1/vm/machines'),
+    getMachine: (name: string) => GET<VM>(`/api/v1/vm/machines/${pathId(name)}`),
+    getCapabilities: () => GET<VmHostCaps>('/api/v1/vm/capabilities'),
+    getAudit: () => GET<VmAuditEntry[]>('/api/v1/vm/audit'),
+    action: (name: string, action: string, payload?: RecordPayload) =>
+      POST<VM>(`/api/v1/vm/machines/${pathId(name)}/${pathId(action)}`, payload ?? {}),
+  },
+
+  sync: {
+    getPairs: () => GET<SyncPair[]>('/api/v1/sync/pairs'),
+    getPair: (id: Id) => GET<SyncPair>(`/api/v1/sync/pairs/${pathId(id)}`),
+    createPair: (payload: RecordPayload) => POST<SyncPair>('/api/v1/sync/pairs', payload),
+    updatePair: (id: Id, payload: RecordPayload) => PUT<SyncPair>(`/api/v1/sync/pairs/${pathId(id)}`, payload),
+    deletePair: (id: Id) => DELETE<{ id: string; deleted: boolean }>(`/api/v1/sync/pairs/${pathId(id)}`),
+    runPair: (id: Id, payload?: RecordPayload) => POST<SyncPair>(`/api/v1/sync/pairs/${pathId(id)}/run`, payload ?? {}),
+    verifyPair: (id: Id, payload?: RecordPayload) =>
+      POST<SyncPair>(`/api/v1/sync/pairs/${pathId(id)}/verify`, payload ?? {}),
+    getConflicts: () => GET<SyncConflict[]>('/api/v1/sync/conflicts'),
+    resolveConflict: (id: Id, payload: RecordPayload) =>
+      POST<SyncConflict>(`/api/v1/sync/conflicts/${pathId(id)}/resolve`, payload),
+    getAudit: () => GET<SyncAuditEntry[]>('/api/v1/sync/audit'),
+  },
+
   appCenter: {
     getApps: () => GET<AppCenterApp[]>('/api/v1/app-center/apps'),
     getCatalog: () => GET<AppCatalogEntry[]>('/api/v1/app-center/catalog'),
@@ -490,6 +584,9 @@ export const apiClient = {
       POST<TaskResponse>(`/api/v1/security/audit/${pathId(id)}/rollback`, payload ?? {}),
     getShares: () => GET<FileShare[]>('/api/v1/shares'),
     deleteShare: (id: Id) => DELETE<TaskResponse>(`/api/v1/shares/${pathId(id)}`),
+    getHostPorts: () => GET<ListeningPort[]>('/api/v1/security/host/ports'),
+    getFirewall: () => GET<FirewallState>('/api/v1/security/host/firewall'),
+    scanHost: () => POST<HostScanResult>('/api/v1/security/host/scan', {}),
   },
 
   protocols: {

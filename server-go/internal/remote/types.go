@@ -32,6 +32,7 @@ type RemoteStatus struct {
 	ActivePolicy     AccessPolicy   `json:"activePolicy"`
 	Policies         []AccessPolicy `json:"policies"`
 	Feedback         string         `json:"feedback"`
+	Tunnel           TunnelInfo     `json:"tunnel"`
 }
 
 type BoundDevice struct {

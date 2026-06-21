@@ -26,7 +26,7 @@ const emit = defineEmits<{
 
 <template>
   <div
-    class="context-menu"
+    class="context-menu u-glass"
     :style="{ left: `${x}px`, top: `${y}px` }"
     role="menu"
     :aria-label="title"
@@ -56,25 +56,38 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
+/* Glass surface (background / border / backdrop) comes from the shared .u-glass
+   utility; only menu-specific layout, elevation and motion live here. */
 .context-menu {
   position: fixed;
-  z-index: 280;
+  z-index: var(--z-context-menu);
   width: min(246px, calc(100vw - 24px));
   max-height: calc(100vh - 24px);
   padding: 8px;
   overflow-y: auto;
   color: var(--text);
-  background:
-    linear-gradient(180deg, rgba(var(--surface-rgb), 0.9), rgba(var(--surface-rgb), 0.78)),
-    rgba(var(--surface-rgb), 0.86);
-  border: 1px solid rgba(116, 151, 180, 0.28);
-  border-radius: 14px;
-  box-shadow:
-    0 22px 54px rgba(21, 54, 85, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(26px) saturate(1.2);
-  -webkit-backdrop-filter: blur(26px) saturate(1.2);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-2);
   scrollbar-width: none;
+  transform-origin: top left;
+  animation: context-menu-in var(--duration-fast) var(--ease-spring);
+}
+
+@keyframes context-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-menu {
+    animation: none;
+  }
 }
 
 .context-menu::-webkit-scrollbar {
@@ -91,7 +104,7 @@ const emit = defineEmits<{
 .context-menu__header strong {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.16;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -100,7 +113,7 @@ const emit = defineEmits<{
 .context-menu__header span {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -123,8 +136,13 @@ const emit = defineEmits<{
 
 .context-menu__item:hover,
 .context-menu__item:focus-visible {
-  background: rgba(19, 136, 255, 0.12);
+  background: var(--accent-soft);
   outline: 0;
+}
+
+.context-menu__item--danger:hover,
+.context-menu__item--danger:focus-visible {
+  background: var(--accent-red-soft);
 }
 
 .context-menu__item:disabled {
@@ -138,15 +156,15 @@ const emit = defineEmits<{
 
 .context-menu__item span {
   overflow: hidden;
-  font-size: 13px;
-  font-weight: 690;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .context-menu__item small {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   white-space: nowrap;
 }
 

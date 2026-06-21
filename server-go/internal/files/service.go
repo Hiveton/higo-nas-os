@@ -39,6 +39,22 @@ type Service struct {
 
 	mu      sync.Mutex
 	pending map[string]pendingBatch
+
+	// changeNotify is an optional callback invoked after a mutation that changes
+	// the file set, so the AI analysis engine can re-enumerate promptly instead of
+	// waiting for its periodic ticker. nil-safe; defined here (not via an import of
+	// the analysis package) to avoid an import cycle.
+	changeNotify func()
+}
+
+// SetChangeNotifier wires the near-real-time analysis trigger. Pass nil to
+// disable. Safe to call once at construction.
+func (s *Service) SetChangeNotifier(fn func()) { s.changeNotify = fn }
+
+func (s *Service) notifyChange() {
+	if s.changeNotify != nil {
+		s.changeNotify()
+	}
 }
 
 // pendingBatch keeps a planned batch task and the operation needed to execute it
@@ -188,6 +204,7 @@ func (s *Service) CreateFile(ctx context.Context, request CreateFileRequest) (Fi
 	if err != nil {
 		return FileRow{}, err
 	}
+	s.notifyChange()
 	return rowFromNode(node), nil
 }
 
@@ -200,6 +217,7 @@ func (s *Service) UploadFile(ctx context.Context, request UploadFileRequest) (Fi
 	if err != nil {
 		return FileRow{}, err
 	}
+	s.notifyChange()
 	return rowFromNode(node), nil
 }
 
@@ -212,6 +230,7 @@ func (s *Service) Rename(ctx context.Context, id string, request RenameRequest) 
 	if err != nil {
 		return FileRow{}, err
 	}
+	s.notifyChange()
 	return rowFromNode(node), nil
 }
 
@@ -224,6 +243,7 @@ func (s *Service) Move(ctx context.Context, id string, request MoveRequest) (Fil
 	if err != nil {
 		return FileRow{}, err
 	}
+	s.notifyChange()
 	return rowFromNode(node), nil
 }
 
@@ -236,6 +256,7 @@ func (s *Service) Delete(ctx context.Context, id string, actor string) (FileRow,
 	if err != nil {
 		return FileRow{}, err
 	}
+	s.notifyChange()
 	return rowFromNode(node), nil
 }
 
@@ -277,6 +298,7 @@ func (s *Service) AddTags(ctx context.Context, mutation TagMutation) (FileRow, e
 	if err := s.repo.Put(ctx, node); err != nil {
 		return FileRow{}, err
 	}
+	s.notifyChange()
 	return rowFromNode(node), nil
 }
 

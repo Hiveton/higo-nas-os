@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -408,17 +409,101 @@ func (s *Service) completeSubtitleJob(jobID string) string {
 }
 
 func (s *Service) completeTranscodeJob(jobID string) string {
+	// Snapshot the job target + source path under the lock, then release it: a real
+	// ffmpeg transcode can take minutes and must not block media reads/writes.
+	s.mu.Lock()
+	var itemID int
+	var title, profile, source string
+	found := false
+	for i := range s.transcodeJobs {
+		if s.transcodeJobs[i].ID == jobID {
+			itemID = s.transcodeJobs[i].ItemID
+			title = s.transcodeJobs[i].Title
+			profile = s.transcodeJobs[i].Profile
+			found = true
+			break
+		}
+	}
+	if found {
+		if idx := s.findItemIndexLocked(itemID); idx >= 0 {
+			source = s.items[idx].SourcePath
+		}
+	}
+	s.mu.Unlock()
+	if !found {
+		return ""
+	}
+
+	// Real transcode only when a backing file exists and ffmpeg is installed (NAS
+	// host); otherwise record honest staged completion (dev/fixture items).
+	message := fmt.Sprintf("%s 已完成转码（%s）。", title, profile)
+	transcoded := false
+	if source != "" {
+		if _, err := os.Stat(source); err == nil {
+			if out, err := s.transcodeWithFFmpeg(source, profile); err == nil {
+				transcoded = true
+				message = fmt.Sprintf("%s 已转码为 %s：%s", title, profile, filepath.Base(out))
+			} else {
+				message = fmt.Sprintf("%s 转码失败：%v", title, err)
+			}
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.transcodeJobs {
 		if s.transcodeJobs[i].ID == jobID {
 			s.transcodeJobs[i].Status = JobStatusReady
-			s.transcodeJobs[i].Message = fmt.Sprintf("%s 已完成转码（%s）。", s.transcodeJobs[i].Title, s.transcodeJobs[i].Profile)
-			_ = s.saveLocked()
-			return s.transcodeJobs[i].Message
+			s.transcodeJobs[i].Message = message
+			break
 		}
 	}
-	return ""
+	if transcoded {
+		if idx := s.findItemIndexLocked(itemID); idx >= 0 {
+			s.items[idx].Transcoded = true
+		}
+	}
+	_ = s.saveLocked()
+	return message
+}
+
+// transcodeWithFFmpeg produces an H.264/AAC MP4 at the profile's height next to a
+// .transcoded cache dir under the state directory. Returns the output path.
+func (s *Service) transcodeWithFFmpeg(source, profile string) (string, error) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return "", fmt.Errorf("未检测到 ffmpeg")
+	}
+	height := 1080
+	if strings.Contains(profile, "720") {
+		height = 720
+	} else if strings.Contains(profile, "480") {
+		height = 480
+	}
+	outDir := filepath.Join(filepath.Dir(s.statePath), ".transcoded")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", err
+	}
+	base := strings.TrimSuffix(filepath.Base(source), filepath.Ext(source))
+	out := filepath.Join(outDir, fmt.Sprintf("%s.%dp.mp4", base, height))
+	cmd := exec.Command("ffmpeg", "-y", "-i", source,
+		"-vf", fmt.Sprintf("scale=-2:%d", height),
+		"-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+		"-c:a", "aac", "-b:a", "128k", out)
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("ffmpeg: %s", strings.TrimSpace(lastLine(string(combined))))
+	}
+	return out, nil
+}
+
+// lastLine returns the last non-empty line of ffmpeg output for a concise error.
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			return t
+		}
+	}
+	return s
 }
 
 // ApplyAnalysis writes the result of a background AI analysis pass back onto a
@@ -426,7 +511,7 @@ func (s *Service) completeTranscodeJob(jobID string) string {
 // place and device, and recording a short caption/summary. It takes plain values
 // so the media package never depends on the analysis engine. People aggregation
 // is rebuilt so the people dimension reflects the new clusters.
-func (s *Service) ApplyAnalysis(id int, people []string, place, device, summary string) error {
+func (s *Service) ApplyAnalysis(id int, people []string, place, device, summary, caption string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -445,6 +530,9 @@ func (s *Service) ApplyAnalysis(id int, people []string, place, device, summary 
 	}
 	if sum := strings.TrimSpace(summary); sum != "" {
 		s.items[idx].Meta = sum
+	}
+	if cap := strings.TrimSpace(caption); cap != "" {
+		s.items[idx].Caption = cap
 	}
 	s.items[idx].Status = "AI 已分析"
 	s.people = peopleFromItems(s.items)

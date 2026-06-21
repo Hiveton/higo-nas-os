@@ -315,6 +315,9 @@ func (s *Service) CreateSpace(ctx context.Context, request CreateSpaceRequest) (
 	defer s.mu.Unlock()
 	for _, space := range s.spaces {
 		if space.Name == request.Name {
+			// We already provisioned the disk above; roll it back so a lost race
+			// doesn't leave an orphaned mount with no owning space record.
+			_ = s.provisioner.Deprovision(ctx, plan)
 			return StorageSpace{}, fmt.Errorf("storage space already exists: %s", request.Name)
 		}
 	}
@@ -332,9 +335,10 @@ func (s *Service) CreateSpace(ctx context.Context, request CreateSpaceRequest) (
 		CreatedAt:   s.now().UTC(),
 		CreatedBy:   request.Actor,
 	}
+	taskID := fmt.Sprintf("create-space-%03d", s.taskSeq)
 	s.spaces = append(s.spaces, space)
-	s.tasks[fmt.Sprintf("create-space-%03d", s.taskSeq)] = StorageTask{
-		ID:         fmt.Sprintf("create-space-%03d", s.taskSeq),
+	s.tasks[taskID] = StorageTask{
+		ID:         taskID,
 		Kind:       TaskKindCreateSpace,
 		State:      TaskStateQueued,
 		Progress:   0,
@@ -342,7 +346,14 @@ func (s *Service) CreateSpace(ctx context.Context, request CreateSpaceRequest) (
 		TargetPool: space.ID,
 		CreatedAt:  s.now().UTC(),
 	}
-	return space, s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		// Roll back the in-memory record and the on-disk provisioning together.
+		s.spaces = s.spaces[:len(s.spaces)-1]
+		delete(s.tasks, taskID)
+		_ = s.provisioner.Deprovision(ctx, plan)
+		return StorageSpace{}, err
+	}
+	return space, nil
 }
 
 func requestWantsFormat(request CreateSpaceRequest) bool {

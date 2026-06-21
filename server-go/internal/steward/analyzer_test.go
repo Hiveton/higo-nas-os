@@ -2,6 +2,7 @@ package steward
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -54,6 +55,41 @@ func TestAnalyzeSkipsArchivedAndUnidentified(t *testing.T) {
 	}
 	if out := Analyze(files, now); len(out) != 0 {
 		t.Fatalf("archived/unidentified files should yield no suggestions, got %#v", out)
+	}
+}
+
+func TestAnalyzeCleanupJunkWithAITags(t *testing.T) {
+	now := time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)
+	files := []FileInfo{
+		{ID: "f-dmg", Name: "App-1.2.dmg", Path: "/下载/App-1.2.dmg", SizeBytes: 50 << 20, Modified: now, Tags: []string{"安装包", "软件"}},
+		{ID: "f-tmp", Name: "~$报告.docx", Path: "/下载/~$报告.docx", SizeBytes: 1 << 10, Modified: now, Tags: []string{"软件"}},
+		{ID: "f-part", Name: "movie.mp4.part", Path: "/下载/movie.mp4.part", SizeBytes: 10 << 20, Modified: now},
+		{ID: "f-keep", Name: "合同.pdf", Path: "/家庭空间/合同.pdf", SizeBytes: 1 << 20, Modified: now}, // not junk
+	}
+	out := Analyze(files, now)
+	var cleanup *Suggestion
+	for i := range out {
+		if out[i].ID == "cleanup-junk" {
+			cleanup = &out[i]
+		}
+	}
+	if cleanup == nil {
+		t.Fatalf("expected cleanup-junk suggestion, got %#v", out)
+	}
+	if cleanup.Risk != RiskMedium || len(cleanup.Operations) != 3 {
+		t.Fatalf("cleanup should delete the 3 junk files at medium risk: %#v", cleanup)
+	}
+	for _, op := range cleanup.Operations {
+		if op.Type != "delete" {
+			t.Errorf("cleanup ops should be deletes: %#v", op)
+		}
+		if op.FileID == "f-keep" {
+			t.Error("non-junk file 合同.pdf must not be flagged")
+		}
+	}
+	// The AI tag signal should be folded into the detail text.
+	if !strings.Contains(cleanup.Detail, "AI 识别到主要类别") || !strings.Contains(cleanup.Detail, "软件") {
+		t.Errorf("cleanup detail should surface AI categories: %q", cleanup.Detail)
 	}
 }
 

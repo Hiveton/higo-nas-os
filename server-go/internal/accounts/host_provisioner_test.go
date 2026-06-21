@@ -95,6 +95,21 @@ func TestHostProvisionerApplyGrantACL(t *testing.T) {
 	}
 }
 
+func TestHostProvisionerDenyACL(t *testing.T) {
+	var calls []recordedCall
+	p := fakeProvisioner(&calls)
+	err := p.ApplyGrant(context.Background(), GrantSpec{
+		SubjectName: "demo", SubjectKind: SubjectUser, SpaceDir: "team-space", Access: AccessDeny,
+	})
+	if err != nil {
+		t.Fatalf("apply deny: %v", err)
+	}
+	// A named-user entry with no permissions denies even against group access.
+	if joinCall(calls[0]) != "setfacl -R -m u:demo:--- /srv/higoos/nas/team-space" {
+		t.Fatalf("expected deny ACL u:demo:---, got %q", joinCall(calls[0]))
+	}
+}
+
 func TestHostProvisionerPathEscapeRejected(t *testing.T) {
 	var calls []recordedCall
 	p := fakeProvisioner(&calls)

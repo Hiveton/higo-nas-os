@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { CheckCircle2, FileText, ShieldAlert } from 'lucide-vue-next';
+import { CheckCircle2, FileText, Layers, ShieldAlert } from 'lucide-vue-next';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
 import { nasFeatures, type NasFeatureKey } from '../../data/nasFeatures';
-import { UiButton } from '../ui';
+import { UiButton, UiBadge, UiWindowPage } from '../ui';
 
 const props = defineProps<{
   moduleKey: NasFeatureKey;
@@ -21,14 +21,10 @@ function selectAction(label: string) {
 </script>
 
 <template>
-  <div class="feature-module">
-    <section class="feature-module__hero">
-      <div>
-        <p>{{ subtitle }}</p>
-        <h3>{{ title }}</h3>
-      </div>
-      <strong>{{ features.length }} 类 / {{ actionCount }} 项</strong>
-    </section>
+  <UiWindowPage layout="stack" :icon="Layers" :title="title" :subtitle="subtitle">
+    <template #actions>
+      <UiBadge tone="primary" variant="soft" size="sm">{{ features.length }} 类 / {{ actionCount }} 项</UiBadge>
+    </template>
 
     <NasFeaturePanel :modules="[moduleKey]" />
 
@@ -55,78 +51,32 @@ function selectAction(label: string) {
       <ShieldAlert :size="15" />
       <span>当前为前端界面补齐。涉及格式化、删除、权限、外链、虚拟机直通等高风险动作，后端接入时必须加入二次确认、任务回滚和审计。</span>
     </section>
-  </div>
+  </UiWindowPage>
 </template>
 
 <style scoped>
-.feature-module {
-  display: grid;
-  grid-template-rows: auto auto auto auto auto;
-  gap: 12px;
-  height: 100%;
-  min-height: 0;
-  overflow: auto;
-}
-
-.feature-module__hero,
-.feature-module__state,
-.feature-module__risk {
-  background: rgba(var(--surface-rgb), 0.55);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.feature-module__hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 76px;
-  padding: 14px;
-}
-
-.feature-module__hero p,
-.feature-module__hero h3 {
-  margin: 0;
-}
-
-.feature-module__hero p {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.feature-module__hero h3 {
-  margin-top: 4px;
-  color: var(--text-strong);
-  font-size: 18px;
-}
-
-.feature-module__hero strong {
-  color: var(--accent);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .feature-module__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .feature-module__state,
 .feature-module__risk {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 36px;
-  padding: 9px 10px;
+  padding: var(--space-2) var(--space-3);
+  background: rgba(var(--surface-rgb), 0.55);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.45;
 }
 
 .feature-module__state {
-  color: var(--accent-green);
+  color: var(--ink-green);
 }
 </style>
-

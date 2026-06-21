@@ -106,6 +106,7 @@ func (a *API) viewerFor(r *http.Request) files.Viewer {
 		Username:      ent.Username,
 		GroupDirs:     ent.GroupDirs,
 		GrantedSpaces: ent.GrantedSpaces,
+		DeniedSpaces:  ent.DeniedSpaces,
 	}
 }
 

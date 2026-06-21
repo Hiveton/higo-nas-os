@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"higoos/server-go/internal/state"
 )
@@ -610,6 +609,47 @@ func (s *Service) BootstrapAdmin(ctx context.Context, fixed string) (string, err
 	return password, nil
 }
 
+// SambaUserStatus reports whether a HiGoOS user currently has a Samba account.
+type SambaUserStatus struct {
+	UserID   string `json:"userId"`
+	Username string `json:"username"`
+	InSamba  bool   `json:"inSamba"`
+}
+
+// SambaSyncReport summarizes which managed users can authenticate over SMB.
+type SambaSyncReport struct {
+	Users   []SambaUserStatus `json:"users"`
+	Missing int               `json:"missing"`
+	Note    string            `json:"note"`
+}
+
+// SyncSamba reports, per managed user, whether a Samba account exists. SHA-512
+// login hashes cannot be replayed into Samba's NT hash, so missing users must
+// have a password set through HiGoOS once (which runs smbpasswd); this surfaces
+// exactly which users still need that.
+func (s *Service) SyncSamba(ctx context.Context) (SambaSyncReport, error) {
+	present, err := s.dir.SambaPresent(ctx)
+	if err != nil {
+		return SambaSyncReport{}, err
+	}
+	s.mu.RLock()
+	users := append([]User(nil), s.users...)
+	s.mu.RUnlock()
+
+	report := SambaSyncReport{Users: make([]SambaUserStatus, 0, len(users))}
+	for _, u := range users {
+		in := present[u.Username]
+		if !in {
+			report.Missing++
+		}
+		report.Users = append(report.Users, SambaUserStatus{UserID: u.ID, Username: u.Username, InSamba: in})
+	}
+	if report.Missing > 0 {
+		report.Note = "有用户尚未建立 SMB 凭据,请在用户中心为其重设一次密码即可启用 SMB 访问。"
+	}
+	return report, nil
+}
+
 // EffectiveAccess resolves a user's access to a space from the grant table,
 // considering both direct user grants and grants on the groups they belong to.
 // `controlled` reports whether the space has ANY grant at all — callers treat an
@@ -637,11 +677,17 @@ func (s *Service) EffectiveAccess(ctx context.Context, userID, spaceID string) (
 		if grant.SubjectType == SubjectGroup && containsString(groups, grant.SubjectID) {
 			match = true
 		}
-		if match {
-			if r, ok := rank[grant.Access]; ok && r > best {
-				best = r
-				access = grant.Access
-			}
+		if !match {
+			continue
+		}
+		// Deny wins over any allow (DSM semantics): a single matching deny grant
+		// blocks the subject regardless of group-inherited read/write.
+		if grant.Access == AccessDeny {
+			return AccessDeny, true
+		}
+		if r, ok := rank[grant.Access]; ok && r > best {
+			best = r
+			access = grant.Access
 		}
 	}
 	return access, controlled
@@ -651,6 +697,11 @@ func (s *Service) EffectiveAccess(ctx context.Context, userID, spaceID string) (
 // the user's own personal/group spaces are always writable; otherwise the space
 // must be either uncontrolled or grant the user read_write or manage.
 func (s *Service) CanWriteSpace(ctx context.Context, userID, spaceID string) bool {
+	// An explicit deny on this space overrides everything below (including the
+	// personal/group auto-write).
+	if access, controlled := s.EffectiveAccess(ctx, userID, spaceID); controlled && access == AccessDeny {
+		return false
+	}
 	if user, ok := s.GetUser(ctx, userID); ok {
 		if user.Role == RoleAdmin {
 			return true
@@ -675,6 +726,7 @@ type Entitlement struct {
 	Admin         bool
 	GroupDirs     []string // system group names (== HiGoOS group IDs) the user belongs to
 	GrantedSpaces []string // shared-space directory names the user may see
+	DeniedSpaces  []string // spaces explicitly denied (override group grants)
 }
 
 // UserEntitlements computes a user's file-visibility scope.
@@ -691,14 +743,27 @@ func (s *Service) UserEntitlements(ctx context.Context, userID string) (Entitlem
 		Admin:     u.Role == RoleAdmin,
 		GroupDirs: append([]string{}, u.Groups...),
 	}
+	// A user-level deny on a space overrides any group grant to that space.
+	denied := map[string]bool{}
+	for _, g := range s.grants {
+		if g.Access == AccessDeny && g.SubjectType == SubjectUser && g.SubjectID == userID {
+			denied[g.SpaceID] = true
+		}
+	}
 	seen := map[string]bool{}
 	for _, g := range s.grants {
+		if g.Access == AccessDeny || denied[g.SpaceID] {
+			continue
+		}
 		match := (g.SubjectType == SubjectUser && g.SubjectID == userID) ||
 			(g.SubjectType == SubjectGroup && containsString(u.Groups, g.SubjectID))
 		if match && !seen[g.SpaceID] {
 			seen[g.SpaceID] = true
 			ent.GrantedSpaces = append(ent.GrantedSpaces, g.SpaceID)
 		}
+	}
+	for space := range denied {
+		ent.DeniedSpaces = append(ent.DeniedSpaces, space)
 	}
 	return ent, nil
 }
@@ -856,20 +921,10 @@ func (s *Service) saveLocked() error {
 }
 
 func validatePassword(password string) error {
-	if len(password) < 8 {
-		return fmt.Errorf("password must be at least 8 characters")
-	}
-	var hasLetter, hasDigit bool
-	for _, r := range password {
-		if unicode.IsLetter(r) {
-			hasLetter = true
-		}
-		if unicode.IsDigit(r) {
-			hasDigit = true
-		}
-	}
-	if !hasLetter || !hasDigit {
-		return fmt.Errorf("password must include letters and digits")
+	// Complexity rules intentionally removed: any non-empty password is accepted
+	// (NAS-style convenience; SMB/login accept the same value verbatim).
+	if password == "" {
+		return fmt.Errorf("password is required")
 	}
 	return nil
 }

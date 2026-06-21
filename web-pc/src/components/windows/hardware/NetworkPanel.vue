@@ -21,7 +21,7 @@ function stateTone(state: string): 'success' | 'neutral' {
   <div>
     <div v-if="networkLive" class="hw-section-actions">
       <span class="hw-row__label">实时吞吐</span>
-      <strong class="hw-metric__value" style="font-size: 16px;">{{ networkLive.value }}<small>{{ networkLive.unit }}</small></strong>
+      <strong class="hw-metric__value" style="font-size: var(--fs-lg);">{{ networkLive.value }}<small>{{ networkLive.unit }}</small></strong>
       <span class="hw-status">{{ networkLive.detail }}</span>
     </div>
 

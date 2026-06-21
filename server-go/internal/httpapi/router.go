@@ -25,13 +25,15 @@ import (
 	hdocker "higoos/server-go/internal/docker"
 	"higoos/server-go/internal/downloads"
 	"higoos/server-go/internal/files"
+	"higoos/server-go/internal/foldersync"
+	"higoos/server-go/internal/hardware"
 	"higoos/server-go/internal/identity"
 	"higoos/server-go/internal/index"
+	"higoos/server-go/internal/iscsi"
 	"higoos/server-go/internal/llm"
 	higomcp "higoos/server-go/internal/mcp"
 	"higoos/server-go/internal/mcpclient"
 	"higoos/server-go/internal/media"
-	"higoos/server-go/internal/hardware"
 	"higoos/server-go/internal/monitoring"
 	"higoos/server-go/internal/music"
 	"higoos/server-go/internal/network"
@@ -41,42 +43,48 @@ import (
 	"higoos/server-go/internal/search"
 	"higoos/server-go/internal/security"
 	"higoos/server-go/internal/settings"
+	"higoos/server-go/internal/sharedfolders"
 	"higoos/server-go/internal/steward"
 	"higoos/server-go/internal/storage"
 	"higoos/server-go/internal/tasks"
 	"higoos/server-go/internal/video"
+	"higoos/server-go/internal/vm"
 )
 
 type Dependencies struct {
-	Config     platform.Config
-	DB         *db.Pool
-	Dev        *devstub.Store
-	Files      *files.Service
-	Monitoring *monitoring.Service
-	Hardware   *hardware.Service
-	Settings   *settings.Store
-	LLM        *llm.Store
-	Storage    *storage.Service
-	Downloads  *downloads.Service
-	Docker     *hdocker.DevService
-	Backups    *backups.Service
-	AppCenter  *appcenter.Service
-	Remote     *remote.Service
-	Media      *media.Service
-	Music      *music.Service
-	Video      *video.Service
-	Assistant  *assistant.Service
-	Accounts   *accounts.Service
-	Auth       *auth.SessionStore
-	Audit      *audit.Store
-	Steward    *steward.Service
-	Security   *security.Service
-	Activity   *activity.Service
-	Protocols  *protocols.Service
-	Network    *network.Service
-	Identity   *identity.Provider
-	Tasks      *tasks.Manager
-	Logger     *slog.Logger
+	Config        platform.Config
+	DB            *db.Pool
+	Dev           *devstub.Store
+	Files         *files.Service
+	Monitoring    *monitoring.Service
+	Hardware      *hardware.Service
+	Settings      *settings.Store
+	LLM           *llm.Store
+	Storage       *storage.Service
+	Downloads     *downloads.Service
+	Docker        *hdocker.DevService
+	Backups       *backups.Service
+	Sync          *foldersync.Service
+	AppCenter     *appcenter.Service
+	Remote        *remote.Service
+	Media         *media.Service
+	Music         *music.Service
+	Video         *video.Service
+	VM            *vm.Service
+	ISCSI         *iscsi.Service
+	Assistant     *assistant.Service
+	Accounts      *accounts.Service
+	Auth          *auth.SessionStore
+	Audit         *audit.Store
+	Steward       *steward.Service
+	Security      *security.Service
+	Activity      *activity.Service
+	Protocols     *protocols.Service
+	SharedFolders *sharedfolders.Service
+	Network       *network.Service
+	Identity      *identity.Provider
+	Tasks         *tasks.Manager
+	Logger        *slog.Logger
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -170,6 +178,15 @@ func NewRouter(deps Dependencies) http.Handler {
 			backupService = backups.NewService()
 		}
 	}
+	syncService := deps.Sync
+	if syncService == nil {
+		var err error
+		syncService, err = foldersync.NewServiceWithStateDir(cfg.StateDir)
+		if err != nil {
+			logger.Warn("sync state unavailable", slog.Any("error", err))
+			syncService = foldersync.NewService()
+		}
+	}
 	appCenterService := deps.AppCenter
 	if appCenterService == nil {
 		var err error
@@ -219,6 +236,24 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 	}
 	videoService.StartDVR(context.Background(), 20*time.Second)
+	vmService := deps.VM
+	if vmService == nil {
+		var err error
+		vmService, err = vm.NewServiceWithStateDir(cfg.StateDir)
+		if err != nil {
+			logger.Warn("vm state unavailable", slog.Any("error", err))
+			vmService = vm.NewService()
+		}
+	}
+	iscsiService := deps.ISCSI
+	if iscsiService == nil {
+		var err error
+		iscsiService, err = iscsi.NewServiceWithStateDir(cfg.StateDir)
+		if err != nil {
+			logger.Warn("iscsi state unavailable", slog.Any("error", err))
+			iscsiService = iscsi.NewService()
+		}
+	}
 	assistantService := deps.Assistant
 	if assistantService == nil {
 		var err error
@@ -236,6 +271,20 @@ func NewRouter(deps Dependencies) http.Handler {
 			logger.Warn("llm provider state unavailable", slog.Any("error", err))
 			llmStore = llm.NewStore()
 		}
+	}
+	// Seed a default provider on a fresh install so AI features work out of the
+	// box (no-op once any provider exists or when no default is configured).
+	if seeded, err := llmStore.SeedDefaultsIfEmpty(llm.SeedConfig{
+		BaseURL:     cfg.LLMDefaultBaseURL,
+		APIKey:      cfg.LLMDefaultAPIKey,
+		ChatModel:   cfg.LLMDefaultChatModel,
+		VisionModel: cfg.LLMDefaultVisionModel,
+		EmbedModel:  cfg.LLMDefaultEmbedModel,
+		ASRModel:    cfg.LLMDefaultASRModel,
+	}); err != nil {
+		logger.Warn("llm default provider seeding failed", slog.Any("error", err))
+	} else if seeded > 0 {
+		logger.Info("seeded default llm providers", slog.Int("count", seeded))
 	}
 	assistantService.WithLLM(llmStore, llm.NewClient)
 
@@ -312,6 +361,24 @@ func NewRouter(deps Dependencies) http.Handler {
 			protocolsService = protocols.NewService(nil)
 		}
 	}
+	sharedFoldersService := deps.SharedFolders
+	if sharedFoldersService == nil {
+		var err error
+		sharedFoldersService, err = sharedfolders.NewServiceWithStateDir(sharedfolders.Deps{
+			Accounts:   accountsService,
+			Storage:    storageService,
+			Protocols:  protocolsService,
+			NASRoot:    cfg.NASRoot,
+			ServerHost: serverHostFor(cfg),
+		}, cfg.StateDir)
+		if err != nil {
+			logger.Warn("shared folders state unavailable", slog.Any("error", err))
+			sharedFoldersService = sharedfolders.NewService(sharedfolders.Deps{
+				Accounts: accountsService, Storage: storageService, Protocols: protocolsService,
+				NASRoot: cfg.NASRoot, ServerHost: serverHostFor(cfg),
+			})
+		}
+	}
 	networkService := deps.Network
 	if networkService == nil {
 		var err error
@@ -352,6 +419,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mediaService.AttachTaskRunner(taskManager)
 	backupService.AttachTaskRunner(taskManager)
 	backupService.StartBackupScheduler(context.Background(), 5*time.Minute)
+	syncService.AttachTaskRunner(taskManager)
 	videoService.AttachTaskRunner(taskManager)
 	dockerService.AttachTaskRunner(taskManager)
 	downloadsService.AttachTaskRunner(taskManager)
@@ -380,6 +448,14 @@ func NewRouter(deps Dependencies) http.Handler {
 	}
 	if analysisEngine != nil {
 		analysisEngine.AttachTaskRunner(taskManager)
+		// Near-real-time trigger: a mutation in files/video promptly (debounced)
+		// re-enumerates that domain instead of waiting for the periodic ticker.
+		if fileService != nil {
+			fileService.SetChangeNotifier(func() { analysisEngine.Notify(aianalysis.DomainFile) })
+		}
+		if videoService != nil {
+			videoService.SetChangeNotifier(func() { analysisEngine.Notify(aianalysis.DomainVideo) })
+		}
 	}
 
 	taskManager.Start(context.Background())
@@ -388,38 +464,42 @@ func NewRouter(deps Dependencies) http.Handler {
 	}
 
 	api := &API{
-		config:     cfg,
-		dev:        dev,
-		files:      fileService,
-		monitoring: monitoringService,
-		hardware:   hardwareService,
-		settings:   settingsStore,
-		llm:        llmStore,
-		storage:    storageService,
-		downloads:  downloadsService,
-		docker:     dockerService,
-		backups:    backupService,
-		appCenter:  appCenterService,
-		remote:     remoteService,
-		media:      mediaService,
-		music:      musicService,
-		video:      videoService,
+		config:        cfg,
+		dev:           dev,
+		files:         fileService,
+		monitoring:    monitoringService,
+		hardware:      hardwareService,
+		settings:      settingsStore,
+		llm:           llmStore,
+		storage:       storageService,
+		downloads:     downloadsService,
+		docker:        dockerService,
+		backups:       backupService,
+		sync:          syncService,
+		appCenter:     appCenterService,
+		remote:        remoteService,
+		media:         mediaService,
+		music:         musicService,
+		video:         videoService,
+		vm:            vmService,
+		iscsi:         iscsiService,
 		assistant:     assistantService,
 		accounts:      accountsService,
 		auth:          authStore,
 		audit:         auditStore,
 		loginThrottle: newLoginThrottle(),
 		steward:       stewardService,
-		security:   securityService,
-		activity:   activityService,
-		protocols:  protocolsService,
-		network:    networkService,
-		identity:   identityProvider,
-		tasks:      taskManager,
-		index:      index.New(deps.DB, llmStore),
-		search:     search.New(deps.DB, llmStore),
-		aianalysis: analysisEngine,
-		staticDir:  strings.TrimSpace(cfg.StaticDir),
+		security:      securityService,
+		activity:      activityService,
+		protocols:     protocolsService,
+		sharedFolders: sharedFoldersService,
+		network:       networkService,
+		identity:      identityProvider,
+		tasks:         taskManager,
+		index:         index.New(deps.DB, llmStore),
+		search:        search.New(deps.DB, llmStore),
+		aianalysis:    analysisEngine,
+		staticDir:     strings.TrimSpace(cfg.StaticDir),
 	}
 
 	mux := http.NewServeMux()
@@ -488,6 +568,19 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/docker/containers/", api.dockerContainerByID)
 	mux.HandleFunc("/api/v1/backups/jobs", api.backupJobs)
 	mux.HandleFunc("/api/v1/backups/jobs/", api.backupJobByID)
+	mux.HandleFunc("/api/v1/vm/machines", api.vmMachines)
+	mux.HandleFunc("/api/v1/vm/machines/", api.vmMachineByID)
+	mux.HandleFunc("/api/v1/vm/capabilities", api.vmCapabilities)
+	mux.HandleFunc("/api/v1/vm/audit", api.vmAudit)
+	mux.HandleFunc("/api/v1/iscsi/targets", api.iscsiTargets)
+	mux.HandleFunc("/api/v1/iscsi/targets/", api.iscsiTargetByID)
+	mux.HandleFunc("/api/v1/iscsi/capabilities", api.iscsiCapabilities)
+	mux.HandleFunc("/api/v1/iscsi/audit", api.iscsiAudit)
+	mux.HandleFunc("/api/v1/sync/pairs", api.syncPairs)
+	mux.HandleFunc("/api/v1/sync/pairs/", api.syncPairByID)
+	mux.HandleFunc("/api/v1/sync/conflicts", api.syncConflicts)
+	mux.HandleFunc("/api/v1/sync/conflicts/", api.syncConflictByID)
+	mux.HandleFunc("/api/v1/sync/audit", api.syncAudit)
 	mux.HandleFunc("/api/v1/app-center/apps", api.appCenterApps)
 	mux.HandleFunc("/api/v1/app-center/apps/", api.appCenterAppByID)
 	mux.HandleFunc("/api/v1/app-center/catalog", api.appCenterCatalog)
@@ -544,6 +637,8 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/ai/index/status", api.aiIndexStatus)
 	mux.HandleFunc("/api/v1/ai-analysis/status", api.aiAnalysisStatus)
 	mux.HandleFunc("/api/v1/ai-analysis/records", api.aiAnalysisRecords)
+	mux.HandleFunc("/api/v1/ai-analysis/records/", api.aiAnalysisRecordByKey)
+	mux.HandleFunc("/api/v1/ai-analysis/batch", api.aiAnalysisBatch)
 	mux.HandleFunc("/api/v1/ai-analysis/reanalyze", api.aiAnalysisReanalyze)
 	mux.HandleFunc("/api/v1/ai-analysis/rescan", api.aiAnalysisRescan)
 	mux.HandleFunc("/api/v1/ai-analysis/pause", api.aiAnalysisPause)
@@ -578,6 +673,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/accounts/groups/", api.accountGroupByID)
 	mux.HandleFunc("/api/v1/accounts/grants", api.accountGrants)
 	mux.HandleFunc("/api/v1/accounts/grants/", api.accountGrantByID)
+	mux.HandleFunc("/api/v1/accounts/samba-sync", api.accountsSambaSync)
 	mux.HandleFunc("/api/v1/steward/suggestions", api.stewardSuggestions)
 	mux.HandleFunc("/api/v1/steward/suggestions/", api.stewardSuggestionByID)
 	mux.HandleFunc("/api/v1/steward/audit", api.stewardAudit)
@@ -591,6 +687,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/security/risk-actions/", api.securityRiskActionByID)
 	mux.HandleFunc("/api/v1/security/audit", api.securityAudit)
 	mux.HandleFunc("/api/v1/security/audit/", api.securityAuditByID)
+	mux.HandleFunc("/api/v1/security/host/ports", api.securityHostPorts)
+	mux.HandleFunc("/api/v1/security/host/firewall", api.securityHostFirewall)
+	mux.HandleFunc("/api/v1/security/host/scan", api.securityHostScan)
 	mux.HandleFunc("/api/v1/shares", api.securityShares)
 	mux.HandleFunc("/api/v1/shares/", api.securityShareByID)
 	mux.HandleFunc("/api/v1/protocols", api.protocolsList)
@@ -599,6 +698,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/protocols/audit", api.protocolsAudit)
 	mux.HandleFunc("/api/v1/protocols/audit/", api.protocolsAuditByID)
 	mux.HandleFunc("/api/v1/protocols/", api.protocolByKey)
+	mux.HandleFunc("/api/v1/shared-folders", api.sharedFoldersList)
+	mux.HandleFunc("/api/v1/shared-folders/permissions/by-subject", api.sharedFolderSubjectPermissions)
+	mux.HandleFunc("/api/v1/shared-folders/", api.sharedFolderByID)
 	mux.HandleFunc("/api/v1/network/interfaces", api.networkInterfaces)
 	mux.HandleFunc("/api/v1/network/config", api.networkConfig)
 	mux.HandleFunc("/api/v1/network/config/confirm", api.networkConfigConfirm)
@@ -662,38 +764,42 @@ func downloadRoot(cfg platform.Config) string {
 }
 
 type API struct {
-	config     platform.Config
-	dev        *devstub.Store
-	files      *files.Service
-	monitoring *monitoring.Service
-	hardware   *hardware.Service
-	settings   *settings.Store
-	llm        *llm.Store
-	storage    *storage.Service
-	downloads  *downloads.Service
-	docker     *hdocker.DevService
-	backups    *backups.Service
-	appCenter  *appcenter.Service
-	remote     *remote.Service
-	media      *media.Service
-	music      *music.Service
-	video      *video.Service
+	config        platform.Config
+	dev           *devstub.Store
+	files         *files.Service
+	monitoring    *monitoring.Service
+	hardware      *hardware.Service
+	settings      *settings.Store
+	llm           *llm.Store
+	storage       *storage.Service
+	downloads     *downloads.Service
+	docker        *hdocker.DevService
+	backups       *backups.Service
+	sync          *foldersync.Service
+	appCenter     *appcenter.Service
+	remote        *remote.Service
+	media         *media.Service
+	music         *music.Service
+	video         *video.Service
+	vm            *vm.Service
+	iscsi         *iscsi.Service
 	assistant     *assistant.Service
 	accounts      *accounts.Service
 	auth          *auth.SessionStore
 	audit         *audit.Store
 	loginThrottle *loginThrottle
 	steward       *steward.Service
-	security   *security.Service
-	activity   *activity.Service
-	protocols  *protocols.Service
-	network    *network.Service
-	identity   *identity.Provider
-	tasks      *tasks.Manager
-	index      *index.Service
-	search     *search.Service
-	aianalysis *aianalysis.Engine
-	staticDir  string
+	security      *security.Service
+	activity      *activity.Service
+	protocols     *protocols.Service
+	sharedFolders *sharedfolders.Service
+	network       *network.Service
+	identity      *identity.Provider
+	tasks         *tasks.Manager
+	index         *index.Service
+	search        *search.Service
+	aianalysis    *aianalysis.Engine
+	staticDir     string
 }
 
 func taskStatePath(stateDir string) string {

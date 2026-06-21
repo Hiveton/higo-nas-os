@@ -4,7 +4,7 @@ import { AlertTriangle, ArchiveRestore, CheckCircle2, History, RefreshCw, Shield
 import { apiClient } from '../../api/client';
 import type { AuditEntry, StewardSuggestion } from '../../api/types';
 import NasFeaturePanel from '../NasFeaturePanel.vue';
-import { UiBadge, UiButton, UiEmptyState } from '../ui';
+import { UiBadge, UiButton, UiEmptyState, UiWindowPage } from '../ui';
 import type { UiTone } from '../ui';
 
 const emit = defineEmits<{ (e: 'open-agent'): void }>();
@@ -158,22 +158,23 @@ onMounted(loadStewardState);
 </script>
 
 <template>
-  <div class="ai-steward">
-    <section class="ai-steward__hero">
-        <div>
-          <p>{{ loading ? '正在同步后端' : '智能整理队列' }}</p>
-          <strong>{{ visibleSuggestions.length }} 条建议等待处理</strong>
-        </div>
-      <div class="ai-steward__hero-actions">
-        <UiButton size="sm" variant="ghost" :icon-left="Sparkles" @click="emit('open-agent')">
-          交给 AI 助手
-        </UiButton>
-        <UiButton size="sm" variant="soft" :icon-left="RefreshCw" :loading="loading" @click="refreshSuggestions">
-          重新分析
-        </UiButton>
-      </div>
-    </section>
+  <UiWindowPage
+    layout="chat"
+    :icon="Sparkles"
+    title="AI 文件管家"
+    :subtitle="`${visibleSuggestions.length} 条建议等待处理`"
+    :status="loading ? '正在同步后端' : '智能整理队列'"
+  >
+    <template #actions>
+      <UiButton size="sm" variant="ghost" :icon-left="Sparkles" @click="emit('open-agent')">
+        交给 AI 助手
+      </UiButton>
+      <UiButton size="sm" variant="soft" :icon-left="RefreshCw" :loading="loading" @click="refreshSuggestions">
+        重新分析
+      </UiButton>
+    </template>
 
+    <div class="ai-steward">
     <section class="ai-steward__suggestions" aria-label="智能整理建议">
       <article
         v-for="item in visibleSuggestions"
@@ -271,13 +272,14 @@ onMounted(loadStewardState);
       <UiEmptyState v-else :icon="History" title="暂无审计记录" description="确认或忽略建议后会在此留痕。" compact />
     </section>
     <NasFeaturePanel class="ai-steward__features" :modules="['files', 'security']" />
-  </div>
+    </div>
+  </UiWindowPage>
 </template>
 
 <style scoped>
 .ai-steward {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   gap: 12px;
   height: 100%;
   min-height: 0;
@@ -288,34 +290,6 @@ onMounted(loadStewardState);
   min-height: 0;
 }
 
-.ai-steward__hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 70px;
-  padding: 14px 16px;
-  color: var(--text-strong);
-  background: linear-gradient(135deg, rgba(var(--surface-rgb), 0.9), rgba(255, 246, 227, 0.82));
-  border: 1px solid rgba(22, 199, 221, 0.22);
-  border-radius: var(--radius-md);
-}
-
-.ai-steward__hero p,
-.ai-steward__hero strong {
-  display: block;
-  margin: 0;
-}
-
-.ai-steward__hero-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.ai-steward__hero p {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
 .ai-steward__suggestion-preview {
   display: flex;
   align-items: center;
@@ -323,15 +297,10 @@ onMounted(loadStewardState);
   margin: 8px 0 0;
   padding: 7px 9px;
   color: var(--text-strong);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.4;
-  background: rgba(19, 136, 255, 0.08);
-  border-radius: var(--radius-sm);
-}
-
-.ai-steward__hero strong {
-  margin-top: 4px;
-  font-size: 18px;
+  background: var(--accent-soft);
+  border-radius: var(--radius-control);
 }
 
 .ai-steward__suggestions {
@@ -346,7 +315,7 @@ onMounted(loadStewardState);
 .ai-steward__audit {
   background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
 }
 
 .ai-steward__suggestion {
@@ -354,8 +323,8 @@ onMounted(loadStewardState);
 }
 
 .ai-steward__suggestion--active {
-  border-color: rgba(19, 136, 255, 0.28);
-  box-shadow: inset 0 0 0 1px rgba(19, 136, 255, 0.08);
+  border-color: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-soft);
 }
 
 .ai-steward__suggestion-head {
@@ -367,13 +336,13 @@ onMounted(loadStewardState);
 .ai-steward__suggestion h3 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .ai-steward__suggestion p {
   margin: 6px 0 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.42;
 }
 
@@ -387,7 +356,7 @@ onMounted(loadStewardState);
 .ai-steward__suggestion-foot span {
   color: var(--text-strong);
   font-size: 18px;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
 }
 
 .ai-steward__suggestion-foot div {
@@ -408,19 +377,19 @@ onMounted(loadStewardState);
   min-width: 0;
   padding: 9px;
   background: rgba(var(--surface-rgb), 0.56);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
 }
 
 .ai-steward__risk-card strong {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .ai-steward__risk-card p {
   margin: 4px 0 0;
   color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-snug);
 }
 
 .ai-steward__audit {
@@ -433,7 +402,7 @@ onMounted(loadStewardState);
   gap: 6px;
   margin: 0 0 9px;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .ai-steward__audit ul {
@@ -449,7 +418,7 @@ onMounted(loadStewardState);
   align-items: center;
   gap: 7px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.3;
 }
 

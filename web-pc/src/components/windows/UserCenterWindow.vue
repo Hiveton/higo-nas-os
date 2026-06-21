@@ -1,91 +1,48 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue';
-import {
-  ClipboardList,
-  KeyRound,
-  LayoutDashboard,
-  Laptop,
-  ShieldCheck,
-  UserCircle,
-  Users,
-  UsersRound,
-} from 'lucide-vue-next';
+import { FolderTree, Users, UsersRound } from 'lucide-vue-next';
 import { accountsStore } from '../../stores/accounts';
-import { usePermissions } from '../../composables/usePermissions';
-import OverviewPanel from './user-center/OverviewPanel.vue';
-import MyAccountPanel from './user-center/MyAccountPanel.vue';
+import { UiWindowPage, UiNavRail, UiNavItem } from '../ui';
 import UsersPanel from './user-center/UsersPanel.vue';
 import GroupsPanel from './user-center/GroupsPanel.vue';
-import GrantsPanel from './user-center/GrantsPanel.vue';
-import IdentitiesPanel from './user-center/IdentitiesPanel.vue';
-import SessionsPanel from './user-center/SessionsPanel.vue';
-import AuditPanel from './user-center/AuditPanel.vue';
+import SharedFoldersPanel from './user-center/SharedFoldersPanel.vue';
 import './user-center/user-center.css';
 
-type NavKey = 'overview' | 'me' | 'users' | 'groups' | 'grants' | 'identities' | 'sessions' | 'audit';
+// DSM/fnOS 控制面板模型:用户 / 用户组 / 共享文件夹。窗口为管理员工具
+// (App.vue 的 adminOnlyWindows 已限制非管理员打开);自助"个人设置"独立。
+type NavKey = 'users' | 'groups' | 'folders';
 
-const { canManageUsers, canManageSecurity } = usePermissions();
-
-const allNav: { key: NavKey; label: string; icon: Component; need?: 'users' | 'security' }[] = [
-  { key: 'overview', label: '概览', icon: LayoutDashboard, need: 'users' },
-  { key: 'me', label: '我的账号', icon: UserCircle },
-  { key: 'users', label: '用户', icon: Users, need: 'users' },
-  { key: 'groups', label: '用户组', icon: UsersRound, need: 'users' },
-  { key: 'grants', label: '权限授权', icon: KeyRound, need: 'users' },
-  { key: 'identities', label: '身份策略', icon: ShieldCheck, need: 'security' },
-  { key: 'sessions', label: '全员会话', icon: Laptop, need: 'security' },
-  { key: 'audit', label: '账号审计', icon: ClipboardList, need: 'security' },
+const nav: { key: NavKey; label: string; icon: Component }[] = [
+  { key: 'users', label: '用户', icon: Users },
+  { key: 'groups', label: '用户组', icon: UsersRound },
+  { key: 'folders', label: '共享文件夹', icon: FolderTree },
 ];
 
-const nav = computed(() =>
-  allNav.filter((item) => {
-    if (item.need === 'users') return canManageUsers.value;
-    if (item.need === 'security') return canManageSecurity.value;
-    return true;
-  }),
-);
-
-const active = ref<NavKey>(canManageUsers.value ? 'overview' : 'me');
+const active = ref<NavKey>('users');
+const activeNav = computed(() => nav.find((item) => item.key === active.value) ?? nav[0]);
 
 onMounted(() => {
-  if (canManageUsers.value) void accountsStore.load();
+  void accountsStore.load();
 });
 </script>
 
 <template>
-  <div class="uc">
-    <aside class="uc__rail">
-      <div class="uc__rail-head">
-        <Users :size="18" />
-        <div>
-          <strong>用户中心</strong>
-          <span>账号 · 权限 · 存储</span>
-        </div>
-      </div>
-      <nav class="uc__nav">
-        <button
+  <UiWindowPage layout="master-detail" :icon="Users" title="用户中心" :subtitle="activeNav.label">
+    <template #nav>
+      <UiNavRail title="用户中心" subtitle="用户 · 用户组 · 共享文件夹">
+        <UiNavItem
           v-for="item in nav"
           :key="item.key"
-          type="button"
-          class="uc__nav-item"
-          :class="{ 'uc__nav-item--active': active === item.key }"
-          @click="active = item.key"
-        >
-          <component :is="item.icon" :size="16" />
-          <span>{{ item.label }}</span>
-        </button>
-      </nav>
-    </aside>
+          :icon="item.icon"
+          :label="item.label"
+          :active="active === item.key"
+          @select="active = item.key"
+        />
+      </UiNavRail>
+    </template>
 
-    <main class="uc__main">
-      <OverviewPanel v-if="active === 'overview'" />
-      <MyAccountPanel v-else-if="active === 'me'" />
-      <UsersPanel v-else-if="active === 'users'" />
-      <GroupsPanel v-else-if="active === 'groups'" />
-      <GrantsPanel v-else-if="active === 'grants'" />
-      <IdentitiesPanel v-else-if="active === 'identities'" />
-      <SessionsPanel v-else-if="active === 'sessions'" />
-      <AuditPanel v-else-if="active === 'audit'" />
-    </main>
-  </div>
+    <UsersPanel v-if="active === 'users'" />
+    <GroupsPanel v-else-if="active === 'groups'" />
+    <SharedFoldersPanel v-else-if="active === 'folders'" />
+  </UiWindowPage>
 </template>

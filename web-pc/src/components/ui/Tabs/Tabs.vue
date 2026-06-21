@@ -54,6 +54,21 @@ function select(tab: TabItem) {
   emit('update:modelValue', tab.key);
 }
 
+// Roving keyboard navigation per the WAI-ARIA tablist pattern.
+function onKeydown(e: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+  const items = visibleTabs.value.filter((t) => !t.disabled);
+  if (!items.length) return;
+  e.preventDefault();
+  const idx = items.findIndex((t) => t.key === model.value);
+  let next = idx;
+  if (e.key === 'ArrowLeft') next = idx <= 0 ? items.length - 1 : idx - 1;
+  else if (e.key === 'ArrowRight') next = idx >= items.length - 1 ? 0 : idx + 1;
+  else if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = items.length - 1;
+  if (items[next]) select(items[next]);
+}
+
 /* --- overflow="menu" measurement ---
    Widths are read from a hidden measurement row that always renders ALL tabs,
    so collapsing the visible strip never changes what we measure (avoids the
@@ -112,7 +127,7 @@ watch(() => props.tabs.length, () => nextTick(measure));
 
 <template>
   <div class="ui-tabs" :class="[`ui-tabs--${variant}`, `ui-tabs--${size}`]">
-    <div ref="stripRef" class="ui-tabs__strip" role="tablist">
+    <div ref="stripRef" class="ui-tabs__strip" role="tablist" @keydown="onKeydown">
       <button
         v-for="tab in visibleTabs"
         :key="tab.key"
@@ -121,6 +136,7 @@ watch(() => props.tabs.length, () => nextTick(measure));
         type="button"
         role="tab"
         :aria-selected="tab.key === model"
+        :tabindex="tab.key === model ? 0 : -1"
         :disabled="tab.disabled"
         @click="select(tab)"
       >

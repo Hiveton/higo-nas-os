@@ -155,6 +155,35 @@ func (s *Service) ConfirmDeleteSpace(ctx context.Context, req ConfirmDeleteReque
 		return StorageTask{}, fmt.Errorf("confirmation %s has expired", req.ConfirmationID)
 	}
 
+	var target *StorageSpace
+	for i := range s.spaces {
+		if s.spaces[i].ID == pending.SpaceID {
+			target = &s.spaces[i]
+			break
+		}
+	}
+	if target == nil {
+		_ = s.saveLocked()
+		return StorageTask{}, fmt.Errorf("storage space not found: %s", pending.SpaceID)
+	}
+	teardown := SpaceProvisionPlan{
+		Name:       target.Name,
+		Mode:       target.Mode,
+		FileSystem: target.FileSystem,
+		MountPath:  target.MountPath,
+	}
+	s.mu.Unlock()
+
+	// Release the underlying storage (unmount + drop fstab / destroy pool) BEFORE
+	// dropping the record. On failure the record stays so the user can retry,
+	// which avoids leaving an orphaned mount with no owning space.
+	if err := s.provisioner.Deprovision(ctx, teardown); err != nil {
+		s.mu.Lock()
+		_ = s.saveLocked()
+		return StorageTask{}, fmt.Errorf("release space storage: %w", err)
+	}
+
+	s.mu.Lock()
 	index := -1
 	for i, space := range s.spaces {
 		if space.ID == pending.SpaceID {

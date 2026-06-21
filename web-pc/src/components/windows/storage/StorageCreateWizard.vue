@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { HardDrive, Search, ShieldCheck } from 'lucide-vue-next';
-import type { AccountUser, Disk } from '../../../api/types';
+import { HardDrive, ShieldCheck } from 'lucide-vue-next';
+import type { Disk } from '../../../api/types';
 import { UiButton, UiInput, UiModal, UiRadio } from '../../ui';
 
-type WizardStep = 1 | 2 | 3 | 4;
+type WizardStep = 1 | 2 | 3;
 
 type FileSystemOption = {
   key: 'btrfs' | 'zfs' | 'ext4';
@@ -58,13 +58,11 @@ defineProps<{
   unusedCapacity: number;
   canAdvanceWizard: boolean;
   busyAction: string;
-  accountUsers: AccountUser[];
   diskKind: (disk: Disk) => string;
   diskLabel: (disk: Disk) => string;
   diskProtocol: (disk: Disk) => string;
   formatGB: (value: number) => string;
   sum: (values: number[]) => number;
-  userInitial: (user: AccountUser) => string;
 }>();
 
 const emit = defineEmits<{
@@ -74,7 +72,6 @@ const emit = defineEmits<{
   (e: 'create'): void;
   (e: 'toggle-disk', slot: string): void;
   (e: 'select-mode', mode: ModeOption): void;
-  (e: 'toggle-user', id: string): void;
 }>();
 </script>
 
@@ -82,8 +79,8 @@ const emit = defineEmits<{
   <UiModal :open="true" size="lg" title="创建存储空间" @close="emit('close')">
     <template v-if="!createDone">
       <div class="storage-monitor__wizard-head">
-        <span>{{ wizardStep === 1 ? '选择文件系统' : wizardStep === 2 ? '选择硬盘和存储模式' : wizardStep === 3 ? '选择用户' : '确认信息' }}</span>
-        <strong>步骤 <b>{{ wizardStep }}</b> / 4</strong>
+        <span>{{ wizardStep === 1 ? '选择文件系统' : wizardStep === 2 ? '选择硬盘和存储模式' : '确认信息' }}</span>
+        <strong>步骤 <b>{{ wizardStep }}</b> / 3</strong>
       </div>
 
       <main class="storage-monitor__wizard-body">
@@ -145,36 +142,6 @@ const emit = defineEmits<{
           </div>
         </section>
 
-        <section v-else-if="wizardStep === 3" class="storage-monitor__users-step">
-          <div>
-            <h4>选择可使用此存储空间的用户</h4>
-            <UiInput :prefix-icon="Search" placeholder="搜索设备内的用户" />
-            <button
-              v-for="user in accountUsers"
-              :key="user.id"
-              type="button"
-              class="storage-monitor__user-row"
-              @click="emit('toggle-user', user.id)"
-            >
-              <span :class="{ 'storage-monitor__checkbox--active': wizard.selectedUserIds.includes(user.id) }">
-                {{ wizard.selectedUserIds.includes(user.id) ? '✓' : '' }}
-              </span>
-              <i>{{ userInitial(user) }}</i>
-              <strong>{{ user.displayName || user.username }}</strong>
-              <small>{{ user.role === 'admin' ? '管理员' : user.role }}</small>
-            </button>
-          </div>
-          <aside>
-            <h4>设置可用容量</h4>
-            <UiRadio v-model="wizard.quotaLimited" :value="false" label="不限制" />
-            <UiRadio v-model="wizard.quotaLimited" :value="true" label="限制普通用户的可用容量" />
-            <div class="storage-monitor__quota" :class="{ 'storage-monitor__quota--disabled': !wizard.quotaLimited }">
-              <UiInput v-model.number="wizard.quotaGB" type="number" :disabled="!wizard.quotaLimited" />
-              <span>GB</span>
-            </div>
-          </aside>
-        </section>
-
         <section v-else class="storage-monitor__confirm-step">
           <h4>已选硬盘</h4>
           <div class="storage-monitor__confirm-disks">
@@ -190,6 +157,7 @@ const emit = defineEmits<{
             <div><dt>预计可用容量</dt><dd>{{ formatGB(estimatedCapacity) }}</dd></div>
             <div><dt>存储空间描述</dt><dd><UiInput v-model="wizard.name" /></dd></div>
           </dl>
+          <p class="storage-monitor__wizard-hint">创建后,请到「共享文件夹」为该空间配置 用户/组 权限并开启 SMB/NFS。</p>
           <div class="storage-monitor__scan">
             <h4>硬盘读写检测</h4>
             <label class="storage-monitor__scan-option" :class="{ 'storage-monitor__scan-option--active': wizard.scanBeforeCreate }">
@@ -231,7 +199,7 @@ const emit = defineEmits<{
     <div v-else class="storage-monitor__success">
       <ShieldCheck :size="78" />
       <h3>已创建{{ createdSpaceName }}</h3>
-      <p>存储空间已写入后端，用户授权和容量策略已同步。</p>
+      <p>存储空间已写入后端。前往「共享文件夹」即可配置用户/组权限与 SMB/NFS。</p>
     </div>
 
     <template #footer>
@@ -247,11 +215,11 @@ const emit = defineEmits<{
         <UiButton variant="ghost" tone="neutral" @click="emit('close')">取消</UiButton>
         <UiButton
           tone="primary"
-          :loading="wizardStep === 4 && busyAction === 'create-space'"
+          :loading="wizardStep === 3 && busyAction === 'create-space'"
           :disabled="!canAdvanceWizard"
-          @click="wizardStep === 4 ? emit('create') : emit('next')"
+          @click="wizardStep === 3 ? emit('create') : emit('next')"
         >
-          {{ wizardStep === 4 ? '创建' : '下一步' }}
+          {{ wizardStep === 3 ? '创建' : '下一步' }}
         </UiButton>
       </template>
       <UiButton v-else tone="primary" @click="emit('close')">完成</UiButton>

@@ -6,6 +6,7 @@ import type {
   AiAnalysisReanalyzePayload,
   AiAnalysisState,
   AiAnalysisStatus,
+  FaceFrameworkStatus,
 } from '../api/types';
 
 /**
@@ -21,6 +22,13 @@ const recordsPage = ref({ page: 1, pageSize: 50, total: 0 });
 const recordsLoading = ref(false);
 const connected = ref(false);
 const error = ref<Error | null>(null);
+const faces = ref<FaceFrameworkStatus | null>(null);
+const facesLoading = ref(false);
+// Active record filters, owned by the analysis center toolbar.
+const filters = ref<{ domain?: AiAnalysisDomain; state?: AiAnalysisState; q?: string }>({});
+// Single-record detail drawer state.
+const recordDetail = ref<AiAnalysisRecord | null>(null);
+const recordDetailLoading = ref(false);
 
 let source: EventSource | undefined;
 let pollTimer: number | undefined;
@@ -96,12 +104,13 @@ function stop() {
   stopPolling();
 }
 
-async function loadRecords(domain?: AiAnalysisDomain, state?: AiAnalysisState, page = 1) {
+async function loadRecords(page = 1) {
   recordsLoading.value = true;
   try {
     const result = await apiClient.aiAnalysis.listRecords({
-      domain,
-      state,
+      domain: filters.value.domain,
+      state: filters.value.state,
+      q: filters.value.q?.trim() || undefined,
       page,
       size: recordsPage.value.pageSize,
     });
@@ -113,6 +122,42 @@ async function loadRecords(domain?: AiAnalysisDomain, state?: AiAnalysisState, p
   } finally {
     recordsLoading.value = false;
   }
+}
+
+/** Replace filters and reload from page 1. */
+async function setFilters(next: Partial<{ domain?: AiAnalysisDomain; state?: AiAnalysisState; q?: string }>) {
+  filters.value = { ...filters.value, ...next };
+  await loadRecords(1);
+}
+
+async function loadRecord(key: string) {
+  recordDetailLoading.value = true;
+  try {
+    recordDetail.value = await apiClient.aiAnalysis.getRecord(key);
+    error.value = null;
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason : new Error(String(reason));
+  } finally {
+    recordDetailLoading.value = false;
+  }
+}
+
+function clearRecordDetail() {
+  recordDetail.value = null;
+}
+
+/** Switch the background analysis depth via the settings store (single source). */
+async function setLevel(level: 'off' | 'basic' | 'standard' | 'deep') {
+  const current = await apiClient.settings.getSettings();
+  await apiClient.settings.updateSettings({ ...current, analysis: { ...current.analysis, level } });
+  await loadStatus();
+}
+
+async function batchReanalyze(keys: string[]) {
+  const result = await apiClient.aiAnalysis.batchReanalyze(keys);
+  overview.value = result.status;
+  await loadRecords(recordsPage.value.page);
+  return result.reset;
 }
 
 async function reanalyze(payload: AiAnalysisReanalyzePayload) {
@@ -131,6 +176,30 @@ async function rescan() {
   overview.value = await apiClient.aiAnalysis.rescan();
 }
 
+async function loadFaces() {
+  facesLoading.value = true;
+  try {
+    faces.value = await apiClient.aiAnalysis.getFaces();
+    error.value = null;
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason : new Error(String(reason));
+  } finally {
+    facesLoading.value = false;
+  }
+}
+
+async function labelFace(clusterId: string, name: string) {
+  const result = await apiClient.aiAnalysis.labelFace(clusterId, name);
+  faces.value = result.faces;
+  return result.confirmed;
+}
+
+async function retrainFaces() {
+  const result = await apiClient.aiAnalysis.retrainFaces();
+  await loadFaces();
+  return result.taskId;
+}
+
 export const aiAnalysisStore = {
   overview: readonly(overview),
   records: readonly(records),
@@ -138,12 +207,25 @@ export const aiAnalysisStore = {
   recordsLoading: readonly(recordsLoading),
   connected: readonly(connected),
   error: readonly(error),
+  faces: readonly(faces),
+  facesLoading: readonly(facesLoading),
+  filters: readonly(filters),
+  recordDetail: readonly(recordDetail),
+  recordDetailLoading: readonly(recordDetailLoading),
   start,
   stop,
   loadStatus,
   loadRecords,
+  setFilters,
+  loadRecord,
+  clearRecordDetail,
+  setLevel,
+  batchReanalyze,
   reanalyze,
   pause,
   resume,
   rescan,
+  loadFaces,
+  labelFace,
+  retrainFaces,
 };

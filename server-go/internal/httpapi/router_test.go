@@ -41,6 +41,10 @@ func (storageTestProvisioner) Provision(context.Context, storage.SpaceProvisionP
 	return nil
 }
 
+func (storageTestProvisioner) Deprovision(context.Context, storage.SpaceProvisionPlan) error {
+	return nil
+}
+
 func TestHealthzReturnsOK(t *testing.T) {
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Config: platform.Config{Environment: "test", Version: "test"},

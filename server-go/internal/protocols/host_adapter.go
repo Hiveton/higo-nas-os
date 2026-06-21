@@ -297,8 +297,14 @@ func renderSamba(config ProtocolConfig, shares []Share) string {
 		b.WriteString("   map to guest = Bad User\n")
 	}
 	for _, s := range shares {
+		accountScoped := (s.AccessLevel == AccessAccount || s.AccessLevel == AccessPassword) && len(s.AllowedUsers) > 0
 		readOnly := "no"
 		if s.AccessLevel == AccessReadOnly {
+			readOnly = "yes"
+		}
+		// Per-user read/write split: baseline the share read-only and promote the
+		// write-listed users, so granted-but-read-only users can't write.
+		if accountScoped && len(s.WriteUsers) > 0 {
 			readOnly = "yes"
 		}
 		guestOK := "no"
@@ -310,8 +316,23 @@ func renderSamba(config ProtocolConfig, shares []Share) string {
 		b.WriteString("   browseable = yes\n")
 		fmt.Fprintf(&b, "   read only = %s\n", readOnly)
 		fmt.Fprintf(&b, "   guest ok = %s\n", guestOK)
-		if (s.AccessLevel == AccessAccount || s.AccessLevel == AccessPassword) && len(s.AllowedUsers) > 0 {
+		if accountScoped {
 			fmt.Fprintf(&b, "   valid users = %s\n", strings.Join(s.AllowedUsers, " "))
+			if len(s.WriteUsers) > 0 {
+				fmt.Fprintf(&b, "   write list = %s\n", strings.Join(s.WriteUsers, " "))
+			}
+		}
+		// Explicit deny (overrides group-inherited access), mirrors the deny ACL.
+		if len(s.DenyUsers) > 0 {
+			fmt.Fprintf(&b, "   invalid users = %s\n", strings.Join(s.DenyUsers, " "))
+		}
+		// Recycle bin: deleted files move to #recycle (Synology/fnOS behavior).
+		if s.Recycle {
+			b.WriteString("   vfs objects = recycle\n")
+			b.WriteString("   recycle:repository = #recycle\n")
+			b.WriteString("   recycle:keeptree = yes\n")
+			b.WriteString("   recycle:versions = yes\n")
+			b.WriteString("   recycle:touch = yes\n")
 		}
 	}
 	return b.String()

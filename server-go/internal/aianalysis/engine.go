@@ -44,6 +44,9 @@ type Deps struct {
 	// cross-arch model sidecars. Empty leaves them reserved but inert.
 	FaceEmbedderURL string
 	FaceTrainerURL  string
+	// Debounce coalesces near-real-time Notify signals into a single rescan.
+	// Zero defaults to 2s.
+	Debounce time.Duration
 }
 
 // analyzePayload is the task payload for one item analysis.
@@ -73,6 +76,12 @@ type Engine struct {
 
 	now func() time.Time
 
+	// notifyCh receives near-real-time change signals from domain services; the
+	// Start loop debounces them into a single (per-domain) rescan. debounce is the
+	// coalescing window.
+	notifyCh chan DomainKind
+	debounce time.Duration
+
 	mu        sync.Mutex
 	paused    bool
 	enqueued  map[string]bool
@@ -89,6 +98,10 @@ func New(deps Deps) (*Engine, error) {
 	if interval <= 0 {
 		interval = defaultInterval
 	}
+	debounce := deps.Debounce
+	if debounce <= 0 {
+		debounce = 2 * time.Second
+	}
 	now := func() time.Time { return time.Now().UTC() }
 
 	e := &Engine{
@@ -100,6 +113,8 @@ func New(deps Deps) (*Engine, error) {
 		sources:  map[DomainKind]DomainSource{},
 		ledgers:  map[DomainKind]*Ledger{},
 		now:      now,
+		notifyCh: make(chan DomainKind, 64),
+		debounce: debounce,
 		enqueued: map[string]bool{},
 	}
 
@@ -211,21 +226,71 @@ func (e *Engine) Start(ctx context.Context) {
 			e.Rescan(ctx)
 			ticker := time.NewTicker(e.interval)
 			defer ticker.Stop()
+
+			// Debounce near-real-time Notify signals: collect the domains touched
+			// within a window and rescan only those once it elapses. An empty domain
+			// signals an all-domain rescan.
+			var debounce *time.Timer
+			var debounceC <-chan time.Time
+			pending := map[DomainKind]bool{}
+			allPending := false
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
 					e.Rescan(ctx)
+				case d := <-e.notifyCh:
+					if d == "" {
+						allPending = true
+					} else {
+						pending[d] = true
+					}
+					if debounce == nil {
+						debounce = time.NewTimer(e.debounce)
+						debounceC = debounce.C
+					} else {
+						debounce.Reset(e.debounce)
+					}
+				case <-debounceC:
+					debounce = nil
+					debounceC = nil
+					if allPending || len(pending) == 0 {
+						e.rescanDomains(ctx, nil)
+					} else {
+						e.rescanDomains(ctx, pending)
+					}
+					pending = map[DomainKind]bool{}
+					allPending = false
 				}
 			}
 		}()
 	})
 }
 
+// Notify schedules a debounced rescan of the given domain (or all domains when
+// domain is ""). Safe to call from any goroutine and from a hot mutation path;
+// the bounded channel drops excess signals because a single pending rescan
+// already covers them. No-op before Start wires the consuming loop, but signals
+// sent after New (channel buffered) are retained until Start drains them.
+func (e *Engine) Notify(domain DomainKind) {
+	if e.notifyCh == nil {
+		return
+	}
+	select {
+	case e.notifyCh <- domain:
+	default:
+	}
+}
+
 // Rescan enumerates every domain, reconciles the ledgers against the live item
 // set, drops pruned items from the index, and dispatches pending work.
-func (e *Engine) Rescan(ctx context.Context) {
+func (e *Engine) Rescan(ctx context.Context) { e.rescanDomains(ctx, nil) }
+
+// rescanDomains is Rescan restricted to a domain set (nil = all domains). The
+// per-domain form lets a near-real-time file upload re-enumerate only the file
+// domain instead of paying for a full media-disk + video-library walk.
+func (e *Engine) rescanDomains(ctx context.Context, only map[DomainKind]bool) {
 	if e.isPaused() {
 		return
 	}
@@ -234,6 +299,9 @@ func (e *Engine) Rescan(ctx context.Context) {
 		return
 	}
 	for _, domain := range domainOrder {
+		if only != nil && !only[domain] {
+			continue
+		}
 		src := e.sources[domain]
 		ledger := e.ledgers[domain]
 		if src == nil || ledger == nil {
@@ -374,8 +442,9 @@ func (e *Engine) Status() EngineStatus {
 	return st
 }
 
-// Records returns a page of analysis records. An empty domain merges all domains.
-func (e *Engine) Records(domain DomainKind, state ItemState, page, size int) ([]Record, int) {
+// Records returns a page of analysis records. An empty domain merges all
+// domains; q free-text filters title/sourcePath/error.
+func (e *Engine) Records(domain DomainKind, state ItemState, q string, page, size int) ([]Record, int) {
 	if page <= 0 {
 		page = 1
 	}
@@ -386,7 +455,7 @@ func (e *Engine) Records(domain DomainKind, state ItemState, page, size int) ([]
 	if domain == "" {
 		for _, d := range domainOrder {
 			if ledger := e.ledgers[d]; ledger != nil {
-				all = append(all, ledger.filtered(state)...)
+				all = append(all, ledger.filtered(state, q)...)
 			}
 		}
 		sort.Slice(all, func(i, j int) bool {
@@ -396,7 +465,7 @@ func (e *Engine) Records(domain DomainKind, state ItemState, page, size int) ([]
 			return all[i].UpdatedAt.After(all[j].UpdatedAt)
 		})
 	} else if ledger := e.ledgers[domain]; ledger != nil {
-		all = ledger.filtered(state)
+		all = ledger.filtered(state, q)
 	}
 	total := len(all)
 	start := (page - 1) * size
@@ -408,6 +477,32 @@ func (e *Engine) Records(domain DomainKind, state ItemState, page, size int) ([]
 		end = total
 	}
 	return all[start:end], total
+}
+
+// RecordByKey returns one record's full state (including the complete
+// AnalyzerResult), looked up by its domain-prefixed key.
+func (e *Engine) RecordByKey(key string) (Record, bool) {
+	if ledger := e.ledgers[domainFromKey(key)]; ledger != nil {
+		return ledger.get(key)
+	}
+	return Record{}, false
+}
+
+// ReanalyzeKeys resets a set of records to pending and dispatches. Unknown keys
+// are skipped; returns the count actually reset.
+func (e *Engine) ReanalyzeKeys(keys []string) int {
+	n := 0
+	for _, key := range keys {
+		if ledger := e.ledgers[domainFromKey(key)]; ledger != nil {
+			if ledger.reset(key) {
+				n++
+			}
+		}
+	}
+	if n > 0 {
+		go e.dispatchPending()
+	}
+	return n
 }
 
 // Reanalyze forces re-analysis: a single item (key set), a whole domain (domain

@@ -80,7 +80,7 @@ const showCursor = computed(() => props.message.streaming && !props.message.text
   gap: var(--space-2);
   max-width: 84%;
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-window);
 }
 .is-user .bubble {
   color: var(--text-inverse);
@@ -120,7 +120,7 @@ const showCursor = computed(() => props.message.streaming && !props.message.text
   gap: 4px;
   padding: 2px var(--space-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-glass);
   color: var(--text-muted);
   font-size: var(--fs-2xs);

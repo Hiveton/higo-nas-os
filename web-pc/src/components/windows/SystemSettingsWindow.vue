@@ -18,7 +18,7 @@ import {
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import { settingsStore } from '../../stores/settings';
-import { UiButton } from '../ui';
+import { UiButton, UiWindowPage, UiNavRail, UiNavItem } from '../ui';
 import SettingsNetworkPanel from './settings/SettingsNetworkPanel.vue';
 import SettingsModelsPanel from './settings/SettingsModelsPanel.vue';
 import SettingsAiPanel from './settings/SettingsAiPanel.vue';
@@ -484,44 +484,28 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="system-settings">
-    <aside class="system-settings__sidebar" aria-label="系统设置分类">
-      <header>
-        <ShieldCheck :size="18" />
-        <div>
-          <strong>系统设置</strong>
-          <span>{{ activeCategoryIndex }} / {{ categories.length }} · {{ governanceScore }}%</span>
-        </div>
-      </header>
-
-      <nav class="system-settings__nav">
-        <button
+  <UiWindowPage
+    layout="master-detail"
+    :icon="ShieldCheck"
+    :title="activeCategory.label"
+    :subtitle="activeCategory.summary"
+    :status="appliedState"
+  >
+    <template #nav>
+      <UiNavRail title="系统设置" :subtitle="`${activeCategoryIndex} / ${categories.length} · 治理 ${governanceScore}%`">
+        <UiNavItem
           v-for="category in categories"
           :key="category.id"
-          class="system-settings__nav-item"
-          :class="{ 'system-settings__nav-item--active': category.id === activeCategoryId }"
-          type="button"
-          @click="selectCategory(category.id)"
-        >
-          <component :is="category.icon" :size="15" />
-          <span>
-            <strong>{{ category.label }}</strong>
-            <small>{{ category.summary }}</small>
-          </span>
-        </button>
-      </nav>
-    </aside>
+          :icon="category.icon"
+          :label="category.label"
+          :hint="category.summary"
+          :active="category.id === activeCategoryId"
+          @select="selectCategory(category.id)"
+        />
+      </UiNavRail>
+    </template>
 
-    <main class="system-settings__main">
-      <section class="system-settings__hero" aria-label="当前设置状态">
-        <div>
-          <p>{{ activeCategory.summary }}</p>
-          <h3>{{ activeCategory.label }}</h3>
-        </div>
-        <span>{{ appliedState }}</span>
-      </section>
-
-      <section class="system-settings__content" aria-label="系统设置表单">
+    <section class="system-settings__content" aria-label="系统设置表单">
         <SettingsNetworkPanel
           v-if="activeCategoryId === 'network'"
           :settings="settings"
@@ -622,16 +606,15 @@ onMounted(async () => {
 
       </section>
 
-      <section class="system-settings__footer" aria-label="保存和审计状态">
-        <div>
-          <strong>{{ lastAudit }}</strong>
-          <span>账号权限、网络、模型、安全治理和备份策略均受审计保护。</span>
-        </div>
-        <div class="system-settings__footer-actions">
-          <UiButton variant="soft" :icon-left="RotateCcw" @click="restoreDefaults">恢复默认</UiButton>
-          <UiButton :icon-left="Save" @click="saveSettings">保存应用</UiButton>
-        </div>
-      </section>
-    </main>
-  </div>
+    <template #footer>
+      <div class="system-settings__footer-text">
+        <strong>{{ lastAudit }}</strong>
+        <span>账号权限、网络、模型、安全治理和备份策略均受审计保护。</span>
+      </div>
+      <div class="system-settings__footer-actions">
+        <UiButton variant="soft" :icon-left="RotateCcw" @click="restoreDefaults">恢复默认</UiButton>
+        <UiButton :icon-left="Save" @click="saveSettings">保存应用</UiButton>
+      </div>
+    </template>
+  </UiWindowPage>
 </template>

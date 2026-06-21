@@ -4,17 +4,20 @@ import { UserPlus } from 'lucide-vue-next';
 import {
   UiBadge,
   UiButton,
+  UiCheckbox,
   UiDataTable,
   UiFormField,
   UiInput,
   UiModal,
   UiSelect,
+  UiTabs,
   useConfirm,
   useToast,
 } from '../../ui';
-import type { Column } from '../../ui';
+import type { Column, TabItem } from '../../ui';
 import { accountsStore } from '../../../stores/accounts';
 import type { AccountUser } from '../../../api/types';
+import FolderPermTab from './FolderPermTab.vue';
 
 const toast = useToast();
 const confirm = useConfirm();
@@ -34,8 +37,6 @@ const roleOptions = [
 ];
 
 const busy = ref('');
-const showCreate = ref(false);
-const form = ref({ username: '', displayName: '', password: '', role: 'user', quotaGB: 50, groupId: '' });
 
 function roleLabel(role: string) {
   return role === 'admin' ? '管理员' : role === 'user' ? '成员' : role === 'guest' ? '访客' : role;
@@ -46,6 +47,10 @@ function statusLabel(status: string) {
 function quota(bytes: number) {
   return bytes ? `${Math.round(bytes / 1024 / 1024 / 1024)} GB` : '不限';
 }
+
+// --- create ---
+const showCreate = ref(false);
+const form = ref({ username: '', displayName: '', password: '', role: 'user', quotaGB: 50, groupId: '' });
 
 async function create() {
   if (!form.value.username.trim()) {
@@ -69,6 +74,62 @@ async function create() {
     toast.error(reason instanceof Error ? reason.message : '创建失败');
   } finally {
     busy.value = '';
+  }
+}
+
+// --- edit (tabbed dialog) ---
+const editTabs: TabItem[] = [
+  { key: 'info', label: '信息' },
+  { key: 'groups', label: '所属群组' },
+  { key: 'folders', label: '共享文件夹权限' },
+];
+const showEdit = ref(false);
+const editTab = ref('info');
+const editing = ref<AccountUser | null>(null);
+const editForm = ref({ displayName: '', role: 'user', status: 'active', password: '', quotaGB: 0 });
+const editGroups = ref<Set<string>>(new Set());
+const savingEdit = ref(false);
+
+function openEdit(user: AccountUser) {
+  editing.value = user;
+  editTab.value = 'info';
+  editForm.value = {
+    displayName: user.displayName || '',
+    role: user.role,
+    status: user.status,
+    password: '',
+    quotaGB: Math.round((user.quotaBytes || 0) / 1024 / 1024 / 1024),
+  };
+  editGroups.value = new Set(user.groups ?? []);
+  showEdit.value = true;
+}
+
+function toggleGroup(id: string, on: boolean) {
+  const next = new Set(editGroups.value);
+  if (on) next.add(id);
+  else next.delete(id);
+  editGroups.value = next;
+}
+
+async function saveEdit() {
+  if (!editing.value) return;
+  savingEdit.value = true;
+  try {
+    const payload: Record<string, unknown> = {
+      displayName: editForm.value.displayName,
+      role: editForm.value.role,
+      status: editForm.value.status,
+      quotaBytes: Math.round(Number(editForm.value.quotaGB) * 1024 * 1024 * 1024),
+      groups: Array.from(editGroups.value),
+    };
+    if (editForm.value.password) payload.password = editForm.value.password;
+    await accountsStore.updateUser(editing.value.id, payload);
+    toast.success('用户已更新');
+    showEdit.value = false;
+  } catch (reason) {
+    toast.error(reason instanceof Error ? reason.message : '保存失败');
+  } finally {
+    savingEdit.value = false;
   }
 }
 
@@ -128,6 +189,7 @@ async function remove(user: AccountUser) {
       <template #cell-quotaBytes="{ row }">{{ quota(row.quotaBytes) }}</template>
       <template #cell-actions="{ row }">
         <div class="uc-cell-actions">
+          <UiButton variant="ghost" size="sm" @click="openEdit(row)">编辑</UiButton>
           <UiButton variant="ghost" size="sm" :disabled="busy === row.id" @click="toggle(row)">
             {{ row.status === 'active' ? '停用' : '启用' }}
           </UiButton>
@@ -138,6 +200,7 @@ async function remove(user: AccountUser) {
       </template>
     </UiDataTable>
 
+    <!-- create -->
     <UiModal :open="showCreate" title="新建用户" size="sm" @update:open="showCreate = $event">
       <div class="uc-form" style="max-width: none">
         <UiFormField label="用户名"><UiInput v-model="form.username" /></UiFormField>
@@ -155,6 +218,41 @@ async function remove(user: AccountUser) {
       <template #footer>
         <UiButton variant="ghost" @click="showCreate = false">取消</UiButton>
         <UiButton :loading="busy === 'create'" @click="create">创建</UiButton>
+      </template>
+    </UiModal>
+
+    <!-- edit (tabbed) -->
+    <UiModal :open="showEdit" :title="`编辑用户 · ${editing?.displayName || editing?.username || ''}`" size="md" @update:open="showEdit = $event">
+      <UiTabs v-model="editTab" :tabs="editTabs" variant="underline" size="sm" />
+
+      <div v-show="editTab === 'info'" class="uc-form" style="max-width: none">
+        <UiFormField label="用户名"><UiInput :model-value="editing?.username" disabled /></UiFormField>
+        <UiFormField label="显示名"><UiInput v-model="editForm.displayName" /></UiFormField>
+        <UiFormField label="角色"><UiSelect v-model="editForm.role" :options="roleOptions" /></UiFormField>
+        <UiFormField label="状态">
+          <UiSelect v-model="editForm.status" :options="[{ value: 'active', label: '正常' }, { value: 'disabled', label: '停用' }]" />
+        </UiFormField>
+        <UiFormField label="配额 (GB)"><UiInput :model-value="editForm.quotaGB" type="number" @input="editForm.quotaGB = Number($event)" /></UiFormField>
+        <UiFormField label="重设密码"><UiInput v-model="editForm.password" type="password" placeholder="留空则不修改" /></UiFormField>
+      </div>
+
+      <div v-show="editTab === 'groups'">
+        <div class="uc-checklist">
+          <label v-for="g in accountsStore.groups.value" :key="g.id" class="uc-check-row">
+            <UiCheckbox :model-value="editGroups.has(g.id)" @update:model-value="toggleGroup(g.id, $event)" />
+            <span class="uc-check-name"><strong>{{ g.name }}</strong><small>{{ (g.userIds ?? []).length }} 名成员</small></span>
+          </label>
+          <p v-if="!accountsStore.groups.value.length" class="uc-panel__sub">还没有用户组。</p>
+        </div>
+      </div>
+
+      <div v-show="editTab === 'folders'">
+        <FolderPermTab v-if="editing" subject-type="user" :subject-id="editing.id" />
+      </div>
+
+      <template #footer>
+        <UiButton variant="ghost" @click="showEdit = false">关闭</UiButton>
+        <UiButton v-if="editTab !== 'folders'" :loading="savingEdit" @click="saveEdit">保存</UiButton>
       </template>
     </UiModal>
   </section>

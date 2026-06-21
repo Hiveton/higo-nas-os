@@ -8,7 +8,12 @@ import {
   Cpu,
   Download,
   HardDrive,
+  LogOut,
+  ShieldCheck,
+  SlidersHorizontal,
   Upload,
+  UserRound,
+  Users,
 } from 'lucide-vue-next';
 import { monitoringStore } from '../stores/monitoring';
 import { authStore } from '../stores/auth';
@@ -57,6 +62,7 @@ const roleLabel = computed(() => {
   }
 });
 const canManageSecurity = authStore.canManageSecurity;
+const canManageUsers = authStore.canManageUsers;
 
 const topbarMetrics = computed(() => {
   const preferred = ['cpu', 'memory', 'network', 'disk'];
@@ -186,14 +192,30 @@ onUnmounted(() => {
       </section>
 
       <section v-if="accountOpen" class="topbar__popover topbar__popover--account" aria-label="用户菜单">
-        <strong>{{ displayName }}</strong>
-        <span class="topbar__account-role">{{ roleLabel }}</span>
-        <button type="button" @click="emit('topbar-action', 'profile')">用户中心</button>
-        <button v-if="canManageSecurity" type="button" @click="emit('topbar-action', 'inspect')">
-          安全中心
+        <div class="topbar__account-head">
+          <span class="topbar__account-avatar">{{ avatarText }}</span>
+          <div class="topbar__account-id">
+            <strong>{{ displayName }}</strong>
+            <span class="topbar__account-role">{{ roleLabel }}</span>
+          </div>
+        </div>
+        <div class="topbar__menu-group">
+          <button type="button" class="topbar__menu-item" @click="emit('topbar-action', 'profile')">
+            <UserRound :size="15" :stroke-width="2" /><span>个人设置</span>
+          </button>
+          <button v-if="canManageUsers" type="button" class="topbar__menu-item" @click="emit('topbar-action', 'permissions')">
+            <Users :size="15" :stroke-width="2" /><span>用户中心</span>
+          </button>
+          <button v-if="canManageSecurity" type="button" class="topbar__menu-item" @click="emit('topbar-action', 'inspect')">
+            <ShieldCheck :size="15" :stroke-width="2" /><span>安全中心</span>
+          </button>
+          <button type="button" class="topbar__menu-item" @click="emit('topbar-action', 'models')">
+            <SlidersHorizontal :size="15" :stroke-width="2" /><span>模型策略设置</span>
+          </button>
+        </div>
+        <button type="button" class="topbar__menu-item topbar__menu-item--danger" @click="emit('topbar-action', 'logout')">
+          <LogOut :size="15" :stroke-width="2" /><span>退出桌面</span>
         </button>
-        <button type="button" @click="emit('topbar-action', 'models')">模型策略设置</button>
-        <button type="button" @click="emit('topbar-action', 'logout')">退出桌面</button>
       </section>
     </nav>
   </header>
@@ -215,7 +237,7 @@ onUnmounted(() => {
     linear-gradient(135deg, rgba(var(--surface-rgb), 0.72), rgba(var(--surface-rgb), 0.48)),
     rgba(var(--surface-rgb), 0.34);
   border: 1px solid rgba(255, 255, 255, 0.58);
-  border-radius: clamp(20px, var(--radius-lg), 28px);
+  border-radius: clamp(20px, var(--radius-window), 28px);
   box-shadow:
     0 18px 54px rgba(23, 66, 101, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.72);
@@ -252,7 +274,7 @@ onUnmounted(() => {
   margin-top: 3px;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -278,8 +300,8 @@ onUnmounted(() => {
   padding: 0 10px 0 13px;
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.62);
-  border: 1px solid rgba(93, 133, 164, 0.18);
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
@@ -293,7 +315,7 @@ onUnmounted(() => {
   gap: 5px;
   padding: 10px;
   background: rgba(var(--surface-rgb), 0.92);
-  border: 1px solid rgba(100, 136, 166, 0.2);
+  border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(20px) saturate(1.2);
@@ -302,8 +324,8 @@ onUnmounted(() => {
 .topbar__search-popover p {
   margin: 0 0 2px;
   color: var(--text-soft);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
 }
 
 .topbar__search-popover button {
@@ -313,6 +335,11 @@ onUnmounted(() => {
   text-align: left;
   background: rgba(var(--surface-rgb), 0.48);
   border-radius: 9px;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.topbar__search-popover button:hover {
+  background: var(--accent-soft);
 }
 
 .topbar__search input {
@@ -333,12 +360,12 @@ onUnmounted(() => {
   min-width: 36px;
   padding: 3px 7px;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-family: inherit;
   text-align: center;
   background: rgba(var(--surface-rgb), 0.72);
-  border: 1px solid rgba(100, 136, 166, 0.18);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
 }
 
 .topbar__right {
@@ -359,7 +386,7 @@ onUnmounted(() => {
   padding: 11px;
   color: var(--text);
   background: rgba(var(--surface-rgb), 0.92);
-  border: 1px solid rgba(100, 136, 166, 0.22);
+  border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(20px) saturate(1.2);
@@ -367,21 +394,102 @@ onUnmounted(() => {
 
 .topbar__popover strong {
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
-.topbar__popover button {
+.topbar__popover--notice button {
   min-height: 31px;
   padding: 0 9px;
   color: var(--text);
   text-align: left;
   background: rgba(var(--surface-rgb), 0.48);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.topbar__popover--notice button:hover {
+  background: var(--accent-soft);
 }
 
 .topbar__popover--account {
   right: 0;
-  min-width: 170px;
+  min-width: 232px;
+  gap: 8px;
+  padding: 10px;
+}
+
+.topbar__account-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.topbar__account-avatar {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
+  color: var(--text-inverse);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+.topbar__account-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.topbar__account-id strong {
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.topbar__account-role {
+  color: var(--text-soft);
+  font-size: var(--fs-2xs);
+}
+.topbar__menu-group {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.topbar__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 10px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.topbar__menu-item :deep(svg) {
+  color: var(--text-muted);
+}
+.topbar__menu-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+.topbar__menu-item:hover :deep(svg) {
+  color: var(--accent);
+}
+.topbar__menu-item--danger {
+  color: var(--accent-red);
+}
+.topbar__menu-item--danger :deep(svg) {
+  color: var(--accent-red);
+}
+.topbar__menu-item--danger:hover {
+  background: var(--accent-red-soft);
+  color: var(--accent-red);
 }
 
 .topbar__metrics,
@@ -395,11 +503,11 @@ onUnmounted(() => {
   min-width: 0;
   height: 34px;
   padding: 0 9px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.56);
-  border: 1px solid rgba(100, 136, 166, 0.17);
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
 }
 
 .topbar__metric svg,
@@ -410,8 +518,8 @@ onUnmounted(() => {
 .topbar__metric strong,
 .topbar__model strong {
   color: var(--text-strong);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   white-space: nowrap;
 }
 
@@ -420,11 +528,11 @@ onUnmounted(() => {
 }
 
 .topbar__metric--green svg {
-  color: var(--accent-green);
+  color: var(--ink-green);
 }
 
 .topbar__metric--orange svg {
-  color: var(--accent-orange);
+  color: var(--ink-orange);
 }
 
 .topbar__metric--cyan svg {
@@ -433,7 +541,7 @@ onUnmounted(() => {
 
 .topbar__models {
   padding-left: 10px;
-  border-left: 1px solid rgba(100, 136, 166, 0.2);
+  border-left: 1px solid var(--border);
 }
 
 .topbar__model {
@@ -449,7 +557,7 @@ onUnmounted(() => {
   position: relative;
   flex: 0 0 auto;
   height: 36px;
-  border: 1px solid rgba(100, 136, 166, 0.2);
+  border: 1px solid var(--border);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
@@ -470,11 +578,11 @@ onUnmounted(() => {
   padding: 0 4px;
   color: white;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   line-height: 17px;
   text-align: center;
   background: var(--accent-red);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.88);
 }
 
@@ -483,7 +591,7 @@ onUnmounted(() => {
   padding: 0 8px 0 5px;
   color: var(--text-strong);
   background: rgba(var(--surface-rgb), 0.66);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .topbar__avatar span {
@@ -492,9 +600,9 @@ onUnmounted(() => {
   height: 27px;
   place-items: center;
   color: var(--text-inverse);
-  font-size: 13px;
-  font-weight: 800;
-  background: linear-gradient(135deg, #1b8cff, #24c6a8);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
   border-radius: 50%;
 }
 

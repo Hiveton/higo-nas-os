@@ -21,6 +21,9 @@ coverage/
 .cache/
 server-go/.gocache/
 
+# Media transcode output (runtime artifact under the state dir)
+**/.transcoded/
+
 # Go build output binaries
 server-go/higo-api
 server-go/higo-worker

@@ -1,16 +1,5 @@
-.storage-monitor {
-  display: grid;
-  grid-template-rows: auto auto auto;
-  gap: 12px;
-  height: auto;
-  min-height: 100%;
-  min-width: 0;
-  overflow: visible;
-}
-
-.storage-monitor__topbar,
-.storage-monitor__stats,
-.storage-monitor__workspace,
+/* Page/header/stats/tab chrome now provided by UiWindowPage + UiStatGrid +
+   UiSegmented. Only storage content styles remain. */
 .storage-monitor__space-card,
 .storage-monitor__side section,
 .storage-monitor__cache-card {
@@ -19,100 +8,9 @@
   border-radius: var(--radius-md);
 }
 
-.storage-monitor__topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 13px 14px;
-}
-
-.storage-monitor__topbar h2,
-.storage-monitor__topbar p {
-  margin: 0;
-}
-
-.storage-monitor__topbar h2 {
-  color: var(--text-strong);
-  font-size: 18px;
-}
-
-.storage-monitor__topbar p {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.storage-monitor__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-}
-
-.storage-monitor__stats article {
-  display: grid;
-  gap: 4px;
-  justify-items: center;
-  padding: 11px 8px;
-  color: var(--accent);
-  background: rgba(var(--surface-rgb), 0.38);
-}
-
-.storage-monitor__stats span {
-  color: var(--text-soft);
-  font-size: 10px;
-}
-
-.storage-monitor__stats strong {
-  color: var(--text-strong);
-  font-size: 14px;
-}
-
-.storage-monitor__workspace {
-  display: grid;
-  grid-template-rows: auto auto;
-  min-width: 0;
-  overflow: visible;
-}
-
-.storage-monitor__tabs {
-  display: flex;
-  gap: 22px;
-  padding: 13px 18px 0;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.16);
-}
-
-.storage-monitor__tabs button {
-  position: relative;
-  height: 38px;
-  color: var(--text-muted);
-  background: transparent;
-  border: 0;
-  font-size: 14px;
-  font-weight: 760;
-}
-
-.storage-monitor__tabs .storage-monitor__tab--active {
-  color: var(--text-strong);
-}
-
-.storage-monitor__tabs .storage-monitor__tab--active::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 3px;
-  content: "";
-  background: var(--accent);
-  border-radius: 999px;
-}
-
 .storage-monitor__space-view,
 .storage-monitor__cache-view {
   overflow: visible;
-  padding: 14px 18px 18px;
 }
 
 .storage-monitor__toolbar {

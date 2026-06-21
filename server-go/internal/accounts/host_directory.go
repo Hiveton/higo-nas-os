@@ -305,6 +305,29 @@ func (d *HostDirectory) SetGroupMembers(ctx context.Context, name string, userna
 	return nil
 }
 
+// SambaPresent parses `pdbedit -L` (username:uid:...) into a set of usernames
+// that already have a Samba account. Hosts without Samba return an empty set.
+func (d *HostDirectory) SambaPresent(ctx context.Context) (map[string]bool, error) {
+	present := map[string]bool{}
+	if !d.sambaSync {
+		return present, nil
+	}
+	out, err := d.runner(ctx, "", "pdbedit", "-L")
+	if err != nil {
+		return present, nil // samba not installed / no accounts — treat as empty
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if name, _, ok := strings.Cut(line, ":"); ok {
+			present[strings.TrimSpace(name)] = true
+		}
+	}
+	return present, nil
+}
+
 func (d *HostDirectory) ensureGroup(ctx context.Context, name string) error {
 	if _, err := d.runner(ctx, "", "getent", "group", name); err == nil {
 		return nil

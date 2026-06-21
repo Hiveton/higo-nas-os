@@ -17,11 +17,11 @@ import StorageDiskPanel from './storage/StorageDiskPanel.vue';
 import StorageCachePanel from './storage/StorageCachePanel.vue';
 import StorageCreateWizard from './storage/StorageCreateWizard.vue';
 import StorageDeleteDialog from './storage/StorageDeleteDialog.vue';
-import { UiButton } from '../ui';
+import { UiButton, UiSegmented, UiStat, UiStatGrid, UiWindowPage } from '../ui';
 import './storage/storage-window.css';
 
 type StorageTab = 'spaces' | 'cache';
-type WizardStep = 1 | 2 | 3 | 4;
+type WizardStep = 1 | 2 | 3;
 type DiskFilter = 'all' | 'internal' | 'external';
 
 type FileSystemOption = {
@@ -242,7 +242,6 @@ const usedManagedCapacity = computed(() => roundGB(spaces.value.reduce((total, s
 const canAdvanceWizard = computed(() => {
   if (wizardStep.value === 1) return Boolean(wizard.value.fileSystem);
   if (wizardStep.value === 2) return wizard.value.selectedDiskSlots.length >= selectedMode.value.minDisks;
-  if (wizardStep.value === 3) return wizard.value.selectedUserIds.length > 0;
   return Boolean(
     wizard.value.name.trim()
     && wizard.value.selectedDiskSlots.length > 0
@@ -320,7 +319,7 @@ function closeCreateWizard() {
 
 function nextStep() {
   if (!canAdvanceWizard.value) return;
-  wizardStep.value = Math.min(4, wizardStep.value + 1) as WizardStep;
+  wizardStep.value = Math.min(3, wizardStep.value + 1) as WizardStep;
 }
 
 function prevStep() {
@@ -672,49 +671,27 @@ onMounted(loadStorageState);
 </script>
 
 <template>
-  <div class="storage-monitor">
-    <header class="storage-monitor__topbar">
-      <div>
-        <h2>存储管理</h2>
-        <p>{{ statusText }}</p>
-      </div>
+  <UiWindowPage layout="dashboard" :icon="Database" title="存储管理" :subtitle="statusText">
+    <template #actions>
       <UiButton variant="soft" tone="neutral" size="sm" :icon-left="RotateCcw" @click="loadStorageState">
         刷新
       </UiButton>
-    </header>
+    </template>
 
-    <section class="storage-monitor__stats" aria-label="存储概览">
-      <article>
-        <Database :size="18" />
-        <span>存储空间</span>
-        <strong>{{ spaces.length }} 个</strong>
-      </article>
-      <article>
-        <HardDrive :size="18" />
-        <span>硬盘</span>
-        <strong>{{ blockDisks.length }} 块</strong>
-      </article>
-      <article>
-        <Layers3 :size="18" />
-        <span>总容量</span>
-        <strong>{{ formatGB(totalManagedCapacity) }}</strong>
-      </article>
-      <article>
-        <Activity :size="18" />
-        <span>已用</span>
-        <strong>{{ formatGB(usedManagedCapacity) }}</strong>
-      </article>
-    </section>
+    <template #toolbar>
+      <UiSegmented
+        v-model="activeTab"
+        :options="[{ label: '存储空间', value: 'spaces' }, { label: 'SSD 缓存加速', value: 'cache' }]"
+        size="sm"
+      />
+    </template>
 
-    <section class="storage-monitor__workspace">
-      <div class="storage-monitor__tabs">
-        <button type="button" :class="{ 'storage-monitor__tab--active': activeTab === 'spaces' }" @click="activeTab = 'spaces'">
-          存储空间
-        </button>
-        <button type="button" :class="{ 'storage-monitor__tab--active': activeTab === 'cache' }" @click="activeTab = 'cache'">
-          SSD 缓存加速
-        </button>
-      </div>
+    <UiStatGrid>
+      <UiStat :icon="Database" label="存储空间" :value="`${spaces.length} 个`" tone="primary" />
+      <UiStat :icon="HardDrive" label="硬盘" :value="`${blockDisks.length} 块`" tone="info" />
+      <UiStat :icon="Layers3" label="总容量" :value="formatGB(totalManagedCapacity)" />
+      <UiStat :icon="Activity" label="已用" :value="formatGB(usedManagedCapacity)" tone="success" />
+    </UiStatGrid>
 
       <div v-if="activeTab === 'spaces'" class="storage-monitor__space-view">
         <div class="storage-monitor__toolbar">
@@ -832,19 +809,18 @@ onMounted(loadStorageState);
         </section>
       </div>
 
-      <StorageCachePanel
-        v-else
-        :physical-disks="physicalDisks"
-        :selected-disk-slot="selectedDiskSlot"
-        :cache-settings="cacheSettings"
-        :has-selected-disk="Boolean(selectedDisk)"
-        :busy-action="busyAction"
-        :disk-label="diskLabel"
-        @update:selected-disk-slot="selectedDiskSlot = $event"
-        @save="saveCacheSettings"
-        @remove="removeSelectedDisk"
-      />
-    </section>
+    <StorageCachePanel
+      v-else
+      :physical-disks="physicalDisks"
+      :selected-disk-slot="selectedDiskSlot"
+      :cache-settings="cacheSettings"
+      :has-selected-disk="Boolean(selectedDisk)"
+      :busy-action="busyAction"
+      :disk-label="diskLabel"
+      @update:selected-disk-slot="selectedDiskSlot = $event"
+      @save="saveCacheSettings"
+      @remove="removeSelectedDisk"
+    />
 
     <StorageCreateWizard
       v-if="wizardOpen"
@@ -886,5 +862,5 @@ onMounted(loadStorageState);
       @close="deleteTarget = null"
       @deleted="onSpaceDeleted"
     />
-  </div>
+  </UiWindowPage>
 </template>

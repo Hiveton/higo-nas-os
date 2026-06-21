@@ -81,3 +81,18 @@ func (c *Client) SecurityShareRevoke(ctx context.Context, id string) (json.RawMe
 	path := "/api/v1/shares/" + url.PathEscape(id)
 	return c.Do(ctx, http.MethodDelete, path, nil, nil)
 }
+
+// SecurityHostPorts lists listening ports (GET /api/v1/security/host/ports).
+func (c *Client) SecurityHostPorts(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/api/v1/security/host/ports", nil, nil)
+}
+
+// SecurityHostFirewall returns firewall state (GET /api/v1/security/host/firewall).
+func (c *Client) SecurityHostFirewall(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/api/v1/security/host/firewall", nil, nil)
+}
+
+// SecurityHostScan runs a full host security scan (POST /api/v1/security/host/scan).
+func (c *Client) SecurityHostScan(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/api/v1/security/host/scan", nil, nil)
+}

@@ -65,7 +65,7 @@ function stateText(state: string) {
   padding: 12px;
   background: rgba(var(--surface-rgb), 0.58);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
 }
 
 .nas-feature-panel__card header {
@@ -79,7 +79,7 @@ function stateText(state: string) {
   min-width: 0;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -88,7 +88,7 @@ function stateText(state: string) {
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.45;
 }
 
@@ -114,8 +114,8 @@ function stateText(state: string) {
   color: var(--accent);
   background: rgba(var(--surface-rgb), 0.72);
   border: 1px solid rgba(19, 136, 255, 0.16);
-  border-radius: 999px;
-  font-size: 11px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-2xs);
   font-weight: 730;
 }
 

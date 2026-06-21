@@ -3,8 +3,10 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -20,6 +22,10 @@ type SpaceProvisionPlan struct {
 
 type SpaceProvisioner interface {
 	Provision(context.Context, SpaceProvisionPlan) error
+	// Deprovision releases a space's storage (unmount + drop fstab entry, or
+	// destroy the ZFS pool) so its disks become reusable. It must be safe to
+	// call when nothing is mounted (idempotent teardown).
+	Deprovision(context.Context, SpaceProvisionPlan) error
 }
 
 type commandSpaceProvisioner struct {
@@ -117,6 +123,69 @@ func (p *commandSpaceProvisioner) provisionZFS(ctx context.Context, plan SpacePr
 		return fmt.Errorf("create zfs pool for %s: %w", plan.MountPath, err)
 	}
 	return nil
+}
+
+// Deprovision tears down a space's storage so its disks can be reused. For
+// ext4/btrfs it unmounts (when mounted) and drops the fstab entry; for ZFS it
+// destroys the pool. Missing tooling (dev hosts without the storage stack) is
+// tolerated so the teardown is a no-op there rather than a hard failure.
+func (p *commandSpaceProvisioner) Deprovision(ctx context.Context, plan SpaceProvisionPlan) error {
+	if plan.FileSystem == FileSystemZFS {
+		if _, err := p.runner(ctx, "/usr/sbin/zpool", "destroy", "-f", zfsPoolName(plan.Name)); err != nil && !isMissingBinary(err) {
+			// A non-existent pool is already torn down; only real failures matter.
+			if exists, _ := p.runner(ctx, "/usr/sbin/zpool", "list", "-H", zfsPoolName(plan.Name)); len(bytes.TrimSpace(exists)) > 0 {
+				return fmt.Errorf("destroy zfs pool %s: %w", plan.Name, err)
+			}
+		}
+		return p.removeFstabEntry(plan.MountPath)
+	}
+	if strings.TrimSpace(plan.MountPath) == "" {
+		return nil
+	}
+	// Only attempt umount when the path is actually a mountpoint (findmnt prints
+	// the target on a hit, nothing on a miss / when the tool is absent).
+	if target, _ := p.runner(ctx, "/usr/bin/findmnt", "-rno", "TARGET", plan.MountPath); len(bytes.TrimSpace(target)) > 0 {
+		if _, err := p.runner(ctx, "/usr/bin/umount", plan.MountPath); err != nil && !isMissingBinary(err) {
+			return fmt.Errorf("unmount %s: %w", plan.MountPath, err)
+		}
+	}
+	return p.removeFstabEntry(plan.MountPath)
+}
+
+// removeFstabEntry drops any /etc/fstab line whose mount point matches mountPath.
+func (p *commandSpaceProvisioner) removeFstabEntry(mountPath string) error {
+	if strings.TrimSpace(mountPath) == "" {
+		return nil
+	}
+	content, err := os.ReadFile(p.fstabPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read fstab: %w", err)
+	}
+	target := escapeFstabField(mountPath)
+	lines := strings.Split(string(content), "\n")
+	kept := make([]string, 0, len(lines))
+	removed := false
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] == target {
+			removed = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !removed {
+		return nil
+	}
+	return os.WriteFile(p.fstabPath, []byte(strings.Join(kept, "\n")), 0o644)
+}
+
+// isMissingBinary reports whether err is "executable not found", letting dev
+// hosts without the storage CLIs treat teardown steps as no-ops.
+func isMissingBinary(err error) bool {
+	return errors.Is(err, exec.ErrNotFound)
 }
 
 func validateProvisionPlan(plan SpaceProvisionPlan) error {

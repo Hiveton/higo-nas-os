@@ -8,13 +8,17 @@ import {
   Film,
   Info,
   MapPin,
+  RefreshCw,
+  ScanFace,
   Share2,
   ShieldAlert,
+  Sparkles,
   Users,
   Wand2,
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
-import { UiButton } from '../ui';
+import { aiAnalysisStore } from '../../stores/aiAnalysis';
+import { UiButton, UiWindowPage } from '../ui';
 import type { AlbumItem, MediaItem } from '../../api/types';
 import PhotoFilterSidebar from './photo/PhotoFilterSidebar.vue';
 import PhotoMediaGrid from './photo/PhotoMediaGrid.vue';
@@ -79,6 +83,11 @@ const albumPrivacyDraft = ref('');
 const createAlbumOpen = ref(false);
 const detailOpen = ref(false);
 
+// Face self-training framework (AI 相册 人脸库). Clusters are global, surfaced
+// when the 人物 dimension is active so the user can name people and retrain.
+const faces = aiAnalysisStore.faces;
+const faceDraft = ref<Record<string, string>>({});
+
 const selectedMedia = computed(() => mediaItems.value.find((item) => item.id === selectedMediaId.value) ?? mediaItems.value[0] ?? emptyMedia);
 const selectedAlbum = computed(() => albums.value.find((item) => item.id === selectedAlbumId.value) ?? albums.value[0] ?? emptyAlbum);
 const hasMedia = computed(() => mediaItems.value.length > 0);
@@ -140,6 +149,39 @@ function selectDimension(key: DimensionKey) {
   selectedFacet.value = facets.value[0] ?? '';
   clearSelection();
   void reloadMediaForFacet();
+  if (key === 'people') {
+    void aiAnalysisStore.loadFaces();
+  }
+}
+
+async function analyzeSelectedMedia() {
+  const id = selectedMedia.value.id;
+  if (!id || id === 'empty') return;
+  await runMediaAction('analyze', async () => {
+    await aiAnalysisStore.reanalyze({ scope: 'item', itemId: `media:${id}` });
+    mediaItems.value = markSelectedMedia({ status: '已加入 AI 分析队列' });
+    mediaNotice.value = `已将「${selectedMedia.value.title}」加入 AI 分析队列，结果稍后回填。`;
+  });
+}
+
+async function renameCluster(label: string) {
+  const name = (faceDraft.value[label] ?? '').trim();
+  if (!name) {
+    mediaNotice.value = '请输入人物名称。';
+    return;
+  }
+  await runMediaAction('face', async () => {
+    const confirmed = await aiAnalysisStore.labelFace(label, name);
+    faceDraft.value = { ...faceDraft.value, [label]: '' };
+    mediaNotice.value = `已将人脸簇「${label}」命名为「${name}」，确认 ${confirmed} 个样本。`;
+  });
+}
+
+async function retrainFaces() {
+  await runMediaAction('retrain', async () => {
+    const taskId = await aiAnalysisStore.retrainFaces();
+    mediaNotice.value = `已启动人脸模型自训练任务（${taskId}）。`;
+  });
 }
 
 function selectFacet(facet: string) {
@@ -377,20 +419,31 @@ function mergeMediaItems(current: MediaItem[], updates: MediaItem[]) {
   return [...byID.values()];
 }
 
-onMounted(loadMediaState);
+onMounted(() => {
+  void loadMediaState();
+  void aiAnalysisStore.loadFaces();
+});
 </script>
 
 <template>
-  <div class="photo-media">
-    <PhotoFilterSidebar
-      :loading="loading"
-      :dimension-options="dimensionOptions"
-      :active-dimension="activeDimension"
-      :facets="facets"
-      :selected-facet="selectedFacet"
-      @select-dimension="selectDimension"
-      @select-facet="selectFacet"
-    />
+  <UiWindowPage
+    layout="master-detail"
+    :icon="Camera"
+    title="照片媒体"
+    :subtitle="`${selectedAlbum.type} · ${selectedFacet || '全部'}`"
+    :status="mediaNotice"
+  >
+    <template #nav>
+      <PhotoFilterSidebar
+        :loading="loading"
+        :dimension-options="dimensionOptions"
+        :active-dimension="activeDimension"
+        :facets="facets"
+        :selected-facet="selectedFacet"
+        @select-dimension="selectDimension"
+        @select-facet="selectFacet"
+      />
+    </template>
 
     <PhotoMediaGrid
       v-model:search-text="searchText"
@@ -415,7 +468,7 @@ onMounted(loadMediaState);
       @select-media="selectMedia"
     />
 
-
+    <template #inspector>
     <aside class="photo-media__details" aria-label="媒体详情和 Agent 操作">
       <header>
         <div>
@@ -450,7 +503,61 @@ onMounted(loadMediaState);
         </div>
       </dl>
 
+      <div v-if="selectedMedia.caption" class="photo-media__caption">
+        <Sparkles :size="14" />
+        <p>{{ selectedMedia.caption }}</p>
+      </div>
+
+      <section v-if="activeDimension === 'people'" class="photo-faces" aria-label="人脸库与自训练">
+        <header class="photo-faces__head">
+          <div class="photo-faces__title">
+            <ScanFace :size="15" />
+            <strong>人脸库</strong>
+            <span v-if="faces">{{ faces.training.namedPeople }} 已命名 · {{ faces.clusters.length }} 簇</span>
+          </div>
+          <UiButton
+            variant="ghost"
+            size="sm"
+            :icon-left="RefreshCw"
+            :loading="busyAction === 'retrain'"
+            :disabled="!faces?.trainerReady"
+            :title="faces?.trainerReady ? '基于已命名样本重新训练人脸模型' : '未配置人脸训练 sidecar（HIGO_FACE_TRAINER_URL）'"
+            @click="retrainFaces"
+          >
+            自训练
+          </UiButton>
+        </header>
+
+        <p v-if="!faces || faces.clusters.length === 0" class="photo-faces__empty">
+          暂无人脸聚类。开启 AI 分析（深度等级）并配置视觉模型后，相册照片中的人脸会在这里成簇出现，可命名归并。
+        </p>
+
+        <ul v-else class="photo-faces__list">
+          <li v-for="cluster in faces.clusters" :key="cluster.label" class="photo-faces__item">
+            <div class="photo-faces__item-info">
+              <span class="photo-faces__item-name">{{ cluster.label }}</span>
+              <span class="photo-faces__item-count">{{ cluster.count }} 张</span>
+            </div>
+            <div class="photo-faces__rename">
+              <input
+                v-model="faceDraft[cluster.label]"
+                class="photo-faces__input"
+                type="text"
+                placeholder="命名此人"
+                @keyup.enter="renameCluster(cluster.label)"
+              />
+              <UiButton variant="soft" size="sm" :loading="busyAction === 'face'" @click="renameCluster(cluster.label)">
+                命名
+              </UiButton>
+            </div>
+          </li>
+        </ul>
+      </section>
+
       <div class="photo-media__actions" aria-label="相册媒体操作">
+        <UiButton variant="soft" size="sm" :icon-left="Sparkles" :disabled="!hasMedia" :loading="busyAction === 'analyze'" @click="analyzeSelectedMedia">
+          {{ busyAction === 'analyze' ? '排队中' : 'AI 分析' }}
+        </UiButton>
         <UiButton variant="soft" size="sm" :icon-left="Wand2" :disabled="!hasMedia" :loading="busyAction === 'memory'" @click="generateMemory">
           {{ busyAction === 'memory' ? '生成中' : '生成回忆' }}
         </UiButton>
@@ -483,6 +590,7 @@ onMounted(loadMediaState);
         <span v-for="job in subtitleJobs" :key="`subtitle-${job}`">字幕：{{ job }}</span>
       </div>
     </aside>
+    </template>
 
     <PhotoLightbox
       v-if="detailOpen"
@@ -494,5 +602,105 @@ onMounted(loadMediaState);
       @add-transcode="addTranscodeJob"
       @generate-memory="generateMemory"
     />
-  </div>
+  </UiWindowPage>
 </template>
+
+<style scoped>
+.photo-media__caption {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface-subtle, rgba(125, 125, 145, 0.08));
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.photo-media__caption :deep(svg) {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent);
+}
+.photo-media__caption p {
+  margin: 0;
+  line-height: var(--lh-normal);
+}
+
+.photo-faces {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid var(--border-subtle, rgba(125, 125, 145, 0.18));
+}
+.photo-faces__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.photo-faces__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+}
+.photo-faces__title span {
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+}
+.photo-faces__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
+}
+.photo-faces__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.photo-faces__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px dashed var(--border-subtle, rgba(125, 125, 145, 0.18));
+}
+.photo-faces__item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.photo-faces__item-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.photo-faces__item-name {
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+}
+.photo-faces__item-count {
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+}
+.photo-faces__rename {
+  display: flex;
+  gap: var(--space-2);
+}
+.photo-faces__input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--border-subtle, rgba(125, 125, 145, 0.28));
+  background: var(--surface, transparent);
+  color: var(--text-strong);
+  font-size: var(--fs-xs);
+}
+</style>

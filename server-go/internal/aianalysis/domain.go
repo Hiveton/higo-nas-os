@@ -52,7 +52,7 @@ func (m mediaSource) Apply(ctx context.Context, key string, res AnalyzerResult) 
 	if err != nil {
 		return fmt.Errorf("aianalysis: bad media key %q: %w", key, err)
 	}
-	return m.svc.ApplyAnalysis(id, res.People, res.Place, res.Device, summaryOrCaption(res))
+	return m.svc.ApplyAnalysis(id, res.People, res.Place, res.Device, summaryOrCaption(res), res.Caption)
 }
 
 // --- files -------------------------------------------------------------------
@@ -145,7 +145,7 @@ func (v videoSource) Apply(ctx context.Context, key string, res AnalyzerResult) 
 		resolution = toStr(res.TechMeta["resolution"])
 		duration = toInt(res.TechMeta["durationSeconds"])
 	}
-	return v.svc.ApplyAnalysis(id, summaryOrCaption(res), res.Tags, container, codec, resolution, duration)
+	return v.svc.ApplyAnalysis(id, summaryOrCaption(res), res.Transcript, res.Tags, container, codec, resolution, duration)
 }
 
 // --- shared helpers ----------------------------------------------------------

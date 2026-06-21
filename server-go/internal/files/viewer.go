@@ -16,6 +16,16 @@ type Viewer struct {
 	Username      string   // personal folder name under homes/
 	GroupDirs     []string // group folder names under groups/
 	GrantedSpaces []string // shared-space directory names the user may see
+	DeniedSpaces  []string // spaces explicitly denied (hidden + read-blocked)
+}
+
+func (v Viewer) denied(dir string) bool {
+	for _, d := range v.DeniedSpaces {
+		if d == dir || displayForDir(d) == dir {
+			return true
+		}
+	}
+	return false
 }
 
 // TreeFor returns the file tree scoped to the viewer. Admins get the full tree
@@ -78,7 +88,7 @@ func scopeTree(tree FileNode, v Viewer) FileNode {
 				}
 			}
 		default:
-			if granted[child.Space] {
+			if granted[child.Space] && !v.denied(child.Space) {
 				out.Children = append(out.Children, child)
 			}
 		}
@@ -111,6 +121,9 @@ func (s *Service) CanAccess(node FileNode, v Viewer) bool {
 		}
 		return false
 	default:
+		if v.denied(segs[0]) {
+			return false
+		}
 		dir := dirForDisplay(segs[0])
 		for _, gd := range v.GrantedSpaces {
 			if gd == dir || gd == segs[0] {

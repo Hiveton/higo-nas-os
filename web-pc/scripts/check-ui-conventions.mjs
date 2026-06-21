@@ -24,7 +24,7 @@ const BASELINE = {
   // Hardcoded near-white surfaces that don't adapt to dark mode. The residual
   // are intended white borders/edge-highlights; panel/card BACKGROUNDS should
   // use rgba(var(--surface-rgb), A) instead. Ratchet down, never up.
-  whiteSurfaces: 32,
+  whiteSurfaces: 30,
 };
 
 async function collectVueFiles(dir) {

@@ -60,7 +60,7 @@ function onKeydown(e: KeyboardEvent) {
   gap: var(--space-2);
   padding: var(--space-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-window);
   background: var(--surface-solid);
 }
 .composer__input {

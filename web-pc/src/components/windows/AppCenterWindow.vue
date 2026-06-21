@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import {
   Boxes,
-  CheckCircle2,
   DownloadCloud,
   ExternalLink,
   Play,
@@ -24,7 +23,7 @@ import type {
   AppConfigField,
   AppRegistry,
 } from '../../api/types';
-import { UiButton, UiInput, UiTabs } from '../ui';
+import { UiButton, UiInput, UiStat, UiStatGrid, UiTabs, UiToolbar, UiWindowPage } from '../ui';
 
 const emit = defineEmits<{ (e: 'open-frame', payload: { id: string; name: string; src: string }): void }>();
 
@@ -284,113 +283,123 @@ onMounted(loadAll);
 
 <template>
   <div class="app-center">
-    <section class="app-center__summary" aria-label="应用中心摘要">
-      <article><Boxes :size="18" /><span>已安装</span><strong>{{ installedCount }}</strong></article>
-      <article><Play :size="18" /><span>运行中</span><strong>{{ runningCount }}</strong></article>
-      <article><RefreshCw :size="18" /><span>可更新</span><strong>{{ updateCount }}</strong></article>
-    </section>
+    <UiWindowPage
+      layout="master-detail"
+      :icon="Boxes"
+      title="应用中心"
+      :subtitle="tabs.find((item) => item.key === tab)?.label"
+      :status="actionState"
+    >
+      <template #toolbar>
+        <UiToolbar>
+          <template #start>
+            <UiTabs v-model="tab" :tabs="tabs" variant="pill" size="sm" />
+          </template>
+        </UiToolbar>
+      </template>
 
-    <UiTabs v-model="tab" :tabs="tabs" variant="pill" size="sm" />
-
-    <!-- 发现 -->
-    <main v-if="tab === 'discover'" class="app-center__main">
-      <aside class="app-center__catalog" aria-label="应用目录">
-        <UiInput v-model="query" type="search" size="sm" :prefix-icon="Search" placeholder="搜索应用、分类或能力" />
-        <UiTabs v-model="activeCategory" :tabs="categoryTabs" variant="pill" size="sm" overflow="menu" />
-        <div class="app-center__list">
-          <button
-            v-for="app in filteredApps"
-            :key="app.id"
-            class="app-center__item"
-            :class="{ 'app-center__item--active': app.id === selectedAppId }"
-            type="button"
-            @click="selectApp(app.id)"
-          >
-            <strong>{{ app.name }}</strong>
-            <span>{{ app.category }} · {{ app.status }}</span>
-            <small>{{ app.version || app.latestVersion }} · {{ app.risk }} · {{ originLabel(app) }}</small>
-          </button>
-        </div>
-      </aside>
-
-      <section v-if="selectedApp" class="app-center__detail" aria-label="应用详情">
-        <header>
-          <div>
-            <p>{{ selectedApp.category }} · {{ selectedApp.source }}</p>
-            <h3>{{ selectedApp.name }}</h3>
+      <template v-if="tab === 'discover'" #nav>
+        <aside class="app-center__catalog" aria-label="应用目录">
+          <UiInput v-model="query" type="search" size="sm" :prefix-icon="Search" placeholder="搜索应用、分类或能力" />
+          <UiTabs v-model="activeCategory" :tabs="categoryTabs" variant="pill" size="sm" overflow="menu" />
+          <div class="app-center__list">
+            <button
+              v-for="app in filteredApps"
+              :key="app.id"
+              class="app-center__item"
+              :class="{ 'app-center__item--active': app.id === selectedAppId }"
+              type="button"
+              @click="selectApp(app.id)"
+            >
+              <strong>{{ app.name }}</strong>
+              <span>{{ app.category }} · {{ app.status }}</span>
+              <small>{{ app.version || app.latestVersion }} · {{ app.risk }} · {{ originLabel(app) }}</small>
+            </button>
           </div>
-          <strong>{{ selectedApp.status }}</strong>
-        </header>
+        </aside>
+      </template>
 
-        <p class="app-center__description">{{ selectedApp.description }}</p>
+      <UiStatGrid min="160px">
+        <UiStat :icon="Boxes" label="已安装" :value="installedCount" tone="primary" />
+        <UiStat :icon="Play" label="运行中" :value="runningCount" tone="success" />
+        <UiStat :icon="RefreshCw" label="可更新" :value="updateCount" tone="warning" />
+      </UiStatGrid>
 
-        <div class="app-center__grid">
-          <article><Tags :size="14" /><span>版本</span><strong>{{ selectedApp.version || '未安装' }} / {{ selectedApp.latestVersion }}</strong></article>
-          <article><ShieldCheck :size="14" /><span>风险</span><strong>{{ selectedApp.risk }}</strong></article>
-          <article><Boxes :size="14" /><span>资源</span><strong>{{ selectedApp.resource }}</strong></article>
-        </div>
+      <template v-if="tab === 'discover' && selectedApp" #inspector>
+        <section class="app-center__detail" aria-label="应用详情">
+          <header>
+            <div>
+              <p>{{ selectedApp.category }} · {{ selectedApp.source }}</p>
+              <h3>{{ selectedApp.name }}</h3>
+            </div>
+            <strong>{{ selectedApp.status }}</strong>
+          </header>
 
-        <div v-if="selectedApp.permissions?.length" class="app-center__perms">
-          <span v-for="perm in selectedApp.permissions" :key="perm">{{ perm }}</span>
-        </div>
+          <p class="app-center__description">{{ selectedApp.description }}</p>
 
-        <div class="app-center__ports" aria-label="端口">
-          <span v-for="port in selectedApp.ports" :key="port">{{ port }}</span>
-        </div>
+          <div class="app-center__grid">
+            <article><Tags :size="14" /><span>版本</span><strong>{{ selectedApp.version || '未安装' }} / {{ selectedApp.latestVersion }}</strong></article>
+            <article><ShieldCheck :size="14" /><span>风险</span><strong>{{ selectedApp.risk }}</strong></article>
+            <article><Boxes :size="14" /><span>资源</span><strong>{{ selectedApp.resource }}</strong></article>
+          </div>
 
-        <div class="app-center__actions">
-          <UiButton v-if="!selectedApp.installed" variant="soft" tone="primary" size="sm" :icon-left="DownloadCloud" @click="beginAction(selectedApp, 'install')">安装</UiButton>
-          <UiButton v-if="selectedApp.updateAvailable" variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="beginAction(selectedApp, 'update')">更新</UiButton>
-          <UiButton v-if="selectedApp.installed && !selectedApp.running" variant="soft" tone="primary" size="sm" :icon-left="Play" @click="beginAction(selectedApp, 'start')">启动</UiButton>
-          <UiButton v-if="selectedApp.running" variant="soft" size="sm" :icon-left="Square" @click="beginAction(selectedApp, 'stop')">停止</UiButton>
-          <UiButton v-if="selectedApp.running && selectedApp.webEntry" variant="soft" tone="primary" size="sm" :icon-left="ExternalLink" @click="openFrame(selectedApp)">打开</UiButton>
-          <UiButton v-if="selectedApp.installed" variant="soft" tone="danger" size="sm" :icon-left="Trash2" @click="beginAction(selectedApp, 'uninstall')">卸载</UiButton>
-        </div>
+          <div v-if="selectedApp.permissions?.length" class="app-center__perms">
+            <span v-for="perm in selectedApp.permissions" :key="perm">{{ perm }}</span>
+          </div>
+
+          <div class="app-center__ports" aria-label="端口">
+            <span v-for="port in selectedApp.ports" :key="port">{{ port }}</span>
+          </div>
+
+          <div class="app-center__actions">
+            <UiButton v-if="!selectedApp.installed" variant="soft" tone="primary" size="sm" :icon-left="DownloadCloud" @click="beginAction(selectedApp, 'install')">安装</UiButton>
+            <UiButton v-if="selectedApp.updateAvailable" variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="beginAction(selectedApp, 'update')">更新</UiButton>
+            <UiButton v-if="selectedApp.installed && !selectedApp.running" variant="soft" tone="primary" size="sm" :icon-left="Play" @click="beginAction(selectedApp, 'start')">启动</UiButton>
+            <UiButton v-if="selectedApp.running" variant="soft" size="sm" :icon-left="Square" @click="beginAction(selectedApp, 'stop')">停止</UiButton>
+            <UiButton v-if="selectedApp.running && selectedApp.webEntry" variant="soft" tone="primary" size="sm" :icon-left="ExternalLink" @click="openFrame(selectedApp)">打开</UiButton>
+            <UiButton v-if="selectedApp.installed" variant="soft" tone="danger" size="sm" :icon-left="Trash2" @click="beginAction(selectedApp, 'uninstall')">卸载</UiButton>
+          </div>
+        </section>
+      </template>
+
+      <!-- 已安装 -->
+      <section v-if="tab === 'installed'" class="app-center__installed">
+        <p v-if="!installedApps.length" class="app-center__empty">尚无已安装应用，去“发现”页安装一个吧。</p>
+        <article v-for="app in installedApps" :key="app.id" class="app-center__row">
+          <div class="app-center__row-info">
+            <strong>{{ app.name }}</strong>
+            <span>{{ app.category }} · {{ app.status }} · v{{ app.version || app.latestVersion }}</span>
+          </div>
+          <div class="app-center__row-actions">
+            <UiButton v-if="app.updateAvailable" variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="beginAction(app, 'update')">更新</UiButton>
+            <UiButton v-if="!app.running" variant="soft" tone="primary" size="sm" :icon-left="Play" @click="beginAction(app, 'start')">启动</UiButton>
+            <UiButton v-if="app.running" variant="soft" size="sm" :icon-left="Square" @click="beginAction(app, 'stop')">停止</UiButton>
+            <UiButton v-if="app.webEntry" variant="soft" tone="primary" size="sm" :icon-left="ExternalLink" @click="openFrame(app)">打开</UiButton>
+            <UiButton variant="soft" tone="danger" size="sm" :icon-left="Trash2" @click="beginAction(app, 'uninstall')">卸载</UiButton>
+          </div>
+        </article>
       </section>
-    </main>
 
-    <!-- 已安装 -->
-    <main v-else-if="tab === 'installed'" class="app-center__installed">
-      <p v-if="!installedApps.length" class="app-center__empty">尚无已安装应用，去“发现”页安装一个吧。</p>
-      <article v-for="app in installedApps" :key="app.id" class="app-center__row">
-        <div class="app-center__row-info">
-          <strong>{{ app.name }}</strong>
-          <span>{{ app.category }} · {{ app.status }} · v{{ app.version || app.latestVersion }}</span>
+      <!-- 审计 -->
+      <section v-else-if="tab === 'audit'" class="app-center__audit-log">
+        <div class="app-center__registry">
+          <UiInput v-model="registryUrl" size="sm" placeholder="远程仓库 index.json 地址" />
+          <UiButton variant="soft" size="sm" :icon-left="DownloadCloud" @click="addRegistry">添加仓库</UiButton>
+          <UiButton variant="soft" size="sm" :icon-left="RefreshCw" @click="refreshCatalog">刷新</UiButton>
         </div>
-        <div class="app-center__row-actions">
-          <UiButton v-if="app.updateAvailable" variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="beginAction(app, 'update')">更新</UiButton>
-          <UiButton v-if="!app.running" variant="soft" tone="primary" size="sm" :icon-left="Play" @click="beginAction(app, 'start')">启动</UiButton>
-          <UiButton v-if="app.running" variant="soft" size="sm" :icon-left="Square" @click="beginAction(app, 'stop')">停止</UiButton>
-          <UiButton v-if="app.webEntry" variant="soft" tone="primary" size="sm" :icon-left="ExternalLink" @click="openFrame(app)">打开</UiButton>
-          <UiButton variant="soft" tone="danger" size="sm" :icon-left="Trash2" @click="beginAction(app, 'uninstall')">卸载</UiButton>
-        </div>
-      </article>
-    </main>
-
-    <!-- 审计 -->
-    <main v-else class="app-center__audit-log">
-      <div class="app-center__registry">
-        <UiInput v-model="registryUrl" size="sm" placeholder="远程仓库 index.json 地址" />
-        <UiButton variant="soft" size="sm" :icon-left="DownloadCloud" @click="addRegistry">添加仓库</UiButton>
-        <UiButton variant="soft" size="sm" :icon-left="RefreshCw" @click="refreshCatalog">刷新</UiButton>
-      </div>
-      <p v-if="!audit.length" class="app-center__empty">还没有审计记录。</p>
-      <article v-for="record in audit" :key="record.id" class="app-center__row">
-        <div class="app-center__row-info">
-          <strong>{{ record.appName }} · {{ record.action }}</strong>
-          <span>{{ record.message }}</span>
-          <small>{{ record.actor }} · {{ record.risk }} · {{ record.result }}</small>
-        </div>
-        <div class="app-center__row-actions">
-          <UiButton v-if="record.rollbackable" variant="soft" size="sm" :icon-left="RotateCcw" @click="rollback(record)">回滚</UiButton>
-        </div>
-      </article>
-    </main>
-
-    <section class="app-center__feedback" aria-label="应用中心操作反馈">
-      <CheckCircle2 :size="15" />
-      <span>{{ actionState }}</span>
-    </section>
+        <p v-if="!audit.length" class="app-center__empty">还没有审计记录。</p>
+        <article v-for="record in audit" :key="record.id" class="app-center__row">
+          <div class="app-center__row-info">
+            <strong>{{ record.appName }} · {{ record.action }}</strong>
+            <span>{{ record.message }}</span>
+            <small>{{ record.actor }} · {{ record.risk }} · {{ record.result }}</small>
+          </div>
+          <div class="app-center__row-actions">
+            <UiButton v-if="record.rollbackable" variant="soft" size="sm" :icon-left="RotateCcw" @click="rollback(record)">回滚</UiButton>
+          </div>
+        </article>
+      </section>
+    </UiWindowPage>
 
     <!-- 治理确认对话框 -->
     <div v-if="dialog.open" class="app-center__dialog" role="dialog" aria-modal="true">
@@ -435,51 +444,21 @@ onMounted(loadAll);
 <style scoped>
 .app-center {
   position: relative;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 12px;
   height: 100%;
   min-height: 0;
 }
 
-.app-center__summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.app-center__summary article {
-  display: grid;
-  gap: 4px;
-  justify-items: center;
-  padding: 12px 8px;
-  color: var(--accent);
-  background: rgba(var(--surface-rgb), 0.56);
-}
-
-.app-center__summary span,
 .app-center__detail header p,
 .app-center__grid span,
 .app-center__item span,
 .app-center__item small {
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
-.app-center__summary strong,
 .app-center__grid strong {
   color: var(--text-strong);
-  font-size: 13px;
-}
-
-.app-center__main {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 12px;
-  min-height: 0;
+  font-size: var(--fs-sm);
 }
 
 .app-center__catalog,
@@ -487,7 +466,7 @@ onMounted(loadAll);
   min-width: 0;
   background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
 }
 
 .app-center__catalog {
@@ -495,6 +474,7 @@ onMounted(loadAll);
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 8px;
   overflow: hidden;
+  height: 100%;
   padding: 10px;
 }
 
@@ -511,19 +491,31 @@ onMounted(loadAll);
   padding: 10px;
   text-align: left;
   background: rgba(var(--surface-rgb), 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.12);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.app-center__item:hover {
+  background: var(--accent-soft);
+  transform: translateY(-1px);
+}
+
+.app-center__item:active {
+  transform: translateY(0);
 }
 
 .app-center__item--active {
-  border-color: rgba(19, 136, 255, 0.24);
+  border-color: var(--accent);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .app-center__item strong {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -540,7 +532,7 @@ onMounted(loadAll);
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  border-bottom: 1px solid rgba(100, 136, 166, 0.14);
+  border-bottom: 1px solid var(--border);
 }
 
 .app-center__detail h3 {
@@ -551,15 +543,15 @@ onMounted(loadAll);
 
 .app-center__detail header strong {
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .app-center__description {
   margin: 0;
   padding: 13px 14px;
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
 }
 
 .app-center__grid {
@@ -576,8 +568,8 @@ onMounted(loadAll);
   padding: 10px;
   color: var(--accent);
   background: rgba(var(--surface-rgb), 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.12);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
 }
 
 .app-center__perms,
@@ -593,7 +585,7 @@ onMounted(loadAll);
   color: var(--text-soft);
   background: rgba(var(--surface-rgb), 0.7);
   border: 1px dashed var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 10px;
 }
 
@@ -602,9 +594,9 @@ onMounted(loadAll);
   color: var(--text-muted);
   background: rgba(var(--surface-rgb), 0.72);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .app-center__actions {
@@ -637,7 +629,7 @@ onMounted(loadAll);
   padding: 10px 12px;
   background: rgba(var(--surface-rgb), 0.5);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
 }
 
 .app-center__row-info {
@@ -648,12 +640,12 @@ onMounted(loadAll);
 
 .app-center__row-info strong {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .app-center__row-info span {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .app-center__row-info small {
@@ -671,20 +663,8 @@ onMounted(loadAll);
 .app-center__empty {
   padding: 24px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   text-align: center;
-}
-
-.app-center__feedback {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  color: var(--text-strong);
-  font-size: 12px;
-  background: rgba(var(--surface-rgb), 0.5);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
 }
 
 .app-center__dialog {
@@ -694,7 +674,7 @@ onMounted(loadAll);
   place-items: center;
   padding: 16px;
   background: rgba(8, 16, 24, 0.42);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   z-index: 20;
 }
 
@@ -705,7 +685,7 @@ onMounted(loadAll);
   padding: 16px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   box-shadow: 0 18px 48px rgba(8, 16, 24, 0.32);
 }
 
@@ -718,22 +698,22 @@ onMounted(loadAll);
 .app-center__dialog-card h4 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 .app-center__risk {
   padding: 3px 8px;
   color: var(--accent);
-  background: rgba(19, 136, 255, 0.12);
-  border-radius: 999px;
-  font-size: 11px;
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-2xs);
 }
 
 .app-center__impact {
   margin: 0;
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
 }
 
 .app-center__form {
@@ -748,11 +728,11 @@ onMounted(loadAll);
 
 .app-center__form span {
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .app-center__form em {
-  color: var(--danger, #e5484d);
+  color: var(--accent-red);
   font-style: normal;
 }
 
@@ -761,14 +741,14 @@ onMounted(loadAll);
   color: var(--text-strong);
   background: rgba(var(--surface-rgb), 0.72);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
+  border-radius: var(--radius-control);
+  font-size: var(--fs-xs);
 }
 
 .app-center__error {
   margin: 0;
-  color: var(--danger, #e5484d);
-  font-size: 11px;
+  color: var(--accent-red);
+  font-size: var(--fs-2xs);
 }
 
 .app-center__dialog-card footer {

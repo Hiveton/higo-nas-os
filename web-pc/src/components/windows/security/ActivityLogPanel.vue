@@ -195,13 +195,13 @@ onMounted(() => {
   gap: 9px;
   padding: 9px 11px;
   background: rgba(var(--surface-rgb), 0.58);
-  border: 1px solid rgba(100, 136, 166, 0.12);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
 }
 
 .activity-log__time {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -218,7 +218,7 @@ onMounted(() => {
 
 .activity-log__action {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .activity-log__meta {
@@ -226,15 +226,15 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 6px;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .activity-log__detail {
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-snug);
 }
 
 @media (max-width: 860px) {

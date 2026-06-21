@@ -62,7 +62,7 @@ const label = computed(() => {
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   background: var(--surface-glass);
   font-size: var(--fs-2xs);
 }
@@ -74,7 +74,7 @@ const label = computed(() => {
   background: var(--accent-orange-soft, var(--surface-glass));
 }
 .icon-confirm {
-  color: var(--accent-orange);
+  color: var(--ink-orange);
 }
 .tool-step__label {
   display: inline-flex;
@@ -91,7 +91,7 @@ const label = computed(() => {
   white-space: nowrap;
 }
 .icon-done {
-  color: var(--accent-green);
+  color: var(--ink-green);
 }
 .icon-error {
   color: var(--accent-red);

@@ -88,7 +88,7 @@ function toggle() {
   left: 2px;
   aspect-ratio: 1;
   height: calc(100% - 4px);
-  background: #fff;
+  background: var(--text-inverse);
   border-radius: 50%;
   box-shadow: 0 1px 3px rgba(15, 35, 60, 0.3);
   transition: transform var(--duration-fast) var(--ease-out);

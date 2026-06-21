@@ -127,4 +127,44 @@ func TestStorePersistsAcrossReload(t *testing.T) {
 	}
 }
 
+func TestSeedDefaultsIfEmpty(t *testing.T) {
+	s := NewStore()
+	n, err := s.SeedDefaultsIfEmpty(SeedConfig{
+		BaseURL:     "http://127.0.0.1:11434/v1/",
+		ChatModel:   "qwen2.5:7b",
+		VisionModel: "qwen2.5-vl:7b",
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 seeded providers (chat+vision), got %d", n)
+	}
+	chat, err := s.DefaultFor(PurposeChat)
+	if err != nil {
+		t.Fatalf("default chat: %v", err)
+	}
+	if chat.BaseURL != "http://127.0.0.1:11434/v1" || chat.Model != "qwen2.5:7b" || chat.Kind != KindOpenAI {
+		t.Fatalf("unexpected seeded chat provider: %+v", chat)
+	}
+	if _, err := s.DefaultFor(PurposeVision); err != nil {
+		t.Fatalf("default vision should resolve: %v", err)
+	}
+	// Idempotent / never clobbers existing providers.
+	again, err := s.SeedDefaultsIfEmpty(SeedConfig{BaseURL: "http://other", ChatModel: "x"})
+	if err != nil || again != 0 {
+		t.Fatalf("second seed should be a no-op, got n=%d err=%v", again, err)
+	}
+}
+
+func TestSeedDefaultsSkippedWhenIncomplete(t *testing.T) {
+	s := NewStore()
+	if n, _ := s.SeedDefaultsIfEmpty(SeedConfig{ChatModel: "x"}); n != 0 {
+		t.Fatalf("missing base url should skip seeding, got %d", n)
+	}
+	if n, _ := s.SeedDefaultsIfEmpty(SeedConfig{BaseURL: "http://x"}); n != 0 {
+		t.Fatalf("missing chat model should skip seeding, got %d", n)
+	}
+}
+
 func kindPtr(k ProviderKind) *ProviderKind { return &k }

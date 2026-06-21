@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -21,6 +22,8 @@ type Service struct {
 	risks      []SecurityRiskAction
 	audit      []SecurityAuditEntry
 	statePath  string
+	now        func() time.Time
+	scanner    scanAdapter
 }
 
 type snapshot struct {
@@ -33,7 +36,14 @@ type snapshot struct {
 }
 
 func NewService() *Service {
-	service := &Service{}
+	service := &Service{now: time.Now}
+	// The host scanner is the real Linux adapter on a NAS, a devstub elsewhere —
+	// the dev/host split is decided at construction, like the protocols domain.
+	if runtime.GOOS == "linux" {
+		service.scanner = NewHostScanAdapter()
+	} else {
+		service.scanner = NewDevScanAdapter()
+	}
 	service.seed()
 	return service
 }
@@ -248,6 +258,63 @@ func (s *Service) Shares(ctx context.Context) ([]ShareLinkRisk, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]ShareLinkRisk(nil), s.shares...), nil
+}
+
+// ScanPorts returns the host's currently-listening sockets with exposure/risk.
+// Read-only host passthrough — not persisted into the seed snapshot.
+func (s *Service) ScanPorts(ctx context.Context) ([]ListeningPort, error) {
+	return s.scanner.ListeningPorts(ctx)
+}
+
+// Firewall returns the host firewall state (nftables/ufw/iptables).
+func (s *Service) Firewall(ctx context.Context) (FirewallState, error) {
+	return s.scanner.Firewall(ctx)
+}
+
+// Scan runs a full host security scan: open sockets + firewall + a count of
+// ports exposed on all interfaces. It records an audit entry for the scan.
+func (s *Service) Scan(ctx context.Context, actor string) (HostScanResult, error) {
+	ports, err := s.scanner.ListeningPorts(ctx)
+	if err != nil {
+		return HostScanResult{}, err
+	}
+	fw, err := s.scanner.Firewall(ctx)
+	if err != nil {
+		return HostScanResult{}, err
+	}
+	openToAll := 0
+	for _, p := range ports {
+		if p.Exposure == "公开监听" {
+			openToAll++
+		}
+	}
+	now := time.Now
+	if s.now != nil {
+		now = s.now
+	}
+	result := HostScanResult{Ports: ports, Firewall: fw, OpenToAll: openToAll, ScannedAt: now().UTC()}
+
+	risk := audit.RiskLow
+	if openToAll > 0 && !fw.Active {
+		risk = audit.RiskMedium
+	}
+	s.mu.Lock()
+	s.prependAuditLocked(SecurityAuditEntry{
+		Event:  fmt.Sprintf("主机安全扫描：%d 个监听端口，%d 个对外暴露，防火墙%s", len(ports), openToAll, firewallWord(fw.Active)),
+		Actor:  actorOr(actor, "security-center"),
+		Risk:   risk,
+		Result: audit.ResultAllowed,
+	})
+	_ = s.saveLocked()
+	s.mu.Unlock()
+	return result, nil
+}
+
+func firewallWord(active bool) string {
+	if active {
+		return "已启用"
+	}
+	return "未启用"
 }
 
 func (s *Service) DeleteShare(ctx context.Context, id, actor string) (ShareLinkRisk, error) {

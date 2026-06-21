@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -29,6 +30,9 @@ type Service struct {
 	tunnelLatencyMs int
 	tunnelReachable bool
 	tunnelProbed    bool
+
+	tunnel     tunnelAdapter
+	tunnelInfo TunnelInfo
 }
 
 // SetProbeTarget configures a host:port the channel will really dial (measuring
@@ -94,7 +98,18 @@ func NewService() *Service {
 		},
 		scanState: ShareScanIdle,
 		feedback:  "远程访问通道在线，最近一次策略审计于 14:10 完成",
+		tunnel:    pickTunnelAdapter(),
 	}
+}
+
+// pickTunnelAdapter selects the real WireGuard adapter on Linux and a devstub
+// elsewhere — the dev/host split decided at construction, like the protocols
+// and security domains.
+func pickTunnelAdapter() tunnelAdapter {
+	if runtime.GOOS == "linux" {
+		return NewWireGuardAdapter()
+	}
+	return NewDevTunnelAdapter()
 }
 
 func NewServiceWithStateDir(stateDir string) (*Service, error) {
@@ -138,8 +153,14 @@ func (s *Service) Status(ctx context.Context) (RemoteStatus, error) {
 	if err := ctx.Err(); err != nil {
 		return RemoteStatus{}, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Refresh the live tunnel state from the host (wg show) on every status read.
+	if s.tunnel != nil {
+		if info, err := s.tunnel.Status(ctx); err == nil {
+			s.tunnelInfo = info
+		}
+	}
 	return s.statusLocked(), nil
 }
 
@@ -167,6 +188,21 @@ func (s *Service) StartChannel(ctx context.Context) (RemoteStatus, error) {
 	} else {
 		s.feedback = "远程通道已启动，内网穿透重新握手成功"
 	}
+	// Bring the real WireGuard tunnel up. A failure (e.g. wireguard not
+	// installed) degrades gracefully into the feedback message rather than
+	// failing the whole channel start.
+	if s.tunnel != nil {
+		if info, err := s.tunnel.Up(ctx); err != nil {
+			s.feedback = fmt.Sprintf("远程通道已启动，但隧道未就绪：%s", err.Error())
+		} else {
+			s.tunnelInfo = info
+			// Only let the tunnel status drive the feedback line when no explicit
+			// reachability probe is configured (the probe message is more specific).
+			if info.Up && s.probeAddr == "" {
+				s.feedback = fmt.Sprintf("远程通道已启动，WireGuard 隧道在线（%s，端口 %d）", info.Interface, info.ListenPort)
+			}
+		}
+	}
 	if err := s.saveLocked(); err != nil {
 		return RemoteStatus{}, err
 	}
@@ -181,6 +217,13 @@ func (s *Service) StopChannel(ctx context.Context) (RemoteStatus, error) {
 	defer s.mu.Unlock()
 	s.enabled = false
 	s.feedback = "远程通道已暂停，新连接会被拒绝"
+	if s.tunnel != nil {
+		if err := s.tunnel.Down(ctx); err != nil {
+			s.feedback = fmt.Sprintf("远程通道已暂停，但隧道关闭失败：%s", err.Error())
+		} else {
+			s.tunnelInfo.Up = false
+		}
+	}
 	if err := s.saveLocked(); err != nil {
 		return RemoteStatus{}, err
 	}
@@ -382,6 +425,7 @@ func (s *Service) statusLocked() RemoteStatus {
 		ActivePolicy:     activePolicy,
 		Policies:         policies,
 		Feedback:         s.feedback,
+		Tunnel:           s.tunnelInfo,
 	}
 }
 

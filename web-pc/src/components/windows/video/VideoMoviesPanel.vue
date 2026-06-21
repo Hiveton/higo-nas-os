@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { ArrowLeft, Captions, Gauge, Play, Search, Wand2 } from 'lucide-vue-next';
+import { ArrowLeft, Captions, Gauge, Play, Search, Sparkles, Wand2 } from 'lucide-vue-next';
 import { UiButton, UiEmptyState, UiSelect } from '../../ui';
 import type { VideoItem, VideoLibrary, VideoMediaTrack } from '../../../api/types';
 
@@ -48,7 +48,10 @@ const emit = defineEmits<{
   (e: 'scrape', item: VideoItem): void;
   (e: 'subtitle', item: VideoItem): void;
   (e: 'transcode', item: VideoItem): void;
+  (e: 'analyze', item: VideoItem): void;
 }>();
+
+const analyzeBusy = defineModel<boolean>('analyzeBusy', { default: false });
 </script>
 
 <template>
@@ -77,6 +80,7 @@ const emit = defineEmits<{
             <UiButton variant="ghost" tone="neutral" :icon-left="Wand2" @click="emit('scrape', detailItem)">刮削</UiButton>
             <UiButton variant="ghost" tone="neutral" :icon-left="Captions" @click="emit('subtitle', detailItem)">字幕</UiButton>
             <UiButton variant="ghost" tone="neutral" :icon-left="Gauge" @click="emit('transcode', detailItem)">转码</UiButton>
+            <UiButton variant="ghost" tone="neutral" :icon-left="Sparkles" :loading="analyzeBusy" @click="emit('analyze', detailItem)">AI 分析</UiButton>
           </div>
         </div>
       </div>
@@ -84,6 +88,15 @@ const emit = defineEmits<{
       <section class="detail-section overview-section">
         <h4>{{ detailItem.kind === 'episode' ? '本集简介' : '简介' }}</h4>
         <p>{{ detailOverview(detailItem) }}</p>
+      </section>
+
+      <section v-if="detailItem.aiOverview || detailItem.aiTranscript" class="detail-section ai-section">
+        <h4><Sparkles :size="14" /> AI 分析</h4>
+        <p v-if="detailItem.aiOverview" class="ai-overview">{{ detailItem.aiOverview }}</p>
+        <details v-if="detailItem.aiTranscript" class="ai-transcript">
+          <summary>语音转写 / 字幕</summary>
+          <p>{{ detailItem.aiTranscript }}</p>
+        </details>
       </section>
 
       <div class="detail-info-grid">
@@ -157,3 +170,35 @@ const emit = defineEmits<{
     </div>
   </section>
 </template>
+
+<style scoped>
+.ai-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-section h4 :deep(svg) {
+  color: var(--accent);
+}
+.ai-overview {
+  margin: 0;
+  line-height: 1.6;
+}
+.ai-transcript {
+  margin-top: var(--space-2, 8px);
+}
+.ai-transcript summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.ai-transcript p {
+  margin: var(--space-2, 8px) 0 0;
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+</style>

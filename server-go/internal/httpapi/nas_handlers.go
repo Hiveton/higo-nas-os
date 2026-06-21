@@ -1148,6 +1148,7 @@ func mapRemoteStatus(status remote.RemoteStatus) map[string]any {
 		"activePolicy":     status.ActivePolicy,
 		"policies":         status.Policies,
 		"feedback":         status.Feedback,
+		"tunnel":           status.Tunnel,
 	}
 }
 

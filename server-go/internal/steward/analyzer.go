@@ -8,7 +8,9 @@ import (
 )
 
 // FileInfo is the minimal file fact the analyzer reasons over. The httpapi layer
-// builds these from the files service tree.
+// builds these from the files service tree. Tags/Summary carry the AI analysis
+// signal (when the background engine has processed the file) so content-aware
+// rules can reason over them.
 type FileInfo struct {
 	ID        string
 	Name      string
@@ -17,6 +19,8 @@ type FileInfo struct {
 	Space     string
 	SizeBytes int64
 	Modified  time.Time
+	Tags      []string
+	Summary   string
 }
 
 const (
@@ -35,8 +39,101 @@ func Analyze(files []FileInfo, now time.Time) []Suggestion {
 	if s, ok := duplicateSuggestion(files); ok {
 		out = append(out, s)
 	}
+	if s, ok := cleanupSuggestion(files); ok {
+		out = append(out, s)
+	}
 	if s, ok := archiveSuggestion(files, now); ok {
 		out = append(out, s)
+	}
+	return out
+}
+
+// junkSuffixes are file extensions that are almost always safe to remove: editor
+// temp files, partial downloads, and platform installer packages a NAS keeps no
+// reason to retain after install.
+var junkSuffixes = []string{
+	".tmp", ".temp", ".crdownload", ".part", ".partial", ".download",
+	".dmg", ".exe", ".pkg", ".msi", ".deb", ".apk",
+}
+
+func isJunkFile(f FileInfo) bool {
+	name := strings.ToLower(strings.TrimSpace(f.Name))
+	if name == "" {
+		return false
+	}
+	if strings.HasPrefix(name, "~$") || strings.HasSuffix(name, "~") {
+		return true
+	}
+	for _, suf := range junkSuffixes {
+		if strings.HasSuffix(name, suf) {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanupSuggestion proposes deleting installer/temp/partial-download junk to the
+// recycle bin. It folds the AI analysis signal (Tags/Summary) into the detail so
+// the user sees what the engine recognised, e.g. dominant content categories.
+func cleanupSuggestion(files []FileInfo) (Suggestion, bool) {
+	var ops []SuggestionOp
+	var bytes int64
+	var examples []string
+	tagCount := map[string]int{}
+	for _, f := range files {
+		if f.ID == "" || !isJunkFile(f) {
+			continue
+		}
+		ops = append(ops, SuggestionOp{Type: "delete", FileID: f.ID})
+		bytes += f.SizeBytes
+		if len(examples) < 3 {
+			examples = append(examples, f.Name)
+		}
+		for _, t := range f.Tags {
+			if t = strings.TrimSpace(t); t != "" {
+				tagCount[t]++
+			}
+		}
+	}
+	if len(ops) == 0 {
+		return Suggestion{}, false
+	}
+	detail := fmt.Sprintf("发现 %d 个安装包 / 临时文件 / 未完成下载（约 %s），如 %s，可删除到回收站（可还原）。",
+		len(ops), humanBytes(bytes), strings.Join(examples, "、"))
+	if cats := topTags(tagCount, 3); len(cats) > 0 {
+		detail += fmt.Sprintf(" AI 识别到主要类别：%s。", strings.Join(cats, "、"))
+	}
+	return Suggestion{
+		ID:         "cleanup-junk",
+		Title:      "清理安装包与临时文件",
+		Detail:     detail,
+		Count:      fmt.Sprintf("%d 个", len(ops)),
+		Risk:       RiskMedium,
+		Action:     "预览清理",
+		Status:     SuggestionPending,
+		Operations: ops,
+	}, true
+}
+
+// topTags returns the n most frequent tags, ordered by count then name.
+func topTags(counts map[string]int, n int) []string {
+	type tc struct {
+		tag string
+		n   int
+	}
+	all := make([]tc, 0, len(counts))
+	for t, c := range counts {
+		all = append(all, tc{tag: t, n: c})
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].n == all[j].n {
+			return all[i].tag < all[j].tag
+		}
+		return all[i].n > all[j].n
+	})
+	out := make([]string, 0, n)
+	for i := 0; i < len(all) && i < n; i++ {
+		out = append(out, all[i].tag)
 	}
 	return out
 }

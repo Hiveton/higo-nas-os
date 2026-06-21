@@ -136,6 +136,10 @@ func (d *DevDirectory) SetGroupMembers(ctx context.Context, _ string, _ []string
 	return ctx.Err()
 }
 
+func (d *DevDirectory) SambaPresent(ctx context.Context) (map[string]bool, error) {
+	return map[string]bool{}, ctx.Err()
+}
+
 func (d *DevDirectory) HasCredential(ctx context.Context, username string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
