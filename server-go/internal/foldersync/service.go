@@ -167,6 +167,7 @@ func (s *Service) Create(ctx context.Context, req CreatePairRequest) (SyncPair, 
 		BandwidthLimit: strings.TrimSpace(req.BandwidthLimit),
 		Enabled:        true,
 		IntervalHours:  req.IntervalHours,
+		Retention:      req.Retention,
 		State:          "空闲",
 		CreatedAt:      s.now().UTC(),
 		CreatedBy:      req.Actor,
@@ -204,6 +205,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdatePairRequest) 
 	}
 	if req.IntervalHours != nil {
 		p.IntervalHours = *req.IntervalHours
+	}
+	if req.Retention != nil {
+		p.Retention = req.Retention
 	}
 	s.appendAuditLocked(AuditEntry{Event: fmt.Sprintf("更新同步任务：%s", p.Name), Actor: req.Actor, PairID: p.ID, Result: "ok"})
 	updated := clonePair(*p)
@@ -321,7 +325,20 @@ func (s *Service) doSyncRun(ctx context.Context, pairID string) (json.RawMessage
 		s.pairs[idx].State = "有冲突"
 		for _, c := range conflicts {
 			s.seq++
-			s.conflicts = append(s.conflicts, Conflict{ID: fmt.Sprintf("conflict-%03d", s.seq), PairID: p.PairID, RelPath: c.rel, Detail: c.detail, DetectedAt: now})
+			conflict := Conflict{
+				ID: fmt.Sprintf("conflict-%03d", s.seq), PairID: p.PairID,
+				RelPath: c.rel, Detail: c.detail, DetectedAt: now,
+				SourceSize: c.sourceSize, TargetSize: c.targetSize,
+			}
+			if !c.sourceMtime.IsZero() {
+				sm := c.sourceMtime
+				conflict.SourceMtime = &sm
+			}
+			if !c.targetMtime.IsZero() {
+				tm := c.targetMtime
+				conflict.TargetMtime = &tm
+			}
+			s.conflicts = append(s.conflicts, conflict)
 		}
 		s.appendAuditLocked(AuditEntry{Event: fmt.Sprintf("同步完成（%d 个冲突待处理）：%s", len(conflicts), s.pairs[idx].Name), PairID: p.PairID, Result: "conflict"})
 	} else {

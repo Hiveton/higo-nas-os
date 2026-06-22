@@ -250,6 +250,19 @@ async function reloadMediaForFacet() {
   }
 }
 
+async function scanLibrary() {
+  busyAction.value = 'scan';
+  try {
+    const result = await apiClient.media.scan();
+    mediaNotice.value = result.message ?? `媒体库扫描完成，共 ${result.itemCount} 个项目。`;
+    await loadMediaState();
+  } catch (error) {
+    mediaNotice.value = `扫描失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    busyAction.value = '';
+  }
+}
+
 async function generateMemory() {
   await runMediaAction('memory', async () => {
     const task = await apiClient.media.createMemory({
@@ -555,6 +568,9 @@ onMounted(() => {
       </section>
 
       <div class="photo-media__actions" aria-label="相册媒体操作">
+        <UiButton variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" :loading="busyAction === 'scan'" @click="scanLibrary">
+          {{ busyAction === 'scan' ? '扫描中' : '扫描媒体库' }}
+        </UiButton>
         <UiButton variant="soft" size="sm" :icon-left="Sparkles" :disabled="!hasMedia" :loading="busyAction === 'analyze'" @click="analyzeSelectedMedia">
           {{ busyAction === 'analyze' ? '排队中' : 'AI 分析' }}
         </UiButton>

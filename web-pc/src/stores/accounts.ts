@@ -54,6 +54,7 @@ export async function createUser(payload: {
   role: string;
   quotaGB: number;
   groupId?: string;
+  homeSpaceId?: string;
 }) {
   const user = await apiClient.accounts.createUser({
     username: payload.username.trim(),
@@ -62,6 +63,7 @@ export async function createUser(payload: {
     role: payload.role,
     quotaBytes: Math.round(Number(payload.quotaGB) * 1024 * 1024 * 1024),
     groups: payload.groupId ? [payload.groupId] : [],
+    homeSpaceId: payload.homeSpaceId || undefined,
   });
   await load();
   return user;

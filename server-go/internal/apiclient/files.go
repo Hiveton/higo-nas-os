@@ -103,3 +103,8 @@ func (c *Client) FilesDelete(ctx context.Context, id string, body any) (json.Raw
 func (c *Client) FilesRestore(ctx context.Context, id string) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodPost, "/api/v1/files/"+url.PathEscape(id)+"/restore", nil, nil)
 }
+
+// FilesTrash lists the recycle bin (GET /api/v1/files/trash).
+func (c *Client) FilesTrash(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/api/v1/files/trash", nil, nil)
+}

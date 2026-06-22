@@ -44,8 +44,11 @@ type User struct {
 	Status      UserStatus `json:"status"`
 	QuotaBytes  int64      `json:"quotaBytes"`
 	Groups      []string   `json:"groups"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	// HomeSpaceID is the storage space this user's personal folder lives on.
+	// Empty → the system-wide default storage space.
+	HomeSpaceID string    `json:"homeSpaceId,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 type Group struct {
@@ -81,6 +84,7 @@ type CreateUserRequest struct {
 	Role        UserRole `json:"role"`
 	QuotaBytes  int64    `json:"quotaBytes"`
 	Groups      []string `json:"groups"`
+	HomeSpaceID string   `json:"homeSpaceId,omitempty"`
 }
 
 type UpdateUserRequest struct {
@@ -90,6 +94,7 @@ type UpdateUserRequest struct {
 	Status      UserStatus `json:"status"`
 	QuotaBytes  *int64     `json:"quotaBytes,omitempty"`
 	Groups      []string   `json:"groups"`
+	HomeSpaceID *string    `json:"homeSpaceId,omitempty"`
 }
 
 type CreateGroupRequest struct {

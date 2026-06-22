@@ -17,6 +17,16 @@ func (c *Client) StorageSpaces(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodGet, "/api/v1/storage/spaces", nil, nil)
 }
 
+// StorageDefaultSpace reads the default storage space (GET /api/v1/storage/default-space).
+func (c *Client) StorageDefaultSpace(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/api/v1/storage/default-space", nil, nil)
+}
+
+// StorageSetDefaultSpace sets the default storage space (PUT /api/v1/storage/default-space).
+func (c *Client) StorageSetDefaultSpace(ctx context.Context, body any) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPut, "/api/v1/storage/default-space", nil, body)
+}
+
 // StorageCreateSpace creates a storage space (POST /api/v1/storage/spaces).
 func (c *Client) StorageCreateSpace(ctx context.Context, body any) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodPost, "/api/v1/storage/spaces", nil, body)

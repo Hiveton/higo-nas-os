@@ -230,4 +230,11 @@ func registerFiles(r *registry) {
 		func(ctx context.Context, c *apiclient.Client, in FilesRestoreInput) (json.RawMessage, error) {
 			return c.FilesRestore(ctx, in.ID)
 		})
+
+	addTool(r, "files", "higo.files.trash",
+		"List the recycle bin (recoverable deleted files).",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.FilesTrash(ctx)
+		})
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { UserPlus } from 'lucide-vue-next';
+import { apiClient } from '../../../api/client';
 import {
   UiBadge,
   UiButton,
@@ -38,6 +39,29 @@ const roleOptions = [
 
 const busy = ref('');
 
+// 存储空间(个人目录默认存储位置):空选项=跟随全局默认。
+const spaces = ref<{ id: string; name: string }[]>([]);
+const defaultSpaceId = ref('');
+const spaceOptions = computed(() => [
+  { value: '', label: defaultSpaceId.value ? `跟随全局默认（${spaceName(defaultSpaceId.value)}）` : '跟随全局默认' },
+  ...spaces.value.map((s) => ({ value: s.id, label: s.name })),
+]);
+function spaceName(id: string) {
+  return spaces.value.find((s) => s.id === id)?.name ?? id;
+}
+onMounted(async () => {
+  try {
+    const [list, def] = await Promise.all([
+      apiClient.storage.getSpaces(),
+      apiClient.storage.getDefaultSpace().catch(() => ({ defaultSpaceId: '' })),
+    ]);
+    spaces.value = list.map((s) => ({ id: s.id ?? '', name: s.name ?? s.id ?? '' }));
+    defaultSpaceId.value = def.defaultSpaceId ?? '';
+  } catch {
+    /* storage unavailable — selector falls back to 跟随全局默认 only */
+  }
+});
+
 function roleLabel(role: string) {
   return role === 'admin' ? '管理员' : role === 'user' ? '成员' : role === 'guest' ? '访客' : role;
 }
@@ -50,7 +74,7 @@ function quota(bytes: number) {
 
 // --- create ---
 const showCreate = ref(false);
-const form = ref({ username: '', displayName: '', password: '', role: 'user', quotaGB: 50, groupId: '' });
+const form = ref({ username: '', displayName: '', password: '', role: 'user', quotaGB: 50, groupId: '', homeSpaceId: '' });
 
 async function create() {
   if (!form.value.username.trim()) {
@@ -66,10 +90,11 @@ async function create() {
       role: form.value.role,
       quotaGB: form.value.quotaGB,
       groupId: form.value.groupId || undefined,
+      homeSpaceId: form.value.homeSpaceId || undefined,
     });
     toast.success('用户已创建');
     showCreate.value = false;
-    form.value = { username: '', displayName: '', password: '', role: 'user', quotaGB: 50, groupId: '' };
+    form.value = { username: '', displayName: '', password: '', role: 'user', quotaGB: 50, groupId: '', homeSpaceId: '' };
   } catch (reason) {
     toast.error(reason instanceof Error ? reason.message : '创建失败');
   } finally {
@@ -86,7 +111,7 @@ const editTabs: TabItem[] = [
 const showEdit = ref(false);
 const editTab = ref('info');
 const editing = ref<AccountUser | null>(null);
-const editForm = ref({ displayName: '', role: 'user', status: 'active', password: '', quotaGB: 0 });
+const editForm = ref({ displayName: '', role: 'user', status: 'active', password: '', quotaGB: 0, homeSpaceId: '' });
 const editGroups = ref<Set<string>>(new Set());
 const savingEdit = ref(false);
 
@@ -99,6 +124,7 @@ function openEdit(user: AccountUser) {
     status: user.status,
     password: '',
     quotaGB: Math.round((user.quotaBytes || 0) / 1024 / 1024 / 1024),
+    homeSpaceId: user.homeSpaceId ?? '',
   };
   editGroups.value = new Set(user.groups ?? []);
   showEdit.value = true;
@@ -121,6 +147,7 @@ async function saveEdit() {
       status: editForm.value.status,
       quotaBytes: Math.round(Number(editForm.value.quotaGB) * 1024 * 1024 * 1024),
       groups: Array.from(editGroups.value),
+      homeSpaceId: editForm.value.homeSpaceId,
     };
     if (editForm.value.password) payload.password = editForm.value.password;
     await accountsStore.updateUser(editing.value.id, payload);
@@ -208,6 +235,9 @@ async function remove(user: AccountUser) {
         <UiFormField label="初始密码"><UiInput v-model="form.password" type="password" placeholder="留空则用默认 Passw0rd1" /></UiFormField>
         <UiFormField label="角色"><UiSelect v-model="form.role" :options="roleOptions" /></UiFormField>
         <UiFormField label="配额 (GB)"><UiInput :model-value="form.quotaGB" type="number" @input="form.quotaGB = Number($event)" /></UiFormField>
+        <UiFormField label="个人存储空间" hint="个人目录所在存储位置;留空跟随全局默认">
+          <UiSelect v-model="form.homeSpaceId" :options="spaceOptions" />
+        </UiFormField>
         <UiFormField label="加入用户组">
           <UiSelect
             v-model="form.groupId"
@@ -233,6 +263,9 @@ async function remove(user: AccountUser) {
           <UiSelect v-model="editForm.status" :options="[{ value: 'active', label: '正常' }, { value: 'disabled', label: '停用' }]" />
         </UiFormField>
         <UiFormField label="配额 (GB)"><UiInput :model-value="editForm.quotaGB" type="number" @input="editForm.quotaGB = Number($event)" /></UiFormField>
+        <UiFormField label="个人存储空间" hint="个人目录所在存储位置;留空跟随全局默认">
+          <UiSelect v-model="editForm.homeSpaceId" :options="spaceOptions" />
+        </UiFormField>
         <UiFormField label="重设密码"><UiInput v-model="editForm.password" type="password" placeholder="留空则不修改" /></UiFormField>
       </div>
 

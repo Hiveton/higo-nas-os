@@ -42,6 +42,7 @@ const speedProfiles: Record<SpeedMode, { down: string; up: string; note: string 
 
 const tasks = ref<DownloadTask[]>([]);
 const backendProfiles = ref<SpeedProfile[]>([]);
+const maxConcurrent = ref(3);
 
 const selectedSource = ref<SourceType>('HTTP');
 const selectedCategory = ref('全部');
@@ -83,12 +84,14 @@ const statusTone: Record<string, 'neutral' | 'primary' | 'warning' | 'success' |
 async function loadDownloadState(silent = false) {
   if (!silent) loading.value = true;
   try {
-    const [nextTasks, profiles] = await Promise.all([
+    const [nextTasks, profiles, queue] = await Promise.all([
       apiClient.downloads.getTasks(),
       apiClient.downloads.getSpeedProfiles(),
+      apiClient.downloads.getQueueConfig().catch(() => null),
     ]);
     tasks.value = nextTasks;
     backendProfiles.value = profiles;
+    if (queue) maxConcurrent.value = queue.maxConcurrentDownloads;
     if (!nextTasks.some((task) => task.id === selectedTaskId.value)) {
       selectedTaskId.value = nextTasks[0]?.id ?? 0;
     }
@@ -148,6 +151,21 @@ async function switchSpeedMode(mode: SpeedMode) {
     actionLog.value.unshift(`限速模式切换为 ${mode}：${activeProfile.value.note}`);
   } catch (error) {
     actionLog.value.unshift(`限速同步失败：${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+}
+
+async function updateMaxConcurrent(next: number) {
+  const value = Math.max(0, Math.min(10, Math.round(next)));
+  const previous = maxConcurrent.value;
+  maxConcurrent.value = value;
+  try {
+    const cfg = await apiClient.downloads.updateQueueConfig({ maxConcurrentDownloads: value });
+    maxConcurrent.value = cfg.maxConcurrentDownloads;
+    actionLog.value.unshift(`最大并行下载数已设为 ${value === 0 ? '不限' : value}。`);
+    void loadDownloadState(true);
+  } catch (error) {
+    maxConcurrent.value = previous;
+    actionLog.value.unshift(`并发设置失败：${error instanceof Error ? error.message : 'unknown error'}`);
   }
 }
 
@@ -273,6 +291,15 @@ onBeforeUnmount(() => {
           </div>
         </dl>
         <p>{{ activeProfile.note }}</p>
+
+        <div class="download-center__concurrency">
+          <span>最大并行下载</span>
+          <div class="download-center__stepper">
+            <button type="button" aria-label="减少并行数" :disabled="maxConcurrent <= 0" @click="updateMaxConcurrent(maxConcurrent - 1)">−</button>
+            <strong>{{ maxConcurrent === 0 ? '不限' : maxConcurrent }}</strong>
+            <button type="button" aria-label="增加并行数" :disabled="maxConcurrent >= 10" @click="updateMaxConcurrent(maxConcurrent + 1)">+</button>
+          </div>
+        </div>
       </section>
     </aside>
     </template>
@@ -565,6 +592,50 @@ onBeforeUnmount(() => {
   color: var(--text-strong);
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
+}
+
+.download-center__concurrency {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.download-center__stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.download-center__stepper button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--text);
+  background: rgba(var(--surface-rgb), 0.62);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-md);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.download-center__stepper button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.download-center__stepper button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.download-center__stepper strong {
+  min-width: 32px;
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  text-align: center;
 }
 
 .download-center__queue {

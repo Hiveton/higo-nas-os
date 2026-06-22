@@ -8,8 +8,14 @@ import (
 )
 
 // StorageCreateSpaceInput is the input for higo.storage.spaces.create.
+// StorageDefaultSpaceInput sets the system-wide default storage space.
+type StorageDefaultSpaceInput struct {
+	DefaultSpaceID string `json:"defaultSpaceId" jsonschema:"id of the storage space to make default"`
+}
+
 type StorageCreateSpaceInput struct {
 	Name       string   `json:"name" jsonschema:"storage space name"`
+	PoolID     string   `json:"poolId" jsonschema:"storage pool to create the space on (first-level choice; disks derived from it)"`
 	Mode       string   `json:"mode" jsonschema:"redundancy mode for the space"`
 	FileSystem string   `json:"fileSystem" jsonschema:"file system for the space"`
 	DiskSlots  []string `json:"diskSlots" jsonschema:"disk slots backing the space"`
@@ -105,6 +111,20 @@ func registerStorage(r *registry) {
 		readOnly(),
 		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
 			return c.StorageSpaces(ctx)
+		})
+
+	addTool(r, "storage", "higo.storage.default-space.get",
+		"Get the system-wide default storage space.",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.StorageDefaultSpace(ctx)
+		})
+
+	addTool(r, "storage", "higo.storage.default-space.set",
+		"Set the system-wide default storage space.",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, in StorageDefaultSpaceInput) (json.RawMessage, error) {
+			return c.StorageSetDefaultSpace(ctx, map[string]any{"defaultSpaceId": in.DefaultSpaceID})
 		})
 
 	addTool(r, "storage", "higo.storage.spaces.create",

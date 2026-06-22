@@ -31,6 +31,18 @@ func (a *API) mediaItems(w http.ResponseWriter, r *http.Request) {
 	platform.WriteJSON(w, r, http.StatusOK, items)
 }
 
+func (a *API) mediaScan(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	result, err := a.media.Scan(r.Context())
+	if err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "media_scan_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, result)
+}
+
 func (a *API) mediaAlbums(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:

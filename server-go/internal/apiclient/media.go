@@ -23,6 +23,11 @@ func (c *Client) MediaItems(ctx context.Context, dimension, facet string) (json.
 	return c.Do(ctx, http.MethodGet, "/api/v1/media/items", query, nil)
 }
 
+// MediaScan rescans the media library (POST /api/v1/media/scan).
+func (c *Client) MediaScan(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/api/v1/media/scan", nil, nil)
+}
+
 // MediaAlbums lists media albums (GET /api/v1/media/albums).
 func (c *Client) MediaAlbums(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodGet, "/api/v1/media/albums", nil, nil)

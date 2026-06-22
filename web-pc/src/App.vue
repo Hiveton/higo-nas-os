@@ -55,6 +55,9 @@ import TaskCenterWindow from './components/windows/TaskCenterWindow.vue';
 import FeatureModuleWindow from './components/windows/FeatureModuleWindow.vue';
 import UserCenterWindow from './components/windows/UserCenterWindow.vue';
 import ProfileSettingsWindow from './components/windows/ProfileSettingsWindow.vue';
+import ControlPanelWindow from './components/windows/control-panel/ControlPanelWindow.vue';
+import NotificationCenterWindow from './components/windows/NotificationCenterWindow.vue';
+import LogCenterWindow from './components/windows/LogCenterWindow.vue';
 import { desktopStore } from './stores/desktop';
 import { authStore } from './stores/auth';
 import { settingsStore } from './stores/settings';
@@ -1114,6 +1117,14 @@ function startUtilityLaunch(id: string) {
   }, 220);
 }
 
+// Open the Control Panel and jump to a section once its window is mounted.
+function openControlPanelSection(section: string) {
+  openApp('control-panel');
+  window.setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('higoos:control-panel-section', { detail: section }));
+  }, 60);
+}
+
 async function handleTopbarAction(action: string) {
   // Global-search actions use a "<verb>:<arg>" protocol.
   const sep = action.indexOf(':');
@@ -1140,7 +1151,7 @@ async function handleTopbarAction(action: string) {
     return;
   }
   if (action === 'inspect') {
-    openApp('security-center');
+    openControlPanelSection('security');
     try {
       const risks = await apiClient.security.inspect();
       showToast(`安全巡检完成，共 ${risks.length} 项风险。`);
@@ -1154,16 +1165,24 @@ async function handleTopbarAction(action: string) {
     openApp(arg);
     return;
   }
+  if (action === 'tasks') {
+    openApp('task-center');
+    return;
+  }
+  if (action === 'notifications') {
+    openApp('notification-center');
+    return;
+  }
   if (action === 'profile') {
     openApp('profile-settings');
     return;
   }
   if (action === 'permissions') {
-    openApp('user-center');
+    openControlPanelSection('users');
     return;
   }
   if (action === 'models') {
-    openApp('system-settings');
+    openControlPanelSection('settings');
     return;
   }
   if (action === 'logout') {
@@ -1333,6 +1352,9 @@ onUnmounted(() => {
         <IscsiWindow v-else-if="window.id === 'iscsi-manager'" />
         <UserCenterWindow v-else-if="window.id === 'user-center'" />
         <ProfileSettingsWindow v-else-if="window.id === 'profile-settings'" />
+        <ControlPanelWindow v-else-if="window.id === 'control-panel'" />
+        <NotificationCenterWindow v-else-if="window.id === 'notification-center'" />
+        <LogCenterWindow v-else-if="window.id === 'log-center'" />
         <FeatureModuleWindow
           v-else-if="featureModuleByWindowId[window.id]"
           :module-key="featureModuleByWindowId[window.id]"

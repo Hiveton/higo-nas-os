@@ -40,6 +40,7 @@ import type {
   AuditEntry,
   BackupJob,
   ComposeStack,
+  ComposeStackYaml,
   DesktopApp,
   DesktopSession,
   DesktopWindowConfig,
@@ -57,10 +58,12 @@ import type {
   DeleteVideoLibraryResult,
   FileRow,
   FileShare,
+  FileTrashEntry,
   FileTreeNode,
   HardwareInventory,
   IdentityPolicy,
   MediaItem,
+  MediaScanResult,
   MusicAlbum,
   MusicLibrarySettings,
   MusicScanResult,
@@ -95,6 +98,7 @@ import type {
   TrendPoint,
   SettingsState,
   SpeedProfile,
+  DownloadQueueConfig,
   StewardSuggestion,
   ListeningPort,
   FirewallState,
@@ -213,11 +217,15 @@ export const apiClient = {
     renameBatch: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/files/batch/rename', payload),
     deleteBatch: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/files/batch/delete', payload),
     restore: (id: Id) => POST<TaskResponse>(`/api/v1/files/${pathId(id)}/restore`),
+    trash: () => GET<FileTrashEntry[]>('/api/v1/files/trash'),
   },
 
   storage: {
     getPools: () => GET<StoragePool[]>('/api/v1/storage/pools'),
     getSpaces: () => GET<StorageSpace[]>('/api/v1/storage/spaces'),
+    getDefaultSpace: () => GET<{ defaultSpaceId: string }>('/api/v1/storage/default-space'),
+    setDefaultSpace: (defaultSpaceId: string) =>
+      PUT<{ defaultSpaceId: string }>('/api/v1/storage/default-space', { defaultSpaceId }),
     createSpace: (payload: RecordPayload) => POST<StorageSpace>('/api/v1/storage/spaces', payload),
     deleteSpace: (id: Id, payload?: RecordPayload) =>
       DELETE<StorageTask>(`/api/v1/storage/spaces/${pathId(id)}`, { body: payload ?? {} }),
@@ -370,6 +378,7 @@ export const apiClient = {
 
   media: {
     getItems: (query?: { dimension?: string; facet?: string }) => GET<MediaItem[]>('/api/v1/media/items', { query }),
+    scan: () => POST<MediaScanResult>('/api/v1/media/scan'),
     getAlbums: () => GET<AlbumItem[]>('/api/v1/media/albums'),
     createAlbum: (payload: RecordPayload) => POST<AlbumItem>('/api/v1/media/albums', payload),
     createMemory: (payload: RecordPayload) => POST<TaskResponse>('/api/v1/media/memories', payload),
@@ -443,6 +452,9 @@ export const apiClient = {
       DELETE<DownloadTaskActionResult>(`/api/v1/downloads/tasks/${pathId(id)}`, { query: { deleteFile } }),
     getSpeedProfiles: () => GET<SpeedProfile[]>('/api/v1/downloads/speed-profiles'),
     updateSpeedProfile: (payload: SpeedProfile) => PUT<SpeedProfile>('/api/v1/downloads/speed-profile', payload),
+    getQueueConfig: () => GET<DownloadQueueConfig>('/api/v1/downloads/queue-config'),
+    updateQueueConfig: (payload: DownloadQueueConfig) =>
+      PUT<DownloadQueueConfig>('/api/v1/downloads/queue-config', payload),
   },
 
   tasks: {
@@ -464,6 +476,9 @@ export const apiClient = {
 
   docker: {
     getStacks: () => GET<ComposeStack[]>('/api/v1/docker/stacks'),
+    deployStack: (payload: { name: string; yaml: string }) => POST<ComposeStack>('/api/v1/docker/stacks', payload),
+    getStackYaml: (name: string) => GET<ComposeStackYaml>(`/api/v1/docker/stacks/${pathId(name)}`),
+    downStack: (name: string) => DELETE<ComposeStack>(`/api/v1/docker/stacks/${pathId(name)}`),
     getContainers: () => GET<DockerContainer[]>('/api/v1/docker/containers'),
     getImages: () => GET<DockerImage[]>('/api/v1/docker/images'),
     getVolumes: () => GET<DockerVolume[]>('/api/v1/docker/volumes'),

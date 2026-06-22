@@ -212,6 +212,8 @@ export type FileTreeNode = {
   permission?: string;
   aiSummary?: string;
   isDir?: boolean;
+  category?: 'personal' | 'shared' | 'user' | string;
+  spaceId?: string;
   children?: FileTreeNode[];
 };
 
@@ -224,6 +226,16 @@ export type FileShare = {
   downloads: number;
   risk: RiskLevel;
   active: boolean;
+};
+
+export type FileTrashEntry = {
+  id: string;
+  name: string;
+  originalPath: string;
+  space: string;
+  size: string;
+  sizeBytes: number;
+  deletedAt: string;
 };
 
 // --- network sharing protocols (SMB / NFS / WebDAV / DLNA) ------------------
@@ -450,6 +462,7 @@ export type SyncPair = {
   bandwidthLimit?: string;
   enabled: boolean;
   intervalHours?: number;
+  retention?: SyncRetentionPolicy;
   state: string;
   progress: number;
   lastRun?: string;
@@ -466,6 +479,16 @@ export type SyncConflict = {
   resolved: boolean;
   resolution?: string;
   detectedAt: string;
+  sourceSize?: number;
+  targetSize?: number;
+  sourceMtime?: string;
+  targetMtime?: string;
+};
+
+export type SyncRetentionPolicy = {
+  enabled: boolean;
+  type: 'count' | 'days' | string;
+  value: number;
 };
 
 export type SyncAuditEntry = {
@@ -518,6 +541,7 @@ export type StoragePool = {
 export type StorageSpace = {
   id: string;
   name: string;
+  poolId?: string;
   mode: 'basic' | 'linear' | 'raid0' | 'raid1' | 'raid5' | 'raid6' | 'raid10' | string;
   fileSystem: 'ext4' | 'btrfs' | 'zfs' | string;
   diskSlots: string[];
@@ -626,6 +650,7 @@ export type AccountUser = {
   status: 'active' | 'disabled' | 'locked' | string;
   quotaBytes: number;
   groups: string[];
+  homeSpaceId?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -874,6 +899,7 @@ export type DownloadTask = {
   };
   filePath?: string;
   error?: string;
+  speedLimitBytesPerSecond?: number;
 };
 
 export type DownloadTaskActionResult = {
@@ -896,6 +922,10 @@ export type SpeedProfile = {
   active?: boolean;
 };
 
+export type DownloadQueueConfig = {
+  maxConcurrentDownloads: number;
+};
+
 export type ComposeStack = {
   name: string;
   status: string;
@@ -903,6 +933,13 @@ export type ComposeStack = {
   ports: string;
   volume: string;
   network: string;
+  yaml?: string;
+  createdAt?: string;
+};
+
+export type ComposeStackYaml = {
+  name: string;
+  yaml: string;
 };
 
 export type DockerContainer = {
@@ -1176,6 +1213,14 @@ export type MusicScanResult = {
   state: string;
   message: string;
   trackCount: number;
+  scannedAt: string;
+};
+
+export type MediaScanResult = {
+  id: string;
+  state: string;
+  message: string;
+  itemCount: number;
   scannedAt: string;
 };
 

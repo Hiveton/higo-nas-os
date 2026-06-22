@@ -121,6 +121,20 @@ const installedCount = computed(() => apps.value.filter((app) => app.installed).
 const runningCount = computed(() => apps.value.filter((app) => app.running).length);
 const updateCount = computed(() => apps.value.filter((app) => app.updateAvailable).length);
 
+// 卡片三态:运行中 / 已安装(已停) / 可安装,外加"需更新"高亮。
+function appState(app: AppCenterApp): 'running' | 'stopped' | 'available' {
+  if (app.running) return 'running';
+  if (app.installed) return 'stopped';
+  return 'available';
+}
+function stateLabel(app: AppCenterApp): string {
+  if (app.updateAvailable) return '需更新';
+  return { running: '运行中', stopped: '已停止', available: '可安装' }[appState(app)];
+}
+function appInitial(app: AppCenterApp): string {
+  return (app.name.trim()[0] ?? '#').toUpperCase();
+}
+
 async function loadAll() {
   try {
     const [nextApps, nextCatalog] = await Promise.all([apiClient.appCenter.getApps(), apiClient.appCenter.getCatalog()]);
@@ -301,29 +315,61 @@ onMounted(loadAll);
       <template v-if="tab === 'discover'" #nav>
         <aside class="app-center__catalog" aria-label="应用目录">
           <UiInput v-model="query" type="search" size="sm" :prefix-icon="Search" placeholder="搜索应用、分类或能力" />
-          <UiTabs v-model="activeCategory" :tabs="categoryTabs" variant="pill" size="sm" overflow="menu" />
-          <div class="app-center__list">
+          <nav class="app-center__cats" aria-label="应用分类">
             <button
-              v-for="app in filteredApps"
-              :key="app.id"
-              class="app-center__item"
-              :class="{ 'app-center__item--active': app.id === selectedAppId }"
+              v-for="cat in categories"
+              :key="cat"
+              class="app-center__cat"
+              :class="{ 'app-center__cat--active': activeCategory === cat }"
               type="button"
-              @click="selectApp(app.id)"
+              @click="activeCategory = cat"
             >
-              <strong>{{ app.name }}</strong>
-              <span>{{ app.category }} · {{ app.status }}</span>
-              <small>{{ app.version || app.latestVersion }} · {{ app.risk }} · {{ originLabel(app) }}</small>
+              <Boxes :size="15" /><span>{{ cat }}</span>
             </button>
-          </div>
+          </nav>
         </aside>
       </template>
 
-      <UiStatGrid min="160px">
-        <UiStat :icon="Boxes" label="已安装" :value="installedCount" tone="primary" />
-        <UiStat :icon="Play" label="运行中" :value="runningCount" tone="success" />
-        <UiStat :icon="RefreshCw" label="可更新" :value="updateCount" tone="warning" />
-      </UiStatGrid>
+      <template v-if="tab === 'discover'">
+        <UiStatGrid min="160px">
+          <UiStat :icon="Boxes" label="已安装" :value="installedCount" tone="primary" />
+          <UiStat :icon="Play" label="运行中" :value="runningCount" tone="success" />
+          <UiStat :icon="RefreshCw" label="可更新" :value="updateCount" tone="warning" />
+        </UiStatGrid>
+
+        <section class="app-center__cards" aria-label="应用卡片">
+          <article
+            v-for="app in filteredApps"
+            :key="app.id"
+            class="app-center__card"
+            :class="{ 'app-center__card--active': app.id === selectedAppId }"
+            tabindex="0"
+            role="button"
+            @click="selectApp(app.id)"
+            @keydown.enter="selectApp(app.id)"
+          >
+            <header class="app-center__card-head">
+              <span class="app-center__card-icon" :data-state="appState(app)">{{ appInitial(app) }}</span>
+              <span class="app-center__badge" :data-state="appState(app)" :class="{ 'app-center__badge--update': app.updateAvailable }">
+                {{ stateLabel(app) }}
+              </span>
+            </header>
+            <strong class="app-center__card-name">{{ app.name }}</strong>
+            <p class="app-center__card-desc">{{ app.description }}</p>
+            <footer class="app-center__card-foot">
+              <small>{{ app.category }} · v{{ app.version || app.latestVersion }}</small>
+              <div class="app-center__card-actions" @click.stop>
+                <UiButton v-if="!app.installed" variant="soft" tone="primary" size="sm" :icon-left="DownloadCloud" @click="beginAction(app, 'install')">安装</UiButton>
+                <UiButton v-if="app.updateAvailable" variant="soft" tone="primary" size="sm" :icon-left="RefreshCw" @click="beginAction(app, 'update')">更新</UiButton>
+                <UiButton v-if="app.installed && !app.running" variant="soft" tone="primary" size="sm" :icon-left="Play" @click="beginAction(app, 'start')">启动</UiButton>
+                <UiButton v-if="app.running" variant="soft" size="sm" :icon-left="Square" @click="beginAction(app, 'stop')">停止</UiButton>
+                <UiButton v-if="app.running && app.webEntry" variant="soft" tone="primary" size="sm" :icon-left="ExternalLink" @click="openFrame(app)">打开</UiButton>
+              </div>
+            </footer>
+          </article>
+          <p v-if="!filteredApps.length" class="app-center__empty">没有匹配的应用,换个分类或关键词试试。</p>
+        </section>
+      </template>
 
       <template v-if="tab === 'discover' && selectedApp" #inspector>
         <section class="app-center__detail" aria-label="应用详情">
@@ -471,11 +517,157 @@ onMounted(loadAll);
 
 .app-center__catalog {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
   overflow: hidden;
   height: 100%;
   padding: 10px;
+}
+
+.app-center__cats {
+  display: grid;
+  gap: 3px;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.app-center__cat {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--text-muted);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+.app-center__cat svg {
+  flex: 0 0 auto;
+  color: var(--text-soft);
+}
+.app-center__cat:hover {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+.app-center__cat--active {
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+}
+.app-center__cat--active svg {
+  color: var(--accent);
+}
+
+.app-center__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+.app-center__card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  text-align: left;
+  background: rgba(var(--surface-rgb), 0.6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+.app-center__card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.app-center__card--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.app-center__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.app-center__card-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: var(--text-inverse);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
+  border-radius: var(--radius-control);
+}
+.app-center__card-icon[data-state='available'] {
+  background: linear-gradient(135deg, var(--text-soft), var(--text-muted));
+}
+
+.app-center__badge {
+  padding: 3px 9px;
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  background: rgba(var(--surface-rgb), 0.82);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+.app-center__badge[data-state='running'] {
+  color: var(--ink-green);
+  background: var(--accent-green-soft);
+  border-color: transparent;
+}
+.app-center__badge--update {
+  color: var(--ink-orange);
+  background: var(--accent-orange-soft);
+  border-color: transparent;
+}
+
+.app-center__card-name {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-center__card-desc {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-snug);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.app-center__card-foot {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+}
+.app-center__card-foot small {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: var(--fs-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-center__card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .app-center__list {

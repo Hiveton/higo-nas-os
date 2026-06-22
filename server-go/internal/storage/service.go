@@ -30,7 +30,10 @@ type Service struct {
 	spaces     []StorageSpace
 	pending    map[string]pendingDelete // single-use delete confirmations, keyed by confirmationId
 	audit      []StorageAuditEntry      // append-only governance trail (newest first)
-	statePath  string
+	// defaultSpaceID is the system-wide default storage space new folders / user
+	// home directories land on when none is chosen. Empty → first space.
+	defaultSpaceID string
+	statePath      string
 	runner     *tasks.Manager
 	zfsRunner  commandRunner      // shells out to zfs/zpool for ZFS maintenance tasks
 	scheduler  *snapshotScheduler // lazily-built automatic-snapshot scheduler
@@ -42,8 +45,9 @@ type snapshot struct {
 	Tasks      map[string]StorageTask   `json:"tasks"`
 	Disks      []Disk                   `json:"disks"`
 	Spaces     []StorageSpace           `json:"spaces"`
-	Pending    map[string]pendingDelete `json:"pending"`
-	Audit      []StorageAuditEntry      `json:"audit"`
+	Pending        map[string]pendingDelete `json:"pending"`
+	Audit          []StorageAuditEntry      `json:"audit"`
+	DefaultSpaceID string                   `json:"defaultSpaceId,omitempty"`
 }
 
 func NewService(adapter Adapter) *Service {
@@ -94,6 +98,10 @@ func NewServiceWithStateDir(adapter Adapter, stateDir string) (*Service, error) 
 		service.pending = clonePending(persisted.Pending)
 	}
 	service.audit = append([]StorageAuditEntry(nil), persisted.Audit...)
+	service.defaultSpaceID = persisted.DefaultSpaceID
+	if service.defaultSpaceID == "" && len(service.spaces) > 0 {
+		service.defaultSpaceID = service.spaces[0].ID
+	}
 	return service, nil
 }
 
@@ -180,6 +188,46 @@ func (s *Service) Spaces(ctx context.Context) ([]StorageSpace, error) {
 	return cloneSpaces(s.spaces), nil
 }
 
+// DefaultSpaceID returns the configured default storage space id, falling back
+// to the first managed space when none is set.
+func (s *Service) DefaultSpaceID(ctx context.Context) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.defaultSpaceID != "" {
+		for i := range s.spaces {
+			if s.spaces[i].ID == s.defaultSpaceID {
+				return s.defaultSpaceID
+			}
+		}
+	}
+	if len(s.spaces) > 0 {
+		return s.spaces[0].ID
+	}
+	return ""
+}
+
+// SetDefaultSpace validates and persists the system-wide default storage space.
+func (s *Service) SetDefaultSpace(ctx context.Context, id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", fmt.Errorf("space id is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	found := false
+	for i := range s.spaces {
+		if s.spaces[i].ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", fmt.Errorf("storage space not found: %s", id)
+	}
+	s.defaultSpaceID = id
+	return id, s.saveLocked()
+}
+
 func (s *Service) StartSMARTScan(ctx context.Context, target TaskTarget) (StorageTask, error) {
 	if err := ctx.Err(); err != nil {
 		return StorageTask{}, err
@@ -237,6 +285,20 @@ func (s *Service) AddDisk(ctx context.Context, request AddDiskRequest) (Disk, er
 	return disk, s.saveLocked()
 }
 
+// poolIDForSpace resolves the owning pool: the explicitly chosen pool, else the
+// pool of the first selected disk.
+func poolIDForSpace(requested string, disks []Disk) string {
+	if strings.TrimSpace(requested) != "" {
+		return requested
+	}
+	for _, d := range disks {
+		if d.PoolID != "" {
+			return d.PoolID
+		}
+	}
+	return ""
+}
+
 func (s *Service) CreateSpace(ctx context.Context, request CreateSpaceRequest) (StorageSpace, error) {
 	if err := ctx.Err(); err != nil {
 		return StorageSpace{}, err
@@ -247,8 +309,24 @@ func (s *Service) CreateSpace(ctx context.Context, request CreateSpaceRequest) (
 	if request.Name == "" {
 		return StorageSpace{}, fmt.Errorf("name is required")
 	}
+	// A storage space is created on a storage pool (first-level choice). When a
+	// pool is given but no explicit disks, derive the disk set from that pool.
+	if len(request.DiskSlots) == 0 && strings.TrimSpace(request.PoolID) != "" {
+		hostDisks, err := s.adapter.Disks(ctx)
+		if err != nil {
+			return StorageSpace{}, err
+		}
+		s.mu.Lock()
+		all := append(cloneDisks(hostDisks), cloneDisks(s.disks)...)
+		s.mu.Unlock()
+		for _, d := range all {
+			if d.PoolID == request.PoolID {
+				request.DiskSlots = append(request.DiskSlots, d.Slot)
+			}
+		}
+	}
 	if len(request.DiskSlots) == 0 {
-		return StorageSpace{}, fmt.Errorf("at least one disk slot is required")
+		return StorageSpace{}, fmt.Errorf("a storage pool (or at least one disk) is required")
 	}
 	mode := request.Mode
 	if mode == "" {
@@ -325,6 +403,7 @@ func (s *Service) CreateSpace(ctx context.Context, request CreateSpaceRequest) (
 	space := StorageSpace{
 		ID:          fmt.Sprintf("space-%03d-%s", s.taskSeq, slugID(request.Name)),
 		Name:        request.Name,
+		PoolID:      poolIDForSpace(request.PoolID, selectedDisks),
 		Mode:        mode,
 		FileSystem:  fs,
 		DiskSlots:   append([]string(nil), request.DiskSlots...),
@@ -767,8 +846,9 @@ func (s *Service) saveLocked() error {
 		Tasks:      cloneTasks(s.tasks),
 		Disks:      cloneDisks(s.disks),
 		Spaces:     cloneSpaces(s.spaces),
-		Pending:    clonePending(s.pending),
-		Audit:      append([]StorageAuditEntry(nil), s.audit...),
+		Pending:        clonePending(s.pending),
+		Audit:          append([]StorageAuditEntry(nil), s.audit...),
+		DefaultSpaceID: s.defaultSpaceID,
 	})
 }
 

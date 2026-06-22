@@ -59,6 +59,13 @@ func registerMedia(r *registry) {
 			return c.MediaItems(ctx, in.Dimension, in.Facet)
 		})
 
+	addTool(r, "media", "higo.media.scan",
+		"Rescan the media library and rebuild albums/people.",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.MediaScan(ctx)
+		})
+
 	addTool(r, "media", "higo.media.albums.list",
 		"List media albums.",
 		readOnly(),

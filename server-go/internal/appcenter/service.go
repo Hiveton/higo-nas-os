@@ -10,6 +10,7 @@ import (
 	"higoos/server-go/internal/audit"
 	hdocker "higoos/server-go/internal/docker"
 	"higoos/server-go/internal/state"
+	"higoos/server-go/internal/tasks"
 )
 
 // App is the wire projection of an installable app: the manifest's catalog
@@ -72,6 +73,21 @@ type Service struct {
 	nextConfirm int
 	auditLog    []AuditRecord
 	auditPath   string
+
+	// tasksMgr, when attached, mirrors confirmed lifecycle actions
+	// (install/update/start/stop/uninstall) into the central task center.
+	tasksMgr *tasks.Manager
+}
+
+// AttachTaskRunner wires the central task runtime so confirmed app actions show
+// up in the unified task center. Optional and nil-safe.
+func (s *Service) AttachTaskRunner(m *tasks.Manager) {
+	if m == nil {
+		return
+	}
+	s.mu.Lock()
+	s.tasksMgr = m
+	s.mu.Unlock()
 }
 
 // demoState reproduces the previous hardcoded install state for the seed apps so

@@ -30,6 +30,20 @@ type Service struct {
 	memoryRunCount int
 	statePath      string
 	runner         *tasks.Manager
+
+	// roots/excludedRoots are remembered so a manual Scan() can re-walk the
+	// library on demand (mirrors video.Scan()).
+	roots         []string
+	excludedRoots []string
+}
+
+// ScanResult summarizes a media library rescan.
+type ScanResult struct {
+	ID        string `json:"id"`
+	State     string `json:"state"`
+	Message   string `json:"message"`
+	ItemCount int    `json:"itemCount"`
+	ScannedAt string `json:"scannedAt"`
 }
 
 type snapshot struct {
@@ -70,6 +84,8 @@ func NewServiceWithRootsAndExcludes(stateDir string, roots []string, excludedRoo
 		return service, nil
 	}
 	service.statePath = filepath.Join(stateDir, "media.json")
+	service.roots = append([]string(nil), roots...)
+	service.excludedRoots = append([]string(nil), excludedRoots...)
 	var persisted snapshot
 	if err := state.LoadJSON(service.statePath, &persisted); err != nil {
 		return nil, err
@@ -588,11 +604,40 @@ func (s *Service) saveLocked() error {
 }
 
 func (s *Service) refreshFromRoots(roots []string, excludedRoots []string) {
+	s.roots = append([]string(nil), roots...)
+	s.excludedRoots = append([]string(nil), excludedRoots...)
 	items := scanMediaRoots(roots, excludedRoots)
 	s.items = items
 	s.albums = albumsFromItems(items)
 	s.people = peopleFromItems(items)
 	s.nextAlbumID = nextAlbumID(s.albums)
+}
+
+// Scan re-walks the configured media roots and rebuilds the library, returning
+// a summary. The filesystem walk is host-agnostic (no ffmpeg needed); metadata
+// scrape / AI analysis remain separate downstream steps.
+func (s *Service) Scan(ctx context.Context) (ScanResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ScanResult{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	roots := s.roots
+	if len(roots) == 0 {
+		roots = defaultMediaRoots()
+	}
+	s.refreshFromRoots(roots, s.excludedRoots)
+	count := len(s.items)
+	if err := s.saveLocked(); err != nil {
+		return ScanResult{}, err
+	}
+	return ScanResult{
+		ID:        "media-scan",
+		State:     "done",
+		Message:   fmt.Sprintf("媒体库扫描完成，共 %d 个项目。", count),
+		ItemCount: count,
+		ScannedAt: time.Now().UTC().Format(time.RFC3339),
+	}, nil
 }
 
 func (s *Service) findItemIndexLocked(id int) int {

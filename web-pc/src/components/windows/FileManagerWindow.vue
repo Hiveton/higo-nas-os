@@ -11,6 +11,7 @@ import {
   FolderPlus,
   HardDrive,
   RefreshCw,
+  RotateCcw,
   Search,
   Share2,
   ShieldCheck,
@@ -18,18 +19,23 @@ import {
   Tag,
   Tags,
   Trash2,
+  User,
+  UserCog,
+  Users,
   UploadCloud,
 } from 'lucide-vue-next';
 import { apiClient } from '../../api/client';
 import { aiAnalysisStore } from '../../stores/aiAnalysis';
-import type { FileRow, FileTreeNode } from '../../api/types';
+import type { FileRow, FileTreeNode, FileTrashEntry } from '../../api/types';
 import {
   UiButton,
   UiEmptyState,
   UiIconButton,
   UiInput,
+  UiModal,
   UiNavRail,
   UiProgressBar,
+  UiSelect,
   UiToolbar,
   UiWindowPage,
   useConfirm,
@@ -63,7 +69,125 @@ const fileInput = ref<HTMLInputElement | null>(null);
 
 // Interaction coverage markers kept for the existing static checker: selectFolder filteredFiles previewOpen shareOpen addSmartTag.
 const spaces = computed(() => tree.value?.children ?? []);
-const folders = computed(() => flattenFolders(tree.value));
+
+// 绿联式五空间(P0 前端分类视图)。个人/共享/用户 = 对真实 space 做归类过滤;
+// 标签 = 聚合树中标签;回收站 = 软删除文件(后端 trash 字段在 P2 落地,先占位)。
+type CategoryKey = 'personal' | 'shared' | 'user' | 'tags' | 'trash';
+const CATEGORIES: { key: CategoryKey; label: string; icon: typeof User }[] = [
+  { key: 'personal', label: '个人', icon: User },
+  { key: 'shared', label: '共享', icon: Users },
+  { key: 'user', label: '用户', icon: UserCog },
+  { key: 'tags', label: '标签', icon: Tags },
+  { key: 'trash', label: '回收站', icon: Trash2 },
+];
+const category = ref<CategoryKey>('personal');
+const activeTag = ref('');
+const trashEntries = ref<FileTrashEntry[]>([]);
+const isFileCategory = computed(() => ['personal', 'shared', 'user'].includes(category.value));
+
+function spaceCategory(node: FileTreeNode): 'personal' | 'shared' | 'user' {
+  // Prefer the backend-derived category; fall back to a local heuristic for
+  // older payloads that don't carry one.
+  if (node.category === 'personal' || node.category === 'shared' || node.category === 'user') {
+    return node.category;
+  }
+  const hay = `${node.name ?? ''} ${node.space ?? ''} ${node.path ?? ''}`.toLowerCase();
+  if (/共享|团队|公共|协作|share|team|public|smb|nfs/.test(hay)) return 'shared';
+  if (/用户目录|个人目录|私人|home\/|users\/|user-/.test(hay)) return 'user';
+  return 'personal'; // 兜底:未明确归类的 space 仍可见
+}
+
+const visibleSpaces = computed(() =>
+  isFileCategory.value ? spaces.value.filter((s) => spaceCategory(s) === category.value) : [],
+);
+
+// All tags across the loaded tree, with counts — drives the 标签 cloud.
+const tagCloud = computed(() => {
+  const counts = new Map<string, number>();
+  const walk = (node: FileTreeNode | null) => {
+    if (!node) return;
+    for (const tag of node.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(tree.value);
+  return [...counts.entries()].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count);
+});
+
+const folders = computed(() => {
+  if (!isFileCategory.value) return [];
+  const root: FileTreeNode = {
+    ...(tree.value ?? { id: '', name: '', path: '/', type: 'folder' }),
+    children: visibleSpaces.value,
+  };
+  return flattenFolders(root);
+});
+
+function selectCategory(key: CategoryKey) {
+  if (category.value === key) return;
+  category.value = key;
+  activeTag.value = '';
+  search.value = '';
+  searchRows.value = [];
+  if (key === 'personal' || key === 'shared' || key === 'user') {
+    const first = visibleSpaces.value[0];
+    if (first) {
+      setCurrentPath(first.path);
+      pushPathHistory(first.path);
+    }
+  } else if (key === 'trash') {
+    void loadTrash();
+  }
+}
+
+async function loadTrash() {
+  loading.value = true;
+  try {
+    trashEntries.value = await apiClient.files.trash();
+    notice.value = `回收站共 ${trashEntries.value.length} 项可还原。`;
+  } catch (error) {
+    trashEntries.value = [];
+    notice.value = `回收站读取失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function restoreFromTrash(entry: FileTrashEntry) {
+  busyAction.value = 'restore';
+  try {
+    await apiClient.files.restore(entry.id);
+    notice.value = `已还原「${entry.name}」到 ${entry.originalPath}。`;
+    await loadTrash();
+    await loadTree(true);
+  } catch (error) {
+    notice.value = `还原失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    busyAction.value = '';
+  }
+}
+
+function trashTime(at: string): string {
+  if (!at) return '—';
+  const d = new Date(at);
+  return Number.isNaN(d.getTime())
+    ? at
+    : d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+async function selectTag(tag: string) {
+  activeTag.value = tag;
+  loading.value = true;
+  try {
+    const rows = await apiClient.files.search({ tags: [tag] });
+    searchRows.value = rows.map(rowToNode);
+    selectedId.value = searchRows.value[0]?.id ?? '';
+    notice.value = `标签「${tag}」命中 ${searchRows.value.length} 个文件。`;
+  } catch (error) {
+    notice.value = `按标签筛选失败：${error instanceof Error ? error.message : 'unknown error'}`;
+  } finally {
+    loading.value = false;
+  }
+}
 const currentNode = computed(() => findNodeByPath(tree.value, currentPath.value) ?? spaces.value[0] ?? tree.value);
 const currentSpace = computed(() => {
   const node = currentNode.value;
@@ -72,7 +196,9 @@ const currentSpace = computed(() => {
   return firstSegment || spaces.value[0]?.name || '';
 });
 const currentChildren = computed<DisplayNode[]>(() => (currentNode.value?.children ?? []) as DisplayNode[]);
-const searching = computed(() => search.value.trim().length > 0);
+const searching = computed(
+  () => search.value.trim().length > 0 || (category.value === 'tags' && activeTag.value.length > 0),
+);
 const visibleItems = computed<DisplayNode[]>(() => (searching.value ? searchRows.value : currentChildren.value));
 const selectedNode = computed<DisplayNode | null>(() => {
   if (!selectedId.value) return visibleItems.value[0] ?? null;
@@ -417,23 +543,52 @@ async function onDrop(event: DragEvent) {
   await uploadFiles(files);
 }
 
-async function createFolder() {
-  const name = await inputDialog({
-    title: '新建文件夹',
-    label: '文件夹名称',
-    placeholder: '例如：项目资料',
-    validate: (v) => (v ? null : '请输入名称'),
-  });
-  if (!name?.trim()) return;
+// 新建文件夹:绿联式——必须落在某个存储空间下,默认继承当前所在空间、可改。
+const folderDialogOpen = ref(false);
+const folderName = ref('');
+const folderSpaceId = ref('');
+
+// 存储空间选项 = 文件树顶层(每个顶层节点即一个存储空间)。
+const spaceOptions = computed(() =>
+  spaces.value.map((s) => ({ value: s.spaceId ?? s.name, label: s.name })),
+);
+
+function openCreateFolder() {
+  folderName.value = '';
+  // 默认继承:当前所在节点的存储空间,否则当前空间的顶层。
+  const current = currentNode.value;
+  folderSpaceId.value =
+    current?.spaceId ||
+    spaces.value.find((s) => s.name === currentSpace.value)?.spaceId ||
+    spaceOptions.value[0]?.value ||
+    '';
+  folderDialogOpen.value = true;
+}
+
+async function confirmCreateFolder() {
+  const name = folderName.value.trim();
+  if (!name) {
+    notice.value = '请输入文件夹名称。';
+    return;
+  }
+  if (!folderSpaceId.value) {
+    notice.value = '请选择目标存储空间。';
+    return;
+  }
+  // Path within the chosen space: if the current dir belongs to that space, keep
+  // it as the parent; otherwise create at the space root.
+  const sameSpace = currentNode.value?.spaceId === folderSpaceId.value;
   busyAction.value = 'folder';
   try {
     const folder = await apiClient.files.createFolder({
-      space: currentSpace.value,
-      path: currentDirectoryPath.value,
-      name: name.trim(),
+      spaceId: folderSpaceId.value,
+      path: sameSpace ? currentDirectoryPath.value : '',
+      name,
       actor: 'file-manager',
     });
-    notice.value = `已在 ${currentDirectoryPath.value} 创建文件夹 ${name.trim()}。`;
+    const spaceLabel = spaceOptions.value.find((o) => o.value === folderSpaceId.value)?.label ?? folderSpaceId.value;
+    notice.value = `已在存储空间「${spaceLabel}」创建文件夹 ${name}。`;
+    folderDialogOpen.value = false;
     await loadTree(true);
     selectedId.value = folder.id ?? (folder.path ? findNodeByPath(tree.value, folder.path)?.id : '') ?? selectedId.value;
   } catch (error) {
@@ -609,7 +764,20 @@ onMounted(() => {
         <UiNavRail title="文件目录" :subtitle="loading ? '正在同步' : uploading ? '正在上传' : ''">
           <template #header>
             <div class="file-manager__nav-header">
-              <div class="file-manager__search">
+              <nav class="file-manager__spaces" aria-label="文件空间">
+                <button
+                  v-for="cat in CATEGORIES"
+                  :key="cat.key"
+                  class="file-manager__space"
+                  :class="{ 'file-manager__space--active': category === cat.key }"
+                  type="button"
+                  @click="selectCategory(cat.key)"
+                >
+                  <component :is="cat.icon" :size="16" />
+                  <span>{{ cat.label }}</span>
+                </button>
+              </nav>
+              <div v-if="isFileCategory" class="file-manager__search">
                 <UiInput
                   v-model="search"
                   size="sm"
@@ -636,6 +804,30 @@ onMounted(() => {
             <Folder v-else :size="16" />
             <span>{{ folder.name }}</span>
           </button>
+          <UiEmptyState
+            v-if="isFileCategory && folders.length === 0"
+            :icon="Folder"
+            title="该空间暂无目录"
+            description="切换其他空间,或在工具栏新建文件夹。"
+          />
+          <div v-else-if="category === 'tags'" class="file-manager__tagnav" aria-label="标签筛选">
+            <button
+              v-for="entry in tagCloud"
+              :key="entry.tag"
+              class="file-manager__tagchip"
+              :class="{ 'file-manager__tagchip--active': activeTag === entry.tag }"
+              type="button"
+              @click="selectTag(entry.tag)"
+            >
+              <Tag :size="13" /><span>{{ entry.tag }}</span><small>{{ entry.count }}</small>
+            </button>
+            <UiEmptyState
+              v-if="tagCloud.length === 0"
+              :icon="Tags"
+              title="暂无标签"
+              description="为文件添加标签后,可在此快速归类筛选。"
+            />
+          </div>
 
           <template #footer>
             <div class="file-manager__status">
@@ -669,14 +861,37 @@ onMounted(() => {
           <template #end>
             <UiButton variant="soft" tone="primary" size="sm" :icon-left="UploadCloud" :disabled="uploading" @click="chooseFiles">上传</UiButton>
             <UiButton variant="soft" tone="primary" size="sm" :icon-left="Download" @click="downloadSelected">下载</UiButton>
-            <UiButton variant="soft" tone="primary" size="sm" :icon-left="FolderPlus" :disabled="busyAction === 'folder'" @click="createFolder">新建文件夹</UiButton>
+            <UiButton variant="soft" tone="primary" size="sm" :icon-left="FolderPlus" :disabled="busyAction === 'folder'" @click="openCreateFolder">新建文件夹</UiButton>
             <UiButton variant="soft" tone="primary" size="sm" :icon-left="Edit3" :disabled="busyAction === 'rename'" @click="renameSelected">重命名</UiButton>
             <UiButton variant="soft" tone="danger" size="sm" :icon-left="Trash2" :disabled="busyAction === 'delete'" @click="deleteSelected">删除</UiButton>
           </template>
         </UiToolbar>
       </template>
 
-      <section class="file-manager__table" aria-label="文件列表">
+      <section v-if="category === 'trash'" class="file-manager__trash" aria-label="回收站">
+        <article v-for="entry in trashEntries" :key="entry.id" class="file-manager__trash-row">
+          <Trash2 :size="18" />
+          <span class="file-manager__trash-info">
+            <strong>{{ entry.name }}</strong>
+            <small>{{ entry.originalPath }} · {{ entry.space || '—' }} · {{ entry.size }}</small>
+          </span>
+          <span class="file-manager__trash-time">{{ trashTime(entry.deletedAt) }}</span>
+          <UiButton variant="soft" tone="primary" size="sm" :icon-left="RotateCcw" :disabled="busyAction === 'restore'" @click="restoreFromTrash(entry)">还原</UiButton>
+        </article>
+        <UiEmptyState
+          v-if="trashEntries.length === 0"
+          :icon="Trash2"
+          :title="loading ? '正在读取回收站…' : '回收站为空'"
+          description="删除的文件会移入回收站,可在此一键还原到原位置。"
+        />
+      </section>
+      <UiEmptyState
+        v-else-if="category === 'tags' && !activeTag"
+        :icon="Tag"
+        title="按标签浏览文件"
+        description="在左侧选择一个标签,查看带该标签的所有文件。"
+      />
+      <section v-else class="file-manager__table" aria-label="文件列表">
         <div class="file-manager__row file-manager__row--head">
           <span>名称</span>
           <span>类型</span>
@@ -769,8 +984,46 @@ onMounted(() => {
       <UploadCloud :size="36" />
       <strong>松开以上传到 {{ uploadTargetPath || currentSpace }}</strong>
     </div>
+
+    <UiModal :open="folderDialogOpen" title="新建文件夹" size="sm" @update:open="folderDialogOpen = $event">
+      <div class="file-manager__folder-form">
+        <label>
+          <span>位置（共享文件夹）</span>
+          <UiSelect v-model="folderSpaceId" :options="spaceOptions" placeholder="选择位置" />
+          <small>新文件夹将创建在所选共享文件夹下,默认继承当前所在位置。</small>
+        </label>
+        <label>
+          <span>文件夹名称</span>
+          <UiInput v-model="folderName" placeholder="例如：项目资料" @enter="confirmCreateFolder" />
+        </label>
+      </div>
+      <template #footer>
+        <UiButton variant="ghost" size="sm" @click="folderDialogOpen = false">取消</UiButton>
+        <UiButton variant="soft" tone="primary" size="sm" :disabled="busyAction === 'folder'" @click="confirmCreateFolder">创建</UiButton>
+      </template>
+    </UiModal>
   </div>
 </template>
+
+<style scoped>
+.file-manager__folder-form {
+  display: grid;
+  gap: 14px;
+}
+.file-manager__folder-form label {
+  display: grid;
+  gap: 6px;
+}
+.file-manager__folder-form label > span {
+  color: var(--text-strong);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
+.file-manager__folder-form small {
+  color: var(--text-soft);
+  font-size: var(--fs-2xs);
+}
+</style>
 
 <style scoped>
 .file-manager {
@@ -787,6 +1040,94 @@ onMounted(() => {
 .file-manager__nav-header {
   display: grid;
   gap: var(--space-2);
+}
+
+.file-manager__spaces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.file-manager__space {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--text-muted);
+  text-align: left;
+  background: rgba(var(--surface-rgb), 0.55);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+.file-manager__space:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+.file-manager__space svg {
+  flex: 0 0 auto;
+  color: var(--text-soft);
+}
+.file-manager__space:hover {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+.file-manager__space--active {
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.file-manager__space--active svg {
+  color: var(--accent);
+}
+
+.file-manager__tagnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: var(--space-1) 0;
+}
+.file-manager__tagchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 9px;
+  color: var(--text-muted);
+  background: rgba(var(--surface-rgb), 0.6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+.file-manager__tagchip svg {
+  color: var(--accent);
+}
+.file-manager__tagchip:hover {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+.file-manager__tagchip--active {
+  color: var(--text-inverse);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.file-manager__tagchip--active svg {
+  color: var(--text-inverse);
+}
+.file-manager__tagchip small {
+  color: var(--text-soft);
+  font-weight: var(--fw-bold);
+}
+.file-manager__tagchip--active small {
+  color: rgba(var(--surface-rgb), 0.85);
 }
 
 .file-manager__search {
@@ -880,6 +1221,50 @@ onMounted(() => {
 .file-manager__path-entry input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.file-manager__trash {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.file-manager__trash-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  background: rgba(var(--surface-rgb), 0.5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.file-manager__trash-row > svg {
+  color: var(--text-soft);
+}
+.file-manager__trash-info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.file-manager__trash-info strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-manager__trash-info small {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: var(--fs-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-manager__trash-time {
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
 }
 
 .file-manager__table {

@@ -19,7 +19,13 @@ type FileNode struct {
 	Permission string     `json:"permission"`
 	Summary    string     `json:"aiSummary"`
 	IsDir      bool       `json:"isDir"`
-	Children   []FileNode `json:"children,omitempty"`
+	// SpaceID is the id of the storage space this node lives on (the top-level
+	// directory name under the NAS root). Drives storage binding in the UI.
+	SpaceID string `json:"spaceId,omitempty"`
+	// Category buckets a top-level space into the desktop's 五空间 view
+	// (personal / shared / user). Empty for nested nodes.
+	Category string     `json:"category,omitempty"`
+	Children []FileNode `json:"children,omitempty"`
 }
 
 type FileRow struct {
@@ -34,6 +40,19 @@ type FileRow struct {
 	Permission string   `json:"permission"`
 	AISummary  string   `json:"aiSummary"`
 	IsDir      bool     `json:"isDir"`
+	SpaceID    string   `json:"spaceId,omitempty"`
+	Category   string   `json:"category,omitempty"`
+}
+
+// TrashEntry is one recoverable item in the recycle bin.
+type TrashEntry struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	OriginalPath string `json:"originalPath"`
+	Space        string `json:"space"`
+	Size         string `json:"size"`
+	SizeBytes    int64  `json:"sizeBytes"`
+	DeletedAt    string `json:"deletedAt"`
 }
 
 type SearchQuery struct {
@@ -73,9 +92,12 @@ type BatchOperation struct {
 
 type CreateFolderRequest struct {
 	Space string `json:"space"`
-	Path  string `json:"path"`
-	Name  string `json:"name"`
-	Actor string `json:"actor"`
+	// SpaceID, when set, targets a storage space directly (top-level dir name)
+	// rather than resolving the display-name. Path is then relative within it.
+	SpaceID string `json:"spaceId"`
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+	Actor   string `json:"actor"`
 }
 
 type CreateFileRequest struct {

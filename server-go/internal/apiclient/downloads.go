@@ -51,3 +51,13 @@ func (c *Client) DownloadSpeedProfiles(ctx context.Context) (json.RawMessage, er
 func (c *Client) DownloadSetSpeedProfile(ctx context.Context, body any) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodPut, "/api/v1/downloads/speed-profile", nil, body)
 }
+
+// DownloadQueueConfig reads the download queue config (GET /api/v1/downloads/queue-config).
+func (c *Client) DownloadQueueConfig(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/api/v1/downloads/queue-config", nil, nil)
+}
+
+// DownloadSetQueueConfig sets max concurrent downloads (PUT /api/v1/downloads/queue-config).
+func (c *Client) DownloadSetQueueConfig(ctx context.Context, body any) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPut, "/api/v1/downloads/queue-config", nil, body)
+}

@@ -11,12 +11,20 @@ const (
 )
 
 type ComposeStack struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Services int    `json:"services"`
-	Ports    string `json:"ports"`
-	Volume   string `json:"volume"`
-	Network  string `json:"network"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	Services  int    `json:"services"`
+	Ports     string `json:"ports"`
+	Volume    string `json:"volume"`
+	Network   string `json:"network"`
+	Yaml      string `json:"yaml,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
+}
+
+// DeployStackRequest deploys (or redeploys) a compose stack from YAML.
+type DeployStackRequest struct {
+	Name string `json:"name"`
+	Yaml string `json:"yaml"`
 }
 
 type ResourceLimit struct {

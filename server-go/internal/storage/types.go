@@ -72,8 +72,11 @@ const (
 )
 
 type StorageSpace struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// PoolID is the storage pool this space is created on (the first-level
+	// physical grouping). A space always belongs to exactly one pool.
+	PoolID      string     `json:"poolId"`
 	Mode        SpaceMode  `json:"mode"`
 	FileSystem  FileSystem `json:"fileSystem"`
 	DiskSlots   []string   `json:"diskSlots"`
@@ -160,7 +163,11 @@ type AddDiskRequest struct {
 }
 
 type CreateSpaceRequest struct {
-	Name       string     `json:"name"`
+	Name string `json:"name"`
+	// PoolID selects the storage pool to create this space on (first-level
+	// choice). When set, the disks are derived from the pool; DiskSlots stays
+	// optional for advanced/explicit disk selection.
+	PoolID     string     `json:"poolId"`
 	Mode       SpaceMode  `json:"mode"`
 	FileSystem FileSystem `json:"fileSystem"`
 	DiskSlots  []string   `json:"diskSlots"`

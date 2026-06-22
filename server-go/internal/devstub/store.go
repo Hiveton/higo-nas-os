@@ -133,35 +133,39 @@ func NewStoreWithStateDir(stateDir string) (*Store, error) {
 }
 
 func (s *Store) Apps() []App {
+	// 绿联式桌面入口:系统设置/用户/远程/协议/硬件/设备/安全 收敛进「控制面板」;
+	// vm/iscsi/同步 收进应用中心。AI 保留为一级(HiGoOS AI 原生),品牌用自有名。
 	apps := []App{
 		{ID: "file-manager", Name: "文件管理", Icon: "/src/assets/higoos-dock/icons/01-file-manager.png", Badge: 2},
 		{ID: "storage-monitor", Name: "存储管理", Icon: "/src/assets/higoos-dock/icons/02-storage-manager.png"},
-		{ID: "ai-file-steward", Name: "AI 文件管家", Icon: "/src/assets/higoos-dock/icons/03-ai-file-steward.png", Badge: 6},
-		{ID: "agent-workbench", Name: "Agent 工作台", Icon: "/src/assets/higoos-dock/icons/04-agent-workbench.png"},
-		{ID: "ai-assistant", Name: "AI 助手", Icon: "/src/assets/higoos-dock/icons/05-ai-assistant.png"},
-		{ID: "backup-sync", Name: "备份同步", Icon: "/src/assets/higoos-dock/icons/06-backup-sync.png", Badge: 1},
-		{ID: "photo-media", Name: "相册媒体", Icon: "/src/assets/higoos-dock/icons/07-photo-media.png"},
-		{ID: "music-center", Name: "音乐中心", Icon: "/src/assets/higoos-dock/icons/15-music-center.svg"},
-		{ID: "video-center", Name: "影视中心", Icon: "/src/assets/higoos-dock/icons/16-video-center.svg"},
-		{ID: "download-center", Name: "下载中心", Icon: "/src/assets/higoos-dock/icons/08-download-center.png"},
+		{ID: "control-panel", Name: "控制面板", Icon: "/src/assets/higoos-dock/icons/13-system-settings.png"},
 		{ID: "app-center", Name: "应用中心", Icon: "/src/assets/higoos-dock/icons/09-app-center.png"},
+		{ID: "task-center", Name: "任务管理器", Icon: "/src/assets/higoos-dock/icons/17-task-center.svg"},
+		{ID: "download-center", Name: "下载中心", Icon: "/src/assets/higoos-dock/icons/08-download-center.png"},
+		{ID: "backup-sync", Name: "同步与备份", Icon: "/src/assets/higoos-dock/icons/06-backup-sync.png", Badge: 1},
 		{ID: "docker", Name: "Docker", Icon: "/src/assets/higoos-dock/icons/10-docker.png"},
-		{ID: "security-center", Name: "安全中心", Icon: "/src/assets/higoos-dock/icons/11-security-center.png", Badge: 3},
-		{ID: "device-monitor", Name: "设备监控", Icon: "/src/assets/higoos-dock/icons/12-device-monitor.png"},
-		{ID: "system-settings", Name: "系统设置", Icon: "/src/assets/higoos-dock/icons/13-system-settings.png"},
-		{ID: "remote-access", Name: "远程访问", Icon: "/src/assets/higoos-dock/icons/14-remote-access.png"},
+		{ID: "video-center", Name: "影视中心", Icon: "/src/assets/higoos-dock/icons/16-video-center.svg"},
+		{ID: "music-center", Name: "音乐中心", Icon: "/src/assets/higoos-dock/icons/15-music-center.svg"},
+		{ID: "photo-media", Name: "相册", Icon: "/src/assets/higoos-dock/icons/07-photo-media.png"},
+		{ID: "ai-assistant", Name: "HiGo AI", Icon: "/src/assets/higoos-dock/icons/05-ai-assistant.png"},
+		{ID: "ai-analysis", Name: "AI 分析中心", Icon: "/src/assets/higoos-dock/icons/04-agent-workbench.png"},
+		{ID: "agent-workbench", Name: "HiGo Agent", Icon: "/src/assets/higoos-dock/icons/04-agent-workbench.png"},
+		{ID: "ai-file-steward", Name: "AI 文件管家", Icon: "/src/assets/higoos-dock/icons/03-ai-file-steward.png", Badge: 6},
 	}
 	return append([]App(nil), apps...)
 }
 
 func (s *Store) Windows() []Window {
 	windows := []Window{
-		{ID: "file-manager", Title: "文件管理", Subtitle: "家庭空间 / 团队空间 / 语义搜索", Status: "AI 索引已同步", StatusTone: "green", X: 48, Y: 92, Width: 700, Height: 560, Z: 4},
+		{ID: "file-manager", Title: "文件管理", Subtitle: "个人 / 共享 / 用户 / 标签 / 回收站", Status: "AI 索引已同步", StatusTone: "green", X: 48, Y: 92, Width: 700, Height: 560, Z: 4},
+		{ID: "control-panel", Title: "控制面板", Subtitle: "连接与访问 / 通用设置 / 系统服务", Status: "已就绪", StatusTone: "green", X: 190, Y: 84, Width: 1000, Height: 700, Z: 16},
+		{ID: "notification-center", Title: "通知中心", Subtitle: "设备告警 / AI 建议 / 操作动态", Status: "汇总", StatusTone: "blue", X: 240, Y: 96, Width: 760, Height: 600, Z: 22},
+		{ID: "log-center", Title: "日志中心", Subtitle: "系统日志 / 操作记录 / 治理审计", Status: "统一", StatusTone: "blue", X: 260, Y: 108, Width: 880, Height: 600, Z: 23},
 		{ID: "ai-file-steward", Title: "AI 文件管家", Subtitle: "智能整理 / 权限审计 / 回滚", Status: "6 条建议", StatusTone: "orange", X: 778, Y: 108, Width: 472, Height: 520, Z: 5},
-		{ID: "agent-workbench", Title: "Agent 工作台", Subtitle: "工作流 / 工具权限 / 执行确认", Status: "需要确认", StatusTone: "blue", X: 548, Y: 388, Width: 690, Height: 360, Z: 6},
-		{ID: "backup-sync", Title: "备份同步", Subtitle: "快照 / 异地同步 / 校验", Status: "1 个任务同步中", StatusTone: "blue", X: 188, Y: 126, Width: 740, Height: 500, Z: 7},
+		{ID: "agent-workbench", Title: "HiGo Agent", Subtitle: "工作流 / 工具权限 / 执行确认", Status: "需要确认", StatusTone: "blue", X: 548, Y: 388, Width: 690, Height: 360, Z: 6},
+		{ID: "backup-sync", Title: "同步与备份", Subtitle: "快照 / 异地同步 / 校验", Status: "1 个任务同步中", StatusTone: "blue", X: 188, Y: 126, Width: 740, Height: 500, Z: 7},
 		{ID: "storage-monitor", Title: "存储管理", Subtitle: "主机卷 / SMART / 容量", Status: "后端同步", StatusTone: "green", X: 960, Y: 80, Width: 360, Height: 296, Z: 3},
-		{ID: "photo-media", Title: "相册媒体", Subtitle: "时间线 / 人物地点 / 媒体转码", Status: "回忆生成", StatusTone: "blue", X: 118, Y: 118, Width: 760, Height: 536, Z: 8},
+		{ID: "photo-media", Title: "相册", Subtitle: "时间线 / 人物地点 / 媒体转码", Status: "回忆生成", StatusTone: "blue", X: 118, Y: 118, Width: 760, Height: 536, Z: 8},
 		{ID: "music-center", Title: "音乐中心", Subtitle: "媒体库 / 解码 / 歌词 / 专辑", Status: "待扫描", StatusTone: "blue", X: 180, Y: 110, Width: 820, Height: 560, Z: 9},
 		{ID: "video-center", Title: "影视中心", Subtitle: "媒体库 / 刮削 / 转码 / 直播", Status: "待扫描", StatusTone: "blue", X: 196, Y: 96, Width: 900, Height: 590, Z: 10},
 		{ID: "download-center", Title: "下载中心", Subtitle: "BT / HTTP / 磁力 / 自动归档", Status: "队列运行", StatusTone: "green", X: 228, Y: 136, Width: 720, Height: 500, Z: 9},
@@ -264,7 +268,7 @@ func (s *Store) defaultDesktopSession() DesktopSession {
 		IsCompact:            false,
 		MaximizedWindowID:    "",
 		DockOrder:            dockOrder,
-		PinnedDockAppIDs:     []string{"file-manager", "ai-file-steward", "ai-assistant", "system-settings"},
+		PinnedDockAppIDs:     []string{"file-manager", "storage-monitor", "control-panel", "app-center", "ai-assistant", "ai-file-steward"},
 		DesktopIconPositions: map[string]IconPosition{},
 		WindowGeometries:     map[string]WindowGeometry{},
 	}

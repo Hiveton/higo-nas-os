@@ -168,6 +168,7 @@ const spaces = ref<StorageSpace[]>([]);
 const accounts = ref<AccountSummary>({ users: [], groups: [], grants: [] });
 const activeTab = ref<StorageTab>('spaces');
 const selectedSpaceId = ref('');
+const defaultSpaceId = ref('');
 const selectedDiskSlot = ref('');
 const diskFilter = ref<DiskFilter>('all');
 const loading = ref(false);
@@ -219,6 +220,12 @@ const usableDisks = computed(() => physicalDisks.value.filter((disk) => disk.sta
 const selectedDisk = computed(() => physicalDisks.value.find((disk) => disk.slot === selectedDiskSlot.value) ?? physicalDisks.value[0] ?? null);
 const selectedSpace = computed(() => spaces.value.find((space) => space.id === selectedSpaceId.value) ?? spaces.value[0] ?? null);
 const selectedWizardDisks = computed(() => usableDisks.value.filter((disk) => wizard.value.selectedDiskSlots.includes(disk.slot)));
+// 存储空间建在存储池上:取所选硬盘所属的存储池(第一级)。
+const wizardPoolId = computed(() => selectedWizardDisks.value.find((disk) => disk.poolId)?.poolId ?? '');
+const wizardPoolName = computed(() => storagePools.value.find((pool) => pool.id === wizardPoolId.value)?.name ?? '');
+function poolNameOf(poolId?: string) {
+  return storagePools.value.find((pool) => pool.id === poolId)?.name ?? poolId ?? '';
+}
 const selectedSizes = computed(() => selectedWizardDisks.value.map((disk) => diskSizeGB(disk)).filter((size) => size > 0));
 const selectedMode = computed(() => modeCatalog.find((mode) => mode.key === wizard.value.mode) ?? modeCatalog[0]);
 const availableModes = computed(() => modeCatalog.filter((mode) => modeAvailable(mode, wizard.value.selectedDiskSlots.length)));
@@ -264,19 +271,30 @@ watch(() => wizard.value.fileSystem, (fileSystem) => {
 
 watch(selectedDisk, syncCacheSettings);
 
+async function setDefaultSpace(id: string) {
+  try {
+    const res = await apiClient.storage.setDefaultSpace(id);
+    defaultSpaceId.value = res.defaultSpaceId ?? id;
+  } catch {
+    /* keep previous default on failure */
+  }
+}
+
 async function loadStorageState() {
   loading.value = true;
   try {
-    const [nextPools, nextDisks, nextSpaces, nextAccounts] = await Promise.all([
+    const [nextPools, nextDisks, nextSpaces, nextAccounts, nextDefault] = await Promise.all([
       apiClient.storage.getPools(),
       apiClient.storage.getDisks(),
       apiClient.storage.getSpaces(),
       apiClient.accounts.getSummary(),
+      apiClient.storage.getDefaultSpace().catch(() => ({ defaultSpaceId: '' })),
     ]);
     storagePools.value = nextPools;
     disks.value = nextDisks;
     spaces.value = nextSpaces;
     accounts.value = nextAccounts;
+    defaultSpaceId.value = nextDefault.defaultSpaceId ?? '';
     const nextPhysicalDisks = nextDisks.filter((disk) => !disk.systemDisk && (disk.deviceType === 'disk' || disk.role === 'disk' || Boolean(disk.devicePath)));
     selectedDiskSlot.value = nextPhysicalDisks.find((disk) => disk.slot === selectedDiskSlot.value)?.slot ?? nextPhysicalDisks[0]?.slot ?? '';
     selectedSpaceId.value = nextSpaces.find((space) => space.id === selectedSpaceId.value)?.id ?? nextSpaces[0]?.id ?? '';
@@ -357,6 +375,7 @@ async function createStorageSpace() {
     }
     const space = await apiClient.storage.createSpace({
       name: wizard.value.name.trim(),
+      poolId: wizardPoolId.value,
       mode: wizard.value.mode,
       fileSystem: wizard.value.fileSystem,
       diskSlots: wizard.value.selectedDiskSlots,
@@ -742,12 +761,15 @@ onMounted(loadStorageState);
             :spaces="spaces"
             :loading="loading"
             :selected-space-id="selectedSpace?.id ?? ''"
+            :default-space-id="defaultSpaceId"
+            :pool-name="poolNameOf"
             :space-disks="spaceDisks"
             :disk-kind="diskKind"
             :disk-protocol="diskProtocol"
             :format-g-b="formatGB"
             :parse-capacity-g-b="parseCapacityGB"
             @select="selectedSpaceId = $event"
+            @set-default="setDefaultSpace"
           />
 
           <StorageDiskPanel
@@ -835,6 +857,7 @@ onMounted(loadStorageState);
       :selected-mode="selectedMode"
       :current-file-system="currentFileSystem"
       :selected-wizard-disks="selectedWizardDisks"
+      :wizard-pool-name="wizardPoolName"
       :estimated-capacity="estimatedCapacity"
       :protected-capacity="protectedCapacity"
       :unused-capacity="unusedCapacity"

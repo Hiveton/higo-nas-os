@@ -54,6 +54,29 @@ func (a *API) storageSpaces(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *API) storageDefaultSpace(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		platform.WriteJSON(w, r, http.StatusOK, map[string]string{"defaultSpaceId": a.storage.DefaultSpaceID(r.Context())})
+	case http.MethodPut:
+		var body struct {
+			DefaultSpaceID string `json:"defaultSpaceId"`
+		}
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		id, err := a.storage.SetDefaultSpace(r.Context(), body.DefaultSpaceID)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "storage_default_space_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, map[string]string{"defaultSpaceId": id})
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPut)
+	}
+}
+
 func (a *API) storageSpaceByID(w http.ResponseWriter, r *http.Request) {
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/storage/spaces/"), "/")
 	if rest == "" {
@@ -539,16 +562,79 @@ func (a *API) downloadSpeedProfile(w http.ResponseWriter, r *http.Request) {
 	platform.WriteJSON(w, r, http.StatusOK, profile)
 }
 
+func (a *API) downloadQueueConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		platform.WriteJSON(w, r, http.StatusOK, a.downloads.QueueConfig(r.Context()))
+	case http.MethodPut:
+		var body downloads.QueueConfig
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		cfg, err := a.downloads.UpdateQueueConfig(r.Context(), body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "queue_config_invalid", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, cfg)
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPut)
+	}
+}
+
 func (a *API) dockerStacks(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodGet) {
+	switch r.Method {
+	case http.MethodGet:
+		stacks, err := a.docker.Stacks(r.Context())
+		if err != nil {
+			platform.WriteError(w, r, http.StatusInternalServerError, "docker_stacks_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, stacks)
+	case http.MethodPost:
+		var body hdocker.DeployStackRequest
+		if err := decodeJSON(r, &body); err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		stack, err := a.docker.DeployStack(r.Context(), body)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "docker_compose_deploy_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, stack)
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodPost)
+	}
+}
+
+// dockerStackByName handles GET (yaml) and DELETE (down) for a single stack at
+// /api/v1/docker/stacks/{name}.
+func (a *API) dockerStackByName(w http.ResponseWriter, r *http.Request) {
+	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/docker/stacks/"), "/")
+	if name == "" {
+		platform.WriteError(w, r, http.StatusNotFound, "stack_not_found", "stack name is required")
 		return
 	}
-	stacks, err := a.docker.Stacks(r.Context())
-	if err != nil {
-		platform.WriteError(w, r, http.StatusInternalServerError, "docker_stacks_failed", err.Error())
-		return
+	switch r.Method {
+	case http.MethodGet:
+		yaml, err := a.docker.StackYaml(r.Context(), name)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusNotFound, "stack_yaml_not_found", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, map[string]string{"name": name, "yaml": yaml})
+	case http.MethodDelete:
+		stack, err := a.docker.DownStack(r.Context(), name)
+		if err != nil {
+			platform.WriteError(w, r, http.StatusBadRequest, "docker_compose_down_failed", err.Error())
+			return
+		}
+		platform.WriteJSON(w, r, http.StatusOK, stack)
+	default:
+		allowMethod(w, r, http.MethodGet, http.MethodDelete)
 	}
-	platform.WriteJSON(w, r, http.StatusOK, stacks)
 }
 
 func (a *API) dockerContainers(w http.ResponseWriter, r *http.Request) {

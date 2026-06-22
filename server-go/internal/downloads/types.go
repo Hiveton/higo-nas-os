@@ -34,6 +34,15 @@ type SpeedProfile struct {
 	UploadLimit   string `json:"uploadLimit"`
 	Note          string `json:"note"`
 	Active        bool   `json:"active"`
+	// Numeric limits in bytes/sec (0 = unlimited). Derived from the display
+	// strings at seed time and actually enforced on the HTTP download loop.
+	DownloadLimitBytesPerSecond int64 `json:"downloadLimitBytesPerSecond"`
+	UploadLimitBytesPerSecond   int64 `json:"uploadLimitBytesPerSecond"`
+}
+
+// QueueConfig caps how many downloads run concurrently; excess stay queued.
+type QueueConfig struct {
+	MaxConcurrentDownloads int `json:"maxConcurrentDownloads"`
 }
 
 type DownloadTask struct {
@@ -51,6 +60,9 @@ type DownloadTask struct {
 	ArchiveRule ArchiveRule `json:"archiveRule"`
 	FilePath    string      `json:"filePath,omitempty"`
 	Error       string      `json:"error,omitempty"`
+	// SpeedLimitBytesPerSecond overrides the active profile's limit for this one
+	// task (0 = follow profile).
+	SpeedLimitBytesPerSecond int64 `json:"speedLimitBytesPerSecond,omitempty"`
 }
 
 type TaskActionResult struct {
@@ -64,8 +76,9 @@ type DeleteTaskOptions struct {
 }
 
 type CreateTaskRequest struct {
-	Source   SourceType `json:"source"`
-	Link     string     `json:"link"`
-	Name     string     `json:"name"`
-	Category string     `json:"category"`
+	Source                   SourceType `json:"source"`
+	Link                     string     `json:"link"`
+	Name                     string     `json:"name"`
+	Category                 string     `json:"category"`
+	SpeedLimitBytesPerSecond int64      `json:"speedLimitBytesPerSecond"`
 }

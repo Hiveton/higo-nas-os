@@ -92,6 +92,22 @@ function resultTone(result: string): UiTone {
   return 'neutral';
 }
 
+function formatSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '—';
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+
+function formatMtime(at?: string): string {
+  if (!at) return '—';
+  const d = new Date(at);
+  return Number.isNaN(d.getTime())
+    ? at
+    : d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
 function messageOf(e: unknown) {
   return e instanceof Error ? e.message : '操作失败';
 }
@@ -321,6 +337,10 @@ async function submitAdd() {
             <div class="conflict-row__main">
               <strong>{{ c.relPath }}</strong>
               <small>{{ c.detail }}</small>
+              <div v-if="c.sourceSize || c.targetSize" class="conflict-row__compare">
+                <span>源端 {{ formatSize(c.sourceSize) }} · {{ formatMtime(c.sourceMtime) }}</span>
+                <span>目标 {{ formatSize(c.targetSize) }} · {{ formatMtime(c.targetMtime) }}</span>
+              </div>
             </div>
             <div class="conflict-row__actions">
               <UiButton variant="ghost" size="sm" :disabled="busy" @click="onResolve(c, 'source')">采用源端</UiButton>
@@ -589,6 +609,15 @@ async function submitAdd() {
 .conflict-row__main small {
   color: var(--text-muted);
   font-size: var(--fs-xs);
+}
+
+.conflict-row__compare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 4px;
+  color: var(--text-soft);
+  font-size: var(--fs-2xs);
 }
 
 .conflict-row__actions {

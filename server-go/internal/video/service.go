@@ -1378,6 +1378,15 @@ func (s *Service) createItemTask(ctx context.Context, taskType, itemID, profile 
 		task.Progress = 0
 	}
 	s.tasks = append([]Task{task}, s.tasks...)
+	// Mirror synchronous item tasks (scrape/subtitle) into the central task
+	// center so they're visible alongside transcode/download jobs.
+	if s.runner != nil {
+		if adopted, err := s.runner.Adopt("video."+taskType, map[string]any{
+			"itemId": itemID, "title": task.Title, "type": taskType,
+		}); err == nil {
+			s.runner.Settle(adopted.ID, tasks.StatusSucceeded, nil, "")
+		}
+	}
 	return task, s.saveLocked()
 }
 

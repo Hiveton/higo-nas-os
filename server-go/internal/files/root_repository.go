@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -125,7 +126,7 @@ func (r *RootRepository) CreateFolder(ctx context.Context, request CreateFolderR
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	parent, err := r.resolveDestinationLocked(request.Space, request.Path)
+	parent, err := r.resolveDestinationLocked(request.SpaceID, request.Space, request.Path)
 	if err != nil {
 		return FileNode{}, err
 	}
@@ -151,7 +152,7 @@ func (r *RootRepository) CreateFile(ctx context.Context, request CreateFileReque
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	parent, err := r.resolveDestinationLocked(request.Space, request.Path)
+	parent, err := r.resolveDestinationLocked("", request.Space, request.Path)
 	if err != nil {
 		return FileNode{}, err
 	}
@@ -181,7 +182,7 @@ func (r *RootRepository) UploadFile(ctx context.Context, request UploadFileReque
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	parent, err := r.resolveDestinationLocked(request.Space, request.Path)
+	parent, err := r.resolveDestinationLocked("", request.Space, request.Path)
 	if err != nil {
 		return FileNode{}, err
 	}
@@ -245,7 +246,7 @@ func (r *RootRepository) Move(ctx context.Context, id string, request MoveReques
 	if err != nil {
 		return FileNode{}, err
 	}
-	parent, err := r.resolveDestinationLocked("", request.Destination)
+	parent, err := r.resolveDestinationLocked("", "", request.Destination)
 	if err != nil {
 		return FileNode{}, err
 	}
@@ -380,6 +381,58 @@ func (r *RootRepository) Restore(ctx context.Context, id string) (FileNode, erro
 	return r.nodeByRealPathLocked(dest)
 }
 
+// ListTrash enumerates the recycle bin: one entry per recycle manifest, newest
+// first. Missing or unreadable manifests are skipped so a single corrupt sidecar
+// never hides the rest of the bin.
+func (r *RootRepository) ListTrash(ctx context.Context) ([]TrashEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	recycleRoot := filepath.Join(r.root, ".recycle")
+	entries, err := os.ReadDir(recycleRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []TrashEntry{}, nil
+		}
+		return nil, err
+	}
+
+	out := make([]TrashEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), recycleMetaSuffix) {
+			continue
+		}
+		payload, readErr := os.ReadFile(filepath.Join(recycleRoot, entry.Name()))
+		if readErr != nil {
+			continue
+		}
+		var meta recycleMeta
+		if json.Unmarshal(payload, &meta) != nil {
+			continue
+		}
+		var sizeBytes int64
+		isDir := false
+		if info, statErr := os.Stat(filepath.Join(recycleRoot, meta.RecycleName)); statErr == nil {
+			sizeBytes = info.Size()
+			isDir = info.IsDir()
+		}
+		out = append(out, TrashEntry{
+			ID:           meta.OriginalID,
+			Name:         filepath.Base(meta.OriginalPath),
+			OriginalPath: meta.OriginalPath,
+			Space:        meta.Space,
+			Size:         humanSize(sizeBytes, isDir),
+			SizeBytes:    sizeBytes,
+			DeletedAt:    meta.DeletedAt.Format(time.RFC3339),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].DeletedAt > out[j].DeletedAt })
+	return out, nil
+}
+
 // dedupeRestorePath returns path unchanged when nothing exists there, otherwise
 // appends a numeric suffix (before any extension) until a free path is found.
 func dedupeRestorePath(path string) string {
@@ -473,6 +526,7 @@ func (r *RootRepository) scanSpaceLocked(dirName string, nodes map[string]FileNo
 		RealPath:   spacePath,
 		Type:       "文件夹",
 		Space:      space,
+		SpaceID:    dirName,
 		Size:       "-",
 		Modified:   info.ModTime(),
 		Permission: inferPermission(space, "", ""),
@@ -562,6 +616,7 @@ func (r *RootRepository) nodeFromEntry(path string, d fs.DirEntry, dirName strin
 		RealPath:   path,
 		Type:       fileType(d.Name(), d.IsDir()),
 		Space:      space,
+		SpaceID:    dirName,
 		Size:       humanSize(info.Size(), d.IsDir()),
 		SizeBytes:  info.Size(),
 		Modified:   info.ModTime(),
@@ -580,8 +635,27 @@ func (r *RootRepository) getLocked(id string) (FileNode, error) {
 	return cloneNode(node), nil
 }
 
-func (r *RootRepository) resolveDestinationLocked(space string, pathValue string) (string, error) {
+func (r *RootRepository) resolveDestinationLocked(spaceID string, space string, pathValue string) (string, error) {
 	cleanPath := strings.Trim(strings.TrimSpace(pathValue), "/")
+	// When a storage space is targeted explicitly, anchor the path under that
+	// space's top-level directory (its id). Strip a leading display-name segment
+	// so the path is treated as relative within the space.
+	spaceID = strings.Trim(strings.TrimSpace(spaceID), "/")
+	if spaceID != "" {
+		if display := spaceNames[spaceID]; display != "" {
+			cleanPath = strings.TrimPrefix(cleanPath, display)
+			cleanPath = strings.TrimPrefix(cleanPath, "/")
+		}
+		cleanPath = strings.Trim(spaceID+"/"+cleanPath, "/")
+		target, err := r.safeJoin(r.root, cleanPath)
+		if err != nil {
+			return "", err
+		}
+		if info, err := os.Stat(target); err != nil || !info.IsDir() {
+			return "", fmt.Errorf("storage space directory unavailable: %s", spaceID)
+		}
+		return target, nil
+	}
 	if cleanPath == "" && strings.TrimSpace(space) != "" {
 		cleanPath = strings.Trim(strings.TrimSpace(space), "/")
 	}

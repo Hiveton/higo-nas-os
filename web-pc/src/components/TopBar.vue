@@ -8,6 +8,7 @@ import {
   Cpu,
   Download,
   HardDrive,
+  ListChecks,
   LogOut,
   ShieldCheck,
   SlidersHorizontal,
@@ -16,6 +17,8 @@ import {
   Users,
 } from 'lucide-vue-next';
 import { monitoringStore } from '../stores/monitoring';
+import { tasksStore } from '../stores/tasks';
+import { notificationsStore } from '../stores/notifications';
 import { authStore } from '../stores/auth';
 import TopSearch from './TopSearch.vue';
 import type { Metric } from '../api/types';
@@ -79,17 +82,10 @@ const topbarMetrics = computed(() => {
   return nextMetrics.length ? nextMetrics : fallbackMetrics;
 });
 
-const notices = computed(() => {
-  const alertNotices = monitoringStore.alerts.value
-    .filter((alert) => !alert.muted)
-    .map((alert) => `${alert.title}：${alert.detail}`)
-    .slice(0, 3);
-  return alertNotices.length
-    ? alertNotices
-    : ['AI 文件管家有 6 条整理建议', '3 个公开分享链接建议收紧权限', '家庭相册备份已完成 72%'];
-});
+const noticeCount = computed(() => notificationsStore.unreadCount.value);
 
-const noticeCount = computed(() => Math.max(1, monitoringStore.alerts.value.filter((alert) => !alert.muted).length || notices.value.length));
+// 顶栏任务入口:汇总进行中(运行+排队)的任务数,联动任务中心。
+const activeTaskCount = computed(() => tasksStore.stats.value.running + tasksStore.stats.value.queued);
 
 const emit = defineEmits<{
   'topbar-action': [action: string];
@@ -116,11 +112,15 @@ function handleDocumentPointerDown(event: PointerEvent) {
 onMounted(() => {
   void monitoringStore.loadMonitoringSnapshot();
   monitoringStore.startPolling(5000);
+  tasksStore.start();
+  notificationsStore.start();
   document.addEventListener('pointerdown', handleDocumentPointerDown);
 });
 
 onUnmounted(() => {
   monitoringStore.stopPolling();
+  tasksStore.stop();
+  notificationsStore.stop();
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
 });
 </script>
@@ -160,13 +160,25 @@ onUnmounted(() => {
       </section>
 
       <button
+        class="topbar__task-chip"
+        :class="{ 'topbar__task-chip--active': activeTaskCount > 0 }"
+        type="button"
+        :aria-label="`任务中心，${activeTaskCount} 个进行中`"
+        @click="emit('topbar-action', 'tasks')"
+      >
+        <ListChecks :size="15" aria-hidden="true" />
+        <span>任务</span>
+        <strong v-if="activeTaskCount > 0">{{ activeTaskCount }}</strong>
+      </button>
+
+      <button
         class="topbar__icon-button"
         type="button"
         aria-label="通知中心"
-        @click="noticesOpen = !noticesOpen; accountOpen = false"
+        @click="emit('topbar-action', 'notifications'); accountOpen = false"
       >
         <Bell :size="18" aria-hidden="true" />
-        <span class="topbar__notice-badge">{{ noticeCount }}</span>
+        <span v-if="noticeCount > 0" class="topbar__notice-badge">{{ noticeCount > 99 ? '99+' : noticeCount }}</span>
       </button>
 
       <button
@@ -178,18 +190,6 @@ onUnmounted(() => {
         <span>{{ avatarText }}</span>
         <ChevronDown :size="14" aria-hidden="true" />
       </button>
-
-      <section v-if="noticesOpen" class="topbar__popover topbar__popover--notice" aria-label="通知列表">
-        <strong>通知中心</strong>
-        <button
-          v-for="notice in notices"
-          :key="notice"
-          type="button"
-          @click="emit('topbar-action', 'notice')"
-        >
-          {{ notice }}
-        </button>
-      </section>
 
       <section v-if="accountOpen" class="topbar__popover topbar__popover--account" aria-label="用户菜单">
         <div class="topbar__account-head">
@@ -552,6 +552,54 @@ onUnmounted(() => {
   color: var(--accent);
 }
 
+.topbar__task-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 0 11px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  background: rgba(var(--surface-rgb), 0.62);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.topbar__task-chip svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.topbar__task-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+.topbar__task-chip strong {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  color: var(--text-inverse);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+}
+.topbar__task-chip--active {
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.topbar__task-chip--active svg {
+  animation: topbar-task-pulse 1.8s var(--ease-standard) infinite;
+}
+@keyframes topbar-task-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
 .topbar__icon-button,
 .topbar__avatar {
   position: relative;
@@ -612,7 +660,8 @@ onUnmounted(() => {
   }
 
   .topbar__metric span,
-  .topbar__model span {
+  .topbar__model span,
+  .topbar__task-chip span {
     display: none;
   }
 }

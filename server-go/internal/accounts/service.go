@@ -161,6 +161,7 @@ func (s *Service) CreateUser(ctx context.Context, request CreateUserRequest) (Us
 		Status:      StatusActive,
 		QuotaBytes:  request.QuotaBytes,
 		Groups:      uniqueStrings(request.Groups),
+		HomeSpaceID: strings.TrimSpace(request.HomeSpaceID),
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -224,6 +225,9 @@ func (s *Service) UpdateUser(ctx context.Context, id string, request UpdateUserR
 	}
 	if request.QuotaBytes != nil {
 		user.QuotaBytes = *request.QuotaBytes
+	}
+	if request.HomeSpaceID != nil {
+		user.HomeSpaceID = strings.TrimSpace(*request.HomeSpaceID)
 	}
 	if request.Groups != nil {
 		user.Groups = uniqueStrings(request.Groups)

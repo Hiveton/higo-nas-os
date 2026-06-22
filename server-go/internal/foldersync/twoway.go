@@ -5,14 +5,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"higoos/server-go/internal/filesync"
 )
 
-// conflictRec is a detected two-way collision (relative path + reason).
+// conflictRec is a detected two-way collision (relative path + reason) enriched
+// with both sides' size/mtime so the UI can show an informed comparison.
 type conflictRec struct {
-	rel    string
-	detail string
+	rel         string
+	detail      string
+	sourceSize  int64
+	targetSize  int64
+	sourceMtime time.Time
+	targetMtime time.Time
 }
 
 // twoWaySync performs an additive two-way merge of dirs a and b: every file
@@ -94,7 +100,14 @@ func twoWaySync(ctx context.Context, a, b string, policy ConflictPolicy, filter 
 			}
 			from, to, fromInfo, isConflict := resolveTwoWay(ap, bp, ai, bi, policy)
 			if isConflict {
-				conflicts = append(conflicts, conflictRec{rel: rel, detail: "两端内容不同且修改时间一致，需手动处理"})
+				conflicts = append(conflicts, conflictRec{
+					rel:         rel,
+					detail:      "两端内容不同且修改时间一致，需手动处理",
+					sourceSize:  ai.Size(),
+					targetSize:  bi.Size(),
+					sourceMtime: ai.ModTime().UTC(),
+					targetMtime: bi.ModTime().UTC(),
+				})
 				continue
 			}
 			if err := filesync.CopyFile(from, to, fromInfo); err != nil {

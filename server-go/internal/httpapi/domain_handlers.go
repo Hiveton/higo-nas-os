@@ -346,6 +346,22 @@ func (a *API) fileRestore(w http.ResponseWriter, r *http.Request, id string) {
 	platform.WriteJSON(w, r, http.StatusOK, row)
 }
 
+func (a *API) filesTrash(w http.ResponseWriter, r *http.Request) {
+	if a.files == nil {
+		platform.WriteError(w, r, http.StatusServiceUnavailable, "files_unavailable", "files service is unavailable")
+		return
+	}
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	entries, err := a.files.ListTrash(r.Context())
+	if err != nil {
+		platform.WriteError(w, r, http.StatusInternalServerError, "trash_list_failed", err.Error())
+		return
+	}
+	platform.WriteJSON(w, r, http.StatusOK, entries)
+}
+
 func (a *API) filesBatchMove(w http.ResponseWriter, r *http.Request) {
 	a.filesBatch(w, r, "move")
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"higoos/server-go/internal/tasks"
 )
 
 type Repository interface {
@@ -39,6 +41,10 @@ type Service struct {
 
 	mu      sync.Mutex
 	pending map[string]pendingBatch
+
+	// tasksMgr, when attached, surfaces batch executions in the central task
+	// runtime so the task center / top-bar chip can track file batch progress.
+	tasksMgr *tasks.Manager
 
 	// changeNotify is an optional callback invoked after a mutation that changes
 	// the file set, so the AI analysis engine can re-enumerate promptly instead of
@@ -80,6 +86,9 @@ func (s *Service) Tree(ctx context.Context, space string) (FileNode, error) {
 	if err != nil {
 		return FileNode{}, err
 	}
+	for i := range tree.Children {
+		tree.Children[i].Category = deriveCategory(tree.Children[i])
+	}
 	space = strings.TrimSpace(space)
 	if space == "" {
 		return tree, nil
@@ -90,6 +99,26 @@ func (s *Service) Tree(ctx context.Context, space string) (FileNode, error) {
 		}
 	}
 	return FileNode{}, fmt.Errorf("space not found: %s", space)
+}
+
+// deriveCategory buckets a top-level space into the desktop's 五空间 view. The
+// match is heuristic over the space's display name / id / path; anything not
+// clearly shared or per-user falls back to "personal" so nothing disappears.
+func deriveCategory(node FileNode) string {
+	hay := strings.ToLower(node.Name + " " + node.Space + " " + node.Path)
+	shared := []string{"共享", "团队", "公共", "协作", "share", "team", "public", "smb", "nfs"}
+	user := []string{"用户目录", "个人目录", "私人", "user-", "users/"}
+	for _, kw := range shared {
+		if strings.Contains(hay, kw) {
+			return "shared"
+		}
+	}
+	for _, kw := range user {
+		if strings.Contains(hay, kw) {
+			return "user"
+		}
+	}
+	return "personal"
 }
 
 func (s *Service) Search(ctx context.Context, query SearchQuery) ([]FileRow, error) {
@@ -260,6 +289,21 @@ func (s *Service) Delete(ctx context.Context, id string, actor string) (FileRow,
 	return rowFromNode(node), nil
 }
 
+// TrashLister is implemented by repositories backed by a real recycle bin.
+type TrashLister interface {
+	ListTrash(context.Context) ([]TrashEntry, error)
+}
+
+// ListTrash returns the recycle-bin contents, or an empty list when the active
+// repository has no recycle bin (e.g. the in-memory fixture used in dev).
+func (s *Service) ListTrash(ctx context.Context) ([]TrashEntry, error) {
+	repo, ok := s.repo.(TrashLister)
+	if !ok {
+		return []TrashEntry{}, nil
+	}
+	return repo.ListTrash(ctx)
+}
+
 func (s *Service) Restore(ctx context.Context, id string) (FileRow, error) {
 	repo, ok := s.repo.(MutableRepository)
 	if !ok {
@@ -420,6 +464,17 @@ func (s *Service) planBatch(ctx context.Context, op BatchOperation, build func(F
 	return task, nil
 }
 
+// AttachTaskRunner wires the central task runtime so batch executions appear in
+// the unified task center. Optional: when nil the batch still runs inline.
+func (s *Service) AttachTaskRunner(m *tasks.Manager) {
+	if m == nil {
+		return
+	}
+	s.mu.Lock()
+	s.tasksMgr = m
+	s.mu.Unlock()
+}
+
 // ExecuteBatch runs a previously planned batch task, performing the real file
 // operations (reusing the single-file Move/Rename/Delete paths). This is the
 // confirm→execute half of the batch governance loop; planning alone never
@@ -427,6 +482,7 @@ func (s *Service) planBatch(ctx context.Context, op BatchOperation, build func(F
 func (s *Service) ExecuteBatch(ctx context.Context, taskID string, actor string) (Task, error) {
 	s.mu.Lock()
 	pending, ok := s.pending[taskID]
+	mgr := s.tasksMgr
 	s.mu.Unlock()
 	if !ok {
 		return Task{}, fmt.Errorf("planned batch task not found: %s", taskID)
@@ -434,7 +490,26 @@ func (s *Service) ExecuteBatch(ctx context.Context, taskID string, actor string)
 	if strings.TrimSpace(actor) == "" {
 		actor = pending.op.Actor
 	}
-	for _, fileID := range pending.op.FileIDs {
+
+	// Surface progress in the central task runtime (best-effort; nil-safe).
+	var centralID string
+	if mgr != nil {
+		if adopted, err := mgr.Adopt("files.batch", map[string]any{
+			"type":  pending.op.Type,
+			"count": len(pending.op.FileIDs),
+			"actor": emptyDefault(actor, "system"),
+		}); err == nil {
+			centralID = adopted.ID
+		}
+	}
+	settle := func(status tasks.Status, errMsg string) {
+		if mgr != nil && centralID != "" {
+			mgr.Settle(centralID, status, nil, errMsg)
+		}
+	}
+
+	total := len(pending.op.FileIDs)
+	for i, fileID := range pending.op.FileIDs {
 		var err error
 		switch pending.op.Type {
 		case "move":
@@ -448,12 +523,19 @@ func (s *Service) ExecuteBatch(ctx context.Context, taskID string, actor string)
 		case "delete":
 			_, err = s.Delete(ctx, fileID, emptyDefault(actor, "system"))
 		default:
+			settle(tasks.StatusFailed, "unsupported batch type: "+pending.op.Type)
 			return Task{}, fmt.Errorf("unsupported batch type: %s", pending.op.Type)
 		}
 		if err != nil {
+			settle(tasks.StatusFailed, err.Error())
 			return Task{}, fmt.Errorf("batch execute failed for %s: %w", fileID, err)
 		}
+		if mgr != nil && centralID != "" {
+			mgr.Update(centralID, int(float64(i+1)/float64(total)*100), fmt.Sprintf("已处理 %d/%d", i+1, total))
+		}
 	}
+	settle(tasks.StatusSucceeded, "")
+
 	task := pending.task
 	task.Status = "completed"
 	s.mu.Lock()
@@ -475,6 +557,8 @@ func rowFromNode(node FileNode) FileRow {
 		Permission: node.Permission,
 		AISummary:  node.Summary,
 		IsDir:      node.IsDir,
+		SpaceID:    node.SpaceID,
+		Category:   node.Category,
 	}
 }
 

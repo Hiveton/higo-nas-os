@@ -8,6 +8,7 @@ import (
 
 	"higoos/server-go/internal/audit"
 	"higoos/server-go/internal/state"
+	"higoos/server-go/internal/tasks"
 )
 
 // Supported governed actions.
@@ -143,12 +144,33 @@ func (s *Service) ConfirmAction(ctx context.Context, id, action, confirmationID,
 	}
 
 	before := s.snapshotOf(id)
+
+	// Mirror the confirmed action in the central task center (best-effort).
+	s.mu.RLock()
+	mgr := s.tasksMgr
+	s.mu.RUnlock()
+	var centralID string
+	if mgr != nil {
+		if adopted, aerr := mgr.Adopt("appcenter.action", map[string]any{
+			"appId": id, "action": action, "actor": actor,
+		}); aerr == nil {
+			centralID = adopted.ID
+		}
+	}
+
 	app, err := s.execute(ctx, id, action, pending.Config)
 	result := audit.ResultConfirmed
 	message := actionMessage(action, app)
 	if err != nil {
 		result = audit.ResultFailed
 		message = err.Error()
+	}
+	if mgr != nil && centralID != "" {
+		if err != nil {
+			mgr.Settle(centralID, tasks.StatusFailed, nil, message)
+		} else {
+			mgr.Settle(centralID, tasks.StatusSucceeded, nil, "")
+		}
 	}
 
 	record := s.recordAudit(id, app, action, actor, pending, result, message, before)

@@ -7,6 +7,17 @@ import (
 	"higoos/server-go/internal/apiclient"
 )
 
+// DockerDeployStackInput deploys a compose stack from YAML.
+type DockerDeployStackInput struct {
+	Name string `json:"name" jsonschema:"stack name"`
+	Yaml string `json:"yaml" jsonschema:"docker-compose YAML content"`
+}
+
+// DockerStackNameInput names a single compose stack.
+type DockerStackNameInput struct {
+	Name string `json:"name" jsonschema:"stack name"`
+}
+
 // DockerContainersCreateInput is the body for creating a container.
 type DockerContainersCreateInput struct {
 	Image         string   `json:"image" jsonschema:"image reference to run, e.g. nginx:latest"`
@@ -124,6 +135,27 @@ func registerDocker(r *registry) {
 		readOnly(),
 		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
 			return c.DockerStacks(ctx)
+		})
+
+	addTool(r, "docker", "higo.docker.stacks.deploy",
+		"Deploy (or redeploy) a compose stack from YAML.",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, in DockerDeployStackInput) (json.RawMessage, error) {
+			return c.DockerDeployStack(ctx, map[string]any{"name": in.Name, "yaml": in.Yaml})
+		})
+
+	addTool(r, "docker", "higo.docker.stacks.yaml",
+		"Get a compose stack's YAML definition.",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, in DockerStackNameInput) (json.RawMessage, error) {
+			return c.DockerStackYaml(ctx, in.Name)
+		})
+
+	addTool(r, "docker", "higo.docker.stacks.down",
+		"Tear down a compose stack (docker compose down).",
+		destructive(),
+		func(ctx context.Context, c *apiclient.Client, in DockerStackNameInput) (json.RawMessage, error) {
+			return c.DockerDownStack(ctx, in.Name)
 		})
 
 	addTool(r, "docker", "higo.docker.containers.list",

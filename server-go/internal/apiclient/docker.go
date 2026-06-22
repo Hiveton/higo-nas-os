@@ -12,6 +12,21 @@ func (c *Client) DockerStacks(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodGet, "/api/v1/docker/stacks", nil, nil)
 }
 
+// DockerDeployStack deploys a compose stack from YAML (POST /api/v1/docker/stacks).
+func (c *Client) DockerDeployStack(ctx context.Context, body any) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/api/v1/docker/stacks", nil, body)
+}
+
+// DockerStackYaml fetches a stack's compose YAML (GET /api/v1/docker/stacks/{name}).
+func (c *Client) DockerStackYaml(ctx context.Context, name string) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/api/v1/docker/stacks/"+url.PathEscape(name), nil, nil)
+}
+
+// DockerDownStack tears down a compose stack (DELETE /api/v1/docker/stacks/{name}).
+func (c *Client) DockerDownStack(ctx context.Context, name string) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodDelete, "/api/v1/docker/stacks/"+url.PathEscape(name), nil, nil)
+}
+
 // DockerContainers lists containers (GET /api/v1/docker/containers).
 func (c *Client) DockerContainers(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodGet, "/api/v1/docker/containers", nil, nil)

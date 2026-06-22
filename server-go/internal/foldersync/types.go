@@ -45,6 +45,9 @@ type SyncPair struct {
 	BandwidthLimit string `json:"bandwidthLimit,omitempty"`
 	Enabled        bool   `json:"enabled"`
 	IntervalHours  int    `json:"intervalHours,omitempty"` // 0 = manual only
+	// Retention declares how many file versions to keep (recorded now; physical
+	// version pruning is a host-snapshot concern).
+	Retention *RetentionPolicy `json:"retention,omitempty"`
 
 	// Live/last-run fields.
 	State     string     `json:"state"` // 空闲 / 同步中 / 已完成 / 失败 / 有冲突
@@ -72,6 +75,20 @@ type Conflict struct {
 	Resolved   bool      `json:"resolved"`
 	Resolution string    `json:"resolution,omitempty"`
 	DetectedAt time.Time `json:"detectedAt"`
+	// Both-sides detail captured at detection time for an informed resolution.
+	SourceSize  int64      `json:"sourceSize,omitempty"`
+	TargetSize  int64      `json:"targetSize,omitempty"`
+	SourceMtime *time.Time `json:"sourceMtime,omitempty"`
+	TargetMtime *time.Time `json:"targetMtime,omitempty"`
+}
+
+// RetentionPolicy declares how many historical versions of synced files to
+// keep. Recorded and surfaced now; physical pruning of old versions is a
+// host-storage (snapshot) concern landed separately.
+type RetentionPolicy struct {
+	Enabled bool   `json:"enabled"`
+	Type    string `json:"type"`  // "count" | "days"
+	Value   int    `json:"value"` // keep N versions, or N days
 }
 
 // AuditEntry is the append-only run/config log (newest first).
@@ -86,27 +103,29 @@ type AuditEntry struct {
 
 // CreatePairRequest is the body for creating a sync pair.
 type CreatePairRequest struct {
-	Name           string         `json:"name"`
-	Source         string         `json:"source"`
-	Target         string         `json:"target"`
-	Direction      Direction      `json:"direction"`
-	ConflictPolicy ConflictPolicy `json:"conflictPolicy"`
-	Includes       []string       `json:"includes,omitempty"`
-	BandwidthLimit string         `json:"bandwidthLimit,omitempty"`
-	IntervalHours  int            `json:"intervalHours,omitempty"`
-	Actor          string         `json:"actor,omitempty"`
+	Name           string           `json:"name"`
+	Source         string           `json:"source"`
+	Target         string           `json:"target"`
+	Direction      Direction        `json:"direction"`
+	ConflictPolicy ConflictPolicy   `json:"conflictPolicy"`
+	Includes       []string         `json:"includes,omitempty"`
+	BandwidthLimit string           `json:"bandwidthLimit,omitempty"`
+	IntervalHours  int              `json:"intervalHours,omitempty"`
+	Retention      *RetentionPolicy `json:"retention,omitempty"`
+	Actor          string           `json:"actor,omitempty"`
 }
 
 // UpdatePairRequest patches a pair's config (pointer fields = leave unchanged).
 type UpdatePairRequest struct {
-	Name           *string         `json:"name,omitempty"`
-	Direction      *Direction      `json:"direction,omitempty"`
-	ConflictPolicy *ConflictPolicy `json:"conflictPolicy,omitempty"`
-	Includes       *[]string       `json:"includes,omitempty"`
-	BandwidthLimit *string         `json:"bandwidthLimit,omitempty"`
-	Enabled        *bool           `json:"enabled,omitempty"`
-	IntervalHours  *int            `json:"intervalHours,omitempty"`
-	Actor          string          `json:"actor,omitempty"`
+	Name           *string          `json:"name,omitempty"`
+	Direction      *Direction       `json:"direction,omitempty"`
+	ConflictPolicy *ConflictPolicy  `json:"conflictPolicy,omitempty"`
+	Includes       *[]string        `json:"includes,omitempty"`
+	BandwidthLimit *string          `json:"bandwidthLimit,omitempty"`
+	Enabled        *bool            `json:"enabled,omitempty"`
+	IntervalHours  *int             `json:"intervalHours,omitempty"`
+	Retention      *RetentionPolicy `json:"retention,omitempty"`
+	Actor          string           `json:"actor,omitempty"`
 }
 
 func clonePair(p SyncPair) SyncPair {

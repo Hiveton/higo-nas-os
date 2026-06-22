@@ -31,6 +31,11 @@ type DownloadsSetSpeedProfileInput struct {
 	Name string `json:"name" jsonschema:"speed profile name to activate"`
 }
 
+// DownloadsSetQueueConfigInput is the input for higo.downloads.queue-config.set.
+type DownloadsSetQueueConfigInput struct {
+	MaxConcurrentDownloads int `json:"maxConcurrentDownloads" jsonschema:"max simultaneous downloads (0 = unlimited)"`
+}
+
 func registerDownloads(r *registry) {
 	addTool(r, "downloads", "higo.downloads.tasks.list",
 		"List download tasks.",
@@ -86,5 +91,19 @@ func registerDownloads(r *registry) {
 		mutating(),
 		func(ctx context.Context, c *apiclient.Client, in DownloadsSetSpeedProfileInput) (json.RawMessage, error) {
 			return c.DownloadSetSpeedProfile(ctx, map[string]any{"name": in.Name})
+		})
+
+	addTool(r, "downloads", "higo.downloads.queue-config.get",
+		"Get the download queue config (max concurrent downloads).",
+		readOnly(),
+		func(ctx context.Context, c *apiclient.Client, _ noInput) (json.RawMessage, error) {
+			return c.DownloadQueueConfig(ctx)
+		})
+
+	addTool(r, "downloads", "higo.downloads.queue-config.set",
+		"Set the max number of concurrent downloads.",
+		mutating(),
+		func(ctx context.Context, c *apiclient.Client, in DownloadsSetQueueConfigInput) (json.RawMessage, error) {
+			return c.DownloadSetQueueConfig(ctx, map[string]any{"maxConcurrentDownloads": in.MaxConcurrentDownloads})
 		})
 }

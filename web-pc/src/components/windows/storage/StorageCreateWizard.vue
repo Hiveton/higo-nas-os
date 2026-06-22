@@ -53,6 +53,7 @@ defineProps<{
   selectedMode: ModeOption;
   currentFileSystem: FileSystemOption;
   selectedWizardDisks: Disk[];
+  wizardPoolName: string;
   estimatedCapacity: number;
   protectedCapacity: number;
   unusedCapacity: number;
@@ -101,8 +102,9 @@ const emit = defineEmits<{
 
         <section v-else-if="wizardStep === 2" class="storage-monitor__mode-step">
           <aside>
-            <h4>选择硬盘</h4>
-            <p>内置硬盘</p>
+            <h4>选择存储池 / 硬盘</h4>
+            <p v-if="wizardPoolName" class="storage-monitor__wizard-pool">所属存储池：<b>{{ wizardPoolName }}</b></p>
+            <p v-else>选择硬盘(其所属存储池将作为本空间的第一级归属)</p>
             <button
               v-for="disk in usableDisks"
               :key="disk.slot"

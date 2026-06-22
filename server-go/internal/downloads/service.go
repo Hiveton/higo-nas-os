@@ -42,15 +42,22 @@ type Service struct {
 	active      map[int]context.CancelFunc
 	client      *http.Client
 
+	// maxConcurrent caps simultaneously-running downloads; excess stay queued
+	// and are pumped as slots free up. 0 means unlimited.
+	maxConcurrent int
+
 	runner     *tasks.Manager
 	centralIDs map[int]string // download task id -> central task id
 }
 
 type snapshot struct {
-	Tasks    []DownloadTask `json:"tasks"`
-	Profiles []SpeedProfile `json:"profiles"`
-	NextID   int            `json:"nextId"`
+	Tasks         []DownloadTask `json:"tasks"`
+	Profiles      []SpeedProfile `json:"profiles"`
+	NextID        int            `json:"nextId"`
+	MaxConcurrent int            `json:"maxConcurrent"`
 }
+
+const defaultMaxConcurrent = 3
 
 type feed struct {
 	Channel struct {
@@ -117,8 +124,25 @@ func NewServiceWithStateDirAndDownloadDir(stateDir string, downloadDir string) (
 	} else {
 		service.nextID = nextTaskID(service.tasks)
 	}
+	if persisted.MaxConcurrent > 0 {
+		service.maxConcurrent = persisted.MaxConcurrent
+	}
+	service.backfillProfileLimits()
 	_ = service.saveLocked()
 	return service, nil
+}
+
+// backfillProfileLimits derives the numeric bytes/sec fields from the display
+// strings for any profile persisted before the numeric fields existed.
+func (s *Service) backfillProfileLimits() {
+	for i := range s.profiles {
+		if s.profiles[i].DownloadLimitBytesPerSecond == 0 {
+			s.profiles[i].DownloadLimitBytesPerSecond = parseSpeedLimit(s.profiles[i].DownloadLimit)
+		}
+		if s.profiles[i].UploadLimitBytesPerSecond == 0 {
+			s.profiles[i].UploadLimitBytesPerSecond = parseSpeedLimit(s.profiles[i].UploadLimit)
+		}
+	}
 }
 
 func newService(stateDir string, downloadDir string) *Service {
@@ -130,14 +154,17 @@ func newService(stateDir string, downloadDir string) *Service {
 			downloadDir = filepath.Join(os.TempDir(), "higoos-downloads")
 		}
 	}
-	return &Service{
-		profiles:    seedSpeedProfiles(),
-		nextID:      1,
-		downloadDir: downloadDir,
-		active:      make(map[int]context.CancelFunc),
-		client:      &http.Client{},
-		centralIDs:  make(map[int]string),
+	svc := &Service{
+		profiles:      seedSpeedProfiles(),
+		nextID:        1,
+		downloadDir:   downloadDir,
+		active:        make(map[int]context.CancelFunc),
+		client:        &http.Client{},
+		centralIDs:    make(map[int]string),
+		maxConcurrent: defaultMaxConcurrent,
 	}
+	svc.backfillProfileLimits()
+	return svc
 }
 
 // AttachTaskRunner wires the shared task runtime so download tasks are mirrored
@@ -228,6 +255,8 @@ func (s *Service) CreateTask(ctx context.Context, request CreateTaskRequest) (Do
 		Status:      StatusQueued,
 		Handling:    handlingFor(category, source, rule, request.Name, link),
 		ArchiveRule: rule,
+
+		SpeedLimitBytesPerSecond: request.SpeedLimitBytesPerSecond,
 	}
 
 	s.mu.Lock()
@@ -420,13 +449,25 @@ func (s *Service) UpdateActiveSpeedProfile(_ context.Context, name string) (Spee
 
 func (s *Service) startTask(ctx context.Context, id int) {
 	s.mu.Lock()
+	s.startTaskLocked(ctx, id)
+	s.mu.Unlock()
+}
+
+// startTaskLocked starts a task if a concurrency slot is free; otherwise it
+// leaves the task queued for a later pump. Caller must hold s.mu.
+func (s *Service) startTaskLocked(ctx context.Context, id int) {
 	if _, exists := s.active[id]; exists {
-		s.mu.Unlock()
 		return
 	}
 	idx := s.findTaskIndex(id)
 	if idx < 0 || s.tasks[idx].Status == StatusCompleted {
-		s.mu.Unlock()
+		return
+	}
+	if s.maxConcurrent > 0 && len(s.active) >= s.maxConcurrent {
+		// No free slot: keep it queued; pumpQueueLocked will pick it up.
+		s.tasks[idx].Status = StatusQueued
+		s.tasks[idx].Speed = "排队中"
+		_ = s.saveLocked()
 		return
 	}
 	task := cloneTask(s.tasks[idx])
@@ -435,13 +476,14 @@ func (s *Service) startTask(ctx context.Context, id int) {
 	s.tasks[idx].Status = StatusRunning
 	s.tasks[idx].Speed = s.activeProfileLocked().DownloadLimit
 	_ = s.saveLocked()
-	s.mu.Unlock()
 
 	go func() {
 		defer func() {
 			s.mu.Lock()
 			delete(s.active, id)
 			_ = s.saveLocked()
+			// A slot just freed — promote the next queued task.
+			s.pumpQueueLocked(context.Background())
 			s.mu.Unlock()
 		}()
 		switch task.Source {
@@ -453,6 +495,55 @@ func (s *Service) startTask(ctx context.Context, id int) {
 			s.runAria2(runCtx, task)
 		}
 	}()
+}
+
+// pumpQueueLocked starts queued tasks until the concurrency cap is reached.
+// Caller must hold s.mu.
+func (s *Service) pumpQueueLocked(ctx context.Context) {
+	for i := range s.tasks {
+		if s.maxConcurrent > 0 && len(s.active) >= s.maxConcurrent {
+			return
+		}
+		if s.tasks[i].Status == StatusQueued {
+			if _, running := s.active[s.tasks[i].ID]; !running {
+				s.startTaskLocked(ctx, s.tasks[i].ID)
+			}
+		}
+	}
+}
+
+// effectiveLimit returns the bytes/sec cap for a task: its per-task override if
+// set, else the active profile's download limit (0 = unlimited).
+func (s *Service) effectiveLimit(taskID int) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if idx := s.findTaskIndex(taskID); idx >= 0 && s.tasks[idx].SpeedLimitBytesPerSecond > 0 {
+		return s.tasks[idx].SpeedLimitBytesPerSecond
+	}
+	return s.activeProfileLocked().DownloadLimitBytesPerSecond
+}
+
+// QueueConfig returns the current concurrency settings.
+func (s *Service) QueueConfig(_ context.Context) QueueConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return QueueConfig{MaxConcurrentDownloads: s.maxConcurrent}
+}
+
+// UpdateQueueConfig sets the max concurrent downloads and immediately pumps the
+// queue so a raised limit starts more tasks (and a lowered one just tightens
+// future starts; running tasks are never killed mid-flight).
+func (s *Service) UpdateQueueConfig(ctx context.Context, cfg QueueConfig) (QueueConfig, error) {
+	if cfg.MaxConcurrentDownloads < 0 {
+		return QueueConfig{}, fmt.Errorf("%w: maxConcurrentDownloads must be >= 0", ErrInvalidTaskInput)
+	}
+	s.mu.Lock()
+	s.maxConcurrent = cfg.MaxConcurrentDownloads
+	_ = s.saveLocked()
+	s.pumpQueueLocked(ctx)
+	result := QueueConfig{MaxConcurrentDownloads: s.maxConcurrent}
+	s.mu.Unlock()
+	return result, nil
 }
 
 func (s *Service) runHTTPDownload(ctx context.Context, task DownloadTask) {
@@ -552,6 +643,7 @@ func (s *Service) runHTTPDownload(ctx context.Context, task DownloadTask) {
 	written := startAt
 	lastBytes := startAt
 	lastTick := time.Now()
+	limiter := newRateLimiter(s.effectiveLimit(task.ID))
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
@@ -560,10 +652,12 @@ func (s *Service) runHTTPDownload(ctx context.Context, task DownloadTask) {
 				return
 			}
 			written += int64(n)
+			limiter.wait(n) // enforce the per-task / profile speed cap
 		}
 		now := time.Now()
 		if n > 0 && now.Sub(lastTick) >= time.Second {
 			s.updateProgress(task.ID, written, totalSize, written-lastBytes, now.Sub(lastTick))
+			limiter.setRate(s.effectiveLimit(task.ID)) // pick up live profile/limit changes
 			lastBytes = written
 			lastTick = now
 		}
@@ -839,9 +933,10 @@ func (s *Service) saveLocked() error {
 		return nil
 	}
 	return state.SaveJSON(s.statePath, snapshot{
-		Tasks:    cloneTasks(s.tasks),
-		Profiles: append([]SpeedProfile(nil), s.profiles...),
-		NextID:   s.nextID,
+		Tasks:         cloneTasks(s.tasks),
+		Profiles:      append([]SpeedProfile(nil), s.profiles...),
+		NextID:        s.nextID,
+		MaxConcurrent: s.maxConcurrent,
 	})
 }
 

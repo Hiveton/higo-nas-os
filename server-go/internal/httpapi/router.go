@@ -424,7 +424,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	dockerService.AttachTaskRunner(taskManager)
 	downloadsService.AttachTaskRunner(taskManager)
 	appCenterService.AttachDocker(dockerService)
+	appCenterService.AttachTaskRunner(taskManager)
 	if fileService != nil {
+		fileService.AttachTaskRunner(taskManager)
 		stewardService.AttachFiles(fileService)
 	}
 
@@ -515,6 +517,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/desktop/windows", api.desktopWindows)
 	mux.HandleFunc("/api/v1/desktop/session", api.desktopSession)
 	mux.HandleFunc("/api/v1/files/tree", api.filesTree)
+	mux.HandleFunc("/api/v1/files/trash", api.filesTrash)
 	mux.HandleFunc("/api/v1/files/search", api.filesSearch)
 	mux.HandleFunc("/api/v1/files/folders", api.filesFolders)
 	mux.HandleFunc("/api/v1/files/upload", api.filesUpload)
@@ -535,6 +538,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/settings/defaults", api.settingsDefaults)
 	mux.HandleFunc("/api/v1/storage/pools", api.storagePools)
 	mux.HandleFunc("/api/v1/storage/spaces", api.storageSpaces)
+	mux.HandleFunc("/api/v1/storage/default-space", api.storageDefaultSpace)
 	mux.HandleFunc("/api/v1/storage/spaces/", api.storageSpaceByID)
 	mux.HandleFunc("/api/v1/storage/disks", api.storageDisks)
 	mux.HandleFunc("/api/v1/storage/disks/", api.storageDiskByID)
@@ -552,7 +556,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/downloads/tasks/", api.downloadTaskByID)
 	mux.HandleFunc("/api/v1/downloads/speed-profiles", api.downloadSpeedProfiles)
 	mux.HandleFunc("/api/v1/downloads/speed-profile", api.downloadSpeedProfile)
+	mux.HandleFunc("/api/v1/downloads/queue-config", api.downloadQueueConfig)
 	mux.HandleFunc("/api/v1/docker/stacks", api.dockerStacks)
+	mux.HandleFunc("/api/v1/docker/stacks/", api.dockerStackByName)
 	mux.HandleFunc("/api/v1/docker/images/search", api.dockerImageSearch)
 	mux.HandleFunc("/api/v1/docker/images/pull", api.dockerImagePull)
 	mux.HandleFunc("/api/v1/docker/images/pulls", api.dockerImagePulls)
@@ -602,6 +608,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/v1/remote/login-alerts", api.remoteLoginAlerts)
 	mux.HandleFunc("/api/v1/remote/share-scan", api.remoteShareScan)
 	mux.HandleFunc("/api/v1/media/items", api.mediaItems)
+	mux.HandleFunc("/api/v1/media/scan", api.mediaScan)
 	mux.HandleFunc("/api/v1/media/albums", api.mediaAlbums)
 	mux.HandleFunc("/api/v1/media/memories", api.mediaMemories)
 	mux.HandleFunc("/api/v1/media/people/merge", api.mediaMergePeople)

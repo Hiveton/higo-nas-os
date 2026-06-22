@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Database, HardDrive } from 'lucide-vue-next';
+import { Database, HardDrive, Star } from 'lucide-vue-next';
 import type { Disk, StorageSpace } from '../../../api/types';
-import { UiBadge, UiEmptyState, UiProgressBar } from '../../ui';
+import { UiBadge, UiButton, UiEmptyState, UiProgressBar } from '../../ui';
 import type { UiTone } from '../../ui';
 
 function healthTone(health?: string): UiTone {
@@ -16,6 +16,8 @@ defineProps<{
   spaces: StorageSpace[];
   loading: boolean;
   selectedSpaceId: string;
+  defaultSpaceId?: string;
+  poolName?: (poolId?: string) => string;
   spaceDisks: (space: StorageSpace) => Disk[];
   diskKind: (disk: Disk) => string;
   diskProtocol: (disk: Disk) => string;
@@ -23,7 +25,7 @@ defineProps<{
   parseCapacityGB: (value?: string) => number;
 }>();
 
-const emit = defineEmits<{ (e: 'select', id: string): void }>();
+const emit = defineEmits<{ (e: 'select', id: string): void; (e: 'set-default', id: string): void }>();
 </script>
 
 <template>
@@ -42,9 +44,19 @@ const emit = defineEmits<{ (e: 'select', id: string): void }>();
         <header>
           <div>
             <strong>{{ space.name }}</strong>
-            <span>{{ space.mode.toUpperCase() }} ｜ {{ space.fileSystem }}</span>
+            <span>{{ space.mode.toUpperCase() }} ｜ {{ space.fileSystem }}<template v-if="space.poolId"> ｜ 存储池：{{ poolName ? poolName(space.poolId) : space.poolId }}</template></span>
           </div>
-          <UiBadge :tone="healthTone(space.health)" variant="soft">{{ space.health }}</UiBadge>
+          <div class="storage-monitor__space-tags">
+            <UiBadge v-if="defaultSpaceId === space.id" tone="primary" variant="soft"><Star :size="11" /> 默认</UiBadge>
+            <UiButton
+              v-else
+              variant="ghost"
+              size="sm"
+              :icon-left="Star"
+              @click.stop="emit('set-default', space.id)"
+            >设为默认</UiButton>
+            <UiBadge :tone="healthTone(space.health)" variant="soft">{{ space.health }}</UiBadge>
+          </div>
         </header>
         <UiProgressBar
           class="storage-monitor__space-capacity"
